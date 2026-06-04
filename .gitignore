@@ -1,0 +1,8 @@
+# نظام التشغيل / المحرر
+.DS_Store
+Thumbs.db
+*.log
+
+# لا يوجد بناء — موقع ثابت صِرف
+node_modules/
+.vercel/
