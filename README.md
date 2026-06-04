@@ -1,4 +1,4 @@
-# مراحي 🐪🐑🐐🐄 — تطبيق ويب مستقل
+# مراح 🐪🐑🐐🐄 — تطبيق ويب مستقل
 
 تطبيق ويب (PWA) لإدارة الحلال (إبل، غنم، ماعز، بقر) — متابعة فردية من الولادة حتى البيع،
 مع تطعيمات وعلاجات وتنبيهات. البيانات في **Supabase** (سحابية، متعدّدة المستخدمين بصلاحيات)،
@@ -15,7 +15,7 @@ cp -r marahi-web ~/marahi && cd ~/marahi
 # 2) أنشئ المستودع وادفعه (يتطلب gh مُسجّل الدخول)
 git init -b main
 git add -A
-git commit -m "مراحي — تطبيق ويب مستقل"
+git commit -m "مراح — تطبيق ويب مستقل"
 gh repo create marahi --private --source=. --push
 # أو يدوياً: أنشئ مستودعاً فارغاً على GitHub ثم:
 #   git remote add origin https://github.com/<USER>/marahi.git
@@ -35,7 +35,7 @@ gh repo create marahi --private --source=. --push
 2. من **Project Settings ▸ API** انسخ `Project URL` و `anon public key`.
 3. عبّئهما في `config.js`:
    ```js
-   window.MARAHI_CONFIG = {
+   window.MRAH_CONFIG = {
      SUPABASE_URL: "https://YOUR_PROJECT.supabase.co",
      SUPABASE_ANON_KEY: "YOUR_ANON_PUBLIC_KEY",
    };
