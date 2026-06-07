@@ -149,3 +149,29 @@ main { padding: 14px; max-width: 760px; margin: 0 auto; }
 .perm-grid label { display:flex; align-items:center; justify-content:center; }
 
 @media (min-width:760px){ .bottomnav{ max-width:760px; margin:0 auto; border-radius:14px 14px 0 0; } }
+
+/* ===== Forum ===== */
+.forum-cat { display:flex; align-items:center; gap:12px; }
+.forum-cat .fc-ico { font-size:1.7rem; width:46px; height:46px; flex:0 0 46px; display:flex; align-items:center; justify-content:center; background:var(--green-l); border-radius:12px; }
+.forum-cat .fc-body { flex:1; min-width:0; }
+.forum-cat .fc-body .li-sub { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.forum-cat .fc-count { background:var(--green); color:#fff; min-width:26px; height:26px; padding:0 7px; border-radius:999px; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:.85rem; }
+.forum-cat .fc-edit { background:none; border:0; font-size:1.1rem; cursor:pointer; padding:4px; }
+.forum-latest { padding:9px 2px; border-top:1px solid #eee; cursor:pointer; }
+.forum-latest:first-of-type { border-top:0; }
+.li-title.sm { font-size:.98rem; font-weight:700; }
+.topic-item .topic-meta { display:flex; gap:14px; margin-top:6px; color:var(--muted); font-size:.85rem; }
+.topic-item .ft-pin, .topic-item .ft-lock { margin-inline-end:4px; }
+.topic-head .th-title { font-size:1.2rem; font-weight:800; color:var(--green-d); margin-bottom:4px; }
+.post-body { margin:10px 0; white-space:pre-wrap; word-break:break-word; line-height:1.7; }
+.post { border-inline-start:3px solid var(--green-l); }
+.post-head { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.post-head .pa-name { font-weight:700; color:var(--green-d); }
+.post-head .pa-time { color:var(--muted); font-size:.8rem; }
+.post-actions { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-top:8px; }
+.post-actions .btn.sm { padding:6px 12px; }
+.like-btn { background:#f1f5f1; border:1px solid #e0e6e0; color:var(--muted); border-radius:999px; padding:6px 13px; font:inherit; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:5px; }
+.like-btn.liked { background:var(--green-l); border-color:var(--green); color:var(--green-d); }
+.like-btn:active { transform:scale(.96); }
+.forum-replies-h { font-weight:800; color:var(--green-d); margin:14px 2px 8px; font-size:1.05rem; }
+.composer textarea { width:100%; min-height:90px; border:1px solid #d0d5d0; border-radius:10px; padding:11px; font:inherit; resize:vertical; }
