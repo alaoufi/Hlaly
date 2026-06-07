@@ -188,3 +188,5 @@ main { padding: 14px; max-width: 760px; margin: 0 auto; }
 .post.answer { border:2px solid var(--green); background:#F3FAF3; box-shadow:0 1px 6px rgba(46,125,50,.12); }
 .post.answer.nested { border-inline-start:3px solid var(--green); }
 .answer-tag { display:inline-block; background:var(--green); color:#fff; font-weight:700; font-size:.78rem; border-radius:8px; padding:2px 9px; margin-bottom:6px; }
+.post.hidden-post { opacity:.66; border:1px dashed #c08a8a; background:#fbf5f5; }
+.hidden-tag { display:inline-block; background:#b34747; color:#fff; font-weight:700; font-size:.76rem; border-radius:8px; padding:2px 9px; margin-bottom:6px; }

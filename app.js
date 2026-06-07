@@ -50,7 +50,9 @@ const noItem = () => '<div class="muted">لا يوجد</div>';
 let sb = null;        // عميل Supabase
 let me = null;        // صف العضو الحالي (الصلاحيات)
 let signupOpen = true; // هل التسجيل (حساب جديد) مفتوح؟ يتحكّم به المدير
-const C = { animals: [], matings: [], pregnancies: [], births: [], vaccineTypes: [], vaccinations: [], treatments: [], treatmentTypes: [], members: [], backups: [], types: [], tips: [], forumCats: [], forumMods: [] };
+let forumEnabled = true;        // المنتدى مُفعّل؟ (يخفيه المدير كاملاً عند التعطيل)
+let forumTopicsModsOnly = false; // إنشاء المواضيع للمشرفين فقط؟
+const C = { animals: [], matings: [], pregnancies: [], births: [], vaccineTypes: [], vaccinations: [], treatments: [], treatmentTypes: [], members: [], backups: [], types: [], tips: [], forumCats: [], forumMods: [], forumBans: [] };
 const TABLES = {
   animals: 'mrahi_animals', matings: 'mrahi_matings', pregnancies: 'mrahi_pregnancies',
   births: 'mrahi_births', vaccineTypes: 'mrahi_vaccine_types', vaccinations: 'mrahi_vaccinations',
@@ -90,6 +92,11 @@ async function loadAll() {
     const fm = await sb.from('mrahi_forum_moderators').select('*');
     C.forumMods = fm.error ? [] : (fm.data || []);
   } catch (e) { C.forumMods = []; }
+  try {
+    const fb = await sb.from('mrahi_forum_bans').select('*');
+    C.forumBans = fb.error ? [] : (fb.data || []);
+  } catch (e) { C.forumBans = []; }
+  await loadForumSettings();
   await loadSignupOpen();
   try { await sb.rpc('mrahi_purge_trash'); } catch (e) { /* تنظيف أفضل جهد */ }
 }
@@ -180,7 +187,19 @@ async function loadSignupOpen() {
     signupOpen = !data || data.value !== false;
   } catch (e) { signupOpen = true; }
 }
-async function refreshAndRender() { showLoading(true); try { await loadAll(); } catch (e) { toast('خطأ تحميل: ' + e.message); } showLoading(false); render(); }
+async function loadForumSettings() {
+  try {
+    const { data } = await sb.from('mrahi_settings').select('key,value').in('key', ['forum_enabled', 'forum_topics_mods_only']);
+    const map = {}; (data || []).forEach(r => map[r.key] = r.value);
+    forumEnabled = map.forum_enabled !== false;            // الافتراضي: مُفعّل
+    forumTopicsModsOnly = map.forum_topics_mods_only === true; // الافتراضي: للجميع
+  } catch (e) { forumEnabled = true; forumTopicsModsOnly = false; }
+}
+async function setForumSetting(key, value) {
+  const { error } = await sb.from('mrahi_settings').upsert({ key, value, updated_at: new Date().toISOString() }, { onConflict: 'key' });
+  if (error) throw error;
+}
+async function refreshAndRender() { showLoading(true); try { await loadAll(); } catch (e) { toast('خطأ تحميل: ' + e.message); } buildNav(); showLoading(false); render(); }
 function showLoading(b) { document.getElementById('loading').classList.toggle('hidden', !b); }
 
 // سلة المحذوفات/الأرشيف: نحفظ لقطة قبل أي حذف أو تعديل (أفضل جهد، لا تُعطّل العملية)
@@ -1270,7 +1289,11 @@ const isForumMod = (catId) => isAdmin() || (C.forumMods || []).some(m => m.categ
 const forumModTitle = (catId, uid) => { const m = (C.forumMods || []).find(x => x.category_id === catId && x.user_id === uid); return m ? (m.title || 'مشرف') : null; };
 const modBadge = (catId, uid) => { const t = forumModTitle(catId, uid); return t ? ` <span class="badge mod">🛡️ ${esc(t)}</span>` : ''; };
 const canForumView = () => can('forum', 'view') || isAnyForumMod();
-const canForumAddIn = (catId) => can('forum', 'add') || isForumMod(catId);
+const forumBanned = () => !!(C.forumBans || []).find(b => b.user_id === me.user_id);
+const canForumAddIn = (catId) => !forumBanned() && (can('forum', 'add') || isForumMod(catId));
+const canCreateTopic = (catId) => canForumAddIn(catId) && (!forumTopicsModsOnly || isForumMod(catId));
+const forumOffMsg = () => '<div class="center-empty" style="padding:30px">🚧 المنتدى متوقّف مؤقتاً.</div>';
+const editedMark = (r) => (r && r.updated_at && r.created_at && r.updated_at !== r.created_at) ? ' <span class="muted" style="font-size:.8em">(مُعدّل)</span>' : '';
 const fmtBody = (s) => esc(s || '').replace(/\n/g, '<br>');
 function timeAgo(iso) {
   if (!iso) return '';
@@ -1295,10 +1318,10 @@ async function forumToggleLike(col, id, btn) {
 
 // شاشة المنتدى: الأقسام + أحدث المواضيع
 async function screenForum() {
+  if (!forumEnabled) { view().innerHTML = forumOffMsg(); return; }
   if (!canForumView()) { view().innerHTML = noPerm(); return; }
   showLoading(true);
-  let cats = C.forumCats || [];
-  if (!cats.length) { try { const fc = await sb.from('mrahi_forum_categories').select('*').order('sort', { ascending: true }); cats = C.forumCats = fc.data || []; } catch (e) { /* تجاهل */ } }
+  let cats = (C.forumCats || []).filter(c => !c.is_hidden);
   const counts = {}; let latest = [];
   try {
     const [tc, lt] = await Promise.all([
@@ -1306,7 +1329,7 @@ async function screenForum() {
       sb.from('mrahi_forum_topics').select('*').order('last_activity', { ascending: false }).limit(6),
     ]);
     (tc.data || []).forEach(r => { counts[r.category_id] = (counts[r.category_id] || 0) + 1; });
-    latest = lt.data || [];
+    latest = (lt.data || []).filter(t => { const c = forumCatById(t.category_id); return !c || !c.is_hidden; });
   } catch (e) { /* تجاهل */ }
   showLoading(false);
   const catCard = (c) => `<div class="card click forum-cat" data-cat="${c.id}">
@@ -1323,48 +1346,117 @@ async function screenForum() {
   setupForumRealtime('forum-home', [{ event: '*', table: 'mrahi_forum_topics', cb: () => { if (parseHash().name === 'forum') screenForum(); } }]);
 }
 
-// شاشة إدارة المنتدى (من «المزيد») — أدوات التحكم حسب الصلاحيات
+// شاشة إعدادات المنتدى (من «المزيد») — التحكم حسب الصلاحيات
 async function screenForumAdmin() {
   if (!(isAdmin() || isAnyForumMod())) { view().innerHTML = noPerm(); return; }
   const admin = isAdmin();
   const cats = C.forumCats || [];
+  const bans = C.forumBans || [];
   const intro = `<div class="muted" style="margin-bottom:8px">إعدادات المنتدى والتحكم به. للتصفّح والمشاركة استخدم تبويب «المنتدى 💬» في الأسفل.</div>`;
+  const enableCard = admin ? `<div class="card">
+    <div class="li-title">${forumEnabled ? '🟢 المنتدى مُفعّل' : '🔴 المنتدى مُعطّل'}</div>
+    <div class="li-sub">${forumEnabled ? 'ظاهر للأعضاء في الشريط السفلي.' : 'مخفيّ تماماً عن الجميع — لا يظهر التبويب ولا المحتوى.'}</div>
+    <button class="btn sm ${forumEnabled ? 'danger' : ''}" id="fa_enable" style="margin-top:6px">${forumEnabled ? '🚫 تعطيل المنتدى' : '✅ تفعيل المنتدى'}</button>
+  </div>` : '';
+
+  // عند التعطيل: لا يظهر إلا زر التفعيل
+  if (!forumEnabled) {
+    view().innerHTML = intro + (admin ? enableCard : '<div class="center-empty" style="padding:24px">🚧 المنتدى متوقّف مؤقتاً.</div>');
+    const eb = document.getElementById('fa_enable');
+    if (eb) eb.addEventListener('click', () => toggleForumEnabled());
+    return;
+  }
+
   const toolsCard = `<div class="card">
     <div class="li-title">🛡️ أدوات التحكم بالمواضيع والمشاركات</div>
     <div class="li-sub">${forumShowModTools ? 'ظاهرة الآن — يظهر زر ⚙️ على المواضيع والمشاركات لإدارتها.' : 'مخفيّة — تتصفّح وتردّ بلا أزرار تحكم.'}</div>
     <button class="btn sm ${forumShowModTools ? 'danger' : ''}" id="fa_tools" style="margin-top:6px">${forumShowModTools ? '🙈 إخفاء أدوات التحكم' : '🛠️ إظهار أدوات التحكم'}</button>
   </div>`;
-  let adminBlocks = '';
+  const topicModeCard = admin ? `<div class="card">
+    <div class="li-title">📝 من يُنشئ المواضيع</div>
+    <div class="li-sub">${forumTopicsModsOnly ? 'المشرفون والمدير فقط — الأعضاء يردّون فقط.' : 'كل عضو يملك صلاحية الإضافة.'}</div>
+    <button class="btn sm" id="fa_topicmode" style="margin-top:6px">${forumTopicsModsOnly ? '👥 السماح للجميع' : '🛡️ قصْره على المشرفين'}</button>
+  </div>` : '';
+  const bansCard = admin ? `<div class="card">
+    <div class="li-title">🚷 الأعضاء المحظورون</div>
+    <div class="li-sub">المحظور لا يستطيع نشر مواضيع أو ردود أو إعجاب.</div>
+    <div style="margin-top:6px">${bans.length ? bans.map(b => `<div class="fmod-row"><span>${esc(forumMemberName(b.user_id))}${b.reason ? ' <span class="muted">— ' + esc(b.reason) + '</span>' : ''}</span><button class="btn sm outline" data-unban="${b.user_id}">رفع الحظر</button></div>`).join('') : '<div class="muted">لا أحد محظور.</div>'}</div>
+    <button class="btn sm danger" id="fa_ban" style="margin-top:8px">➕ حظر عضو</button>
+  </div>` : '';
+  let catBlocks = '';
   if (admin) {
-    adminBlocks = `<div class="forum-section-h">الأقسام والمشرفون</div>`
+    catBlocks = `<div class="forum-section-h">الأقسام والمشرفون</div>`
       + (cats.length ? cats.map(c => {
         const mods = forumModsOf(c.id);
         return `<div class="card">
-            <div class="li-title">${esc(c.icon || '💬')} ${esc(c.name)}</div>
+            <div class="li-title">${esc(c.icon || '💬')} ${esc(c.name)} ${c.is_hidden ? '<span class="badge off">مخفي</span>' : ''}</div>
             ${c.description ? `<div class="li-sub">${esc(c.description)}</div>` : ''}
             <div class="li-sub">${mods.length ? '🛡️ ' + mods.map(m => esc(forumMemberName(m.user_id)) + ' (' + esc(m.title || 'مشرف') + ')').join('، ') : 'لا مشرفين لهذا القسم'}</div>
             <div class="btn-row" style="margin-top:8px">
-              <button class="btn sm outline" data-editcat="${c.id}">✎ تعديل القسم</button>
+              <button class="btn sm outline" data-editcat="${c.id}">✎ تعديل</button>
               <button class="btn sm outline" data-mods="${c.id}">👤 المشرفون</button>
+              <button class="btn sm ${c.is_hidden ? '' : 'outline'}" data-hidecat="${c.id}" data-cur="${c.is_hidden ? '1' : '0'}">${c.is_hidden ? '👁 إظهار' : '🙈 إخفاء'}</button>
             </div></div>`;
       }).join('') : '<div class="muted">لا أقسام بعد — أضِف قسماً بالزر بالأسفل.</div>');
   }
-  view().innerHTML = intro + toolsCard + adminBlocks;
+  view().innerHTML = intro + enableCard + toolsCard + topicModeCard + bansCard + catBlocks;
+
+  const eb = document.getElementById('fa_enable'); if (eb) eb.addEventListener('click', () => toggleForumEnabled());
   const tb = document.getElementById('fa_tools');
   if (tb) tb.addEventListener('click', () => {
     forumShowModTools = !forumShowModTools;
     localStorage.setItem('mrahi_forum_modtools', forumShowModTools ? '1' : '0');
     toast(forumShowModTools ? 'أُظهرت أدوات التحكم' : 'أُخفيت أدوات التحكم'); screenForumAdmin();
   });
+  const tm = document.getElementById('fa_topicmode');
+  if (tm) tm.addEventListener('click', async () => {
+    const ok = await guard(async () => { await setForumSetting('forum_topics_mods_only', !forumTopicsModsOnly); });
+    if (ok) { forumTopicsModsOnly = !forumTopicsModsOnly; toast('تم الحفظ'); screenForumAdmin(); }
+  });
+  const fbn = document.getElementById('fa_ban'); if (fbn) fbn.addEventListener('click', () => forumBanModal());
+  view().querySelectorAll('[data-unban]').forEach(b => b.addEventListener('click', async () => {
+    if (!await confirm2('رفع الحظر عن هذا العضو؟')) return;
+    const ok = await guard(async () => { const { error } = await sb.from('mrahi_forum_bans').delete().eq('user_id', b.dataset.unban); if (error) throw error; });
+    if (ok) { toast('رُفع الحظر'); await loadAll(); screenForumAdmin(); }
+  }));
   if (admin) {
     view().querySelectorAll('[data-editcat]').forEach(b => b.addEventListener('click', () => forumCatModal(forumCatById(parseInt(b.dataset.editcat, 10)))));
     view().querySelectorAll('[data-mods]').forEach(b => b.addEventListener('click', () => forumModsModal(parseInt(b.dataset.mods, 10))));
+    view().querySelectorAll('[data-hidecat]').forEach(b => b.addEventListener('click', async () => {
+      const cur = b.dataset.cur === '1';
+      const ok = await guard(async () => { const { error } = await sb.from('mrahi_forum_categories').update({ is_hidden: !cur }).eq('id', b.dataset.hidecat); if (error) throw error; });
+      if (ok) { toast(cur ? 'أُظهر القسم' : 'أُخفي القسم'); await loadAll(); screenForumAdmin(); }
+    }));
     addFab('➕ إضافة قسم', () => forumCatModal(null));
   }
+}
+async function toggleForumEnabled() {
+  const next = !forumEnabled;
+  const ok = await guard(async () => { await setForumSetting('forum_enabled', next); });
+  if (ok) { forumEnabled = next; toast(next ? 'فُعّل المنتدى' : 'عُطّل المنتدى'); buildNav(); screenForumAdmin(); }
+}
+// حظر عضو من المنتدى (للمدير)
+function forumBanModal() {
+  const banned = new Set((C.forumBans || []).map(b => b.user_id));
+  const candidates = (C.members || []).filter(m => m.is_active && m.role !== 'admin' && !banned.has(m.user_id))
+    .map(m => ({ k: m.user_id, ar: (m.full_name || m.username || 'عضو') + (m.username ? ' (@' + m.username + ')' : '') }));
+  openModal('حظر عضو من المنتدى', `
+    <div class="muted" style="margin-bottom:8px">العضو المحظور يبقى في النظام لكنه لا يستطيع نشر مواضيع أو ردود أو إعجاب في المنتدى.</div>
+    ${fSelect('العضو', 'fb_user', candidates, '', '— اختر عضواً —')}
+    ${fInput('سبب الحظر (اختياري)', 'fb_reason', '')}
+    <button class="btn danger" id="fb_save" style="margin-top:6px">حظر</button>`, () => {
+    document.getElementById('fb_save').addEventListener('click', async () => {
+      const uid = val('fb_user'); if (!uid) { toast('اختر العضو'); return; }
+      const reason = val('fb_reason').trim();
+      const ok = await guard(async () => { const { error } = await sb.from('mrahi_forum_bans').insert({ user_id: uid, reason }); if (error) throw error; });
+      if (ok) { closeModal(); toast('تم حظر العضو'); await loadAll(); screenForumAdmin(); }
+    });
+  });
 }
 
 // شاشة قسم: قائمة المواضيع + بحث + إنشاء موضوع
 async function screenForumCategory(catId) {
+  if (!forumEnabled) { view().innerHTML = forumOffMsg(); return; }
   if (!canForumView()) { view().innerHTML = noPerm(); return; }
   catId = parseInt(catId, 10);
   const cat = forumCatById(catId);
@@ -1394,7 +1486,7 @@ async function screenForumCategory(catId) {
   draw(topics);
   const fq = document.getElementById('fq');
   fq.addEventListener('input', () => { const term = fq.value.trim().toLowerCase(); draw(!term ? topics : topics.filter(t => (t.title || '').toLowerCase().includes(term) || (t.body || '').toLowerCase().includes(term))); });
-  if (canForumAddIn(catId)) addFab('➕ موضوع جديد', () => forumTopicModal(catId, null));
+  if (canCreateTopic(catId)) addFab('➕ موضوع جديد', () => forumTopicModal(catId, null));
   setupForumRealtime('forum-cat-' + catId, [{ event: '*', table: 'mrahi_forum_topics', cb: () => { const q = document.getElementById('fq'); if (parseHash().name === 'forum-cat' && !(q && q.value.trim())) screenForumCategory(catId); } }]);
 }
 
@@ -1405,9 +1497,10 @@ function postBlock(p, n, mine, canMod, canReply, depth) {
   const showEdit = (own && can('forum', 'edit')) || canMod;
   const showDel = (own && can('forum', 'delete')) || canMod;
   const hasManage = showEdit || showDel || canMod;
-  return `<div class="card post${p.is_answer ? ' answer' : ''}${depth ? ' nested' : ''}" data-post="${p.id}" style="${ind}">
+  return `<div class="card post${p.is_answer ? ' answer' : ''}${p.is_hidden ? ' hidden-post' : ''}${depth ? ' nested' : ''}" data-post="${p.id}" style="${ind}">
     ${p.is_answer ? '<div class="answer-tag">✅ إجابة معتمدة</div>' : ''}
-    <div class="post-head"><span class="pa-name">${esc(p.author_name || 'عضو')}${modBadge(curForumCat, p.author_id)}</span><span class="pa-time">${timeAgo(p.created_at)}</span></div>
+    ${p.is_hidden ? '<div class="hidden-tag">🚫 مخفية</div>' : ''}
+    <div class="post-head"><span class="pa-name">${esc(p.author_name || 'عضو')}${modBadge(curForumCat, p.author_id)}</span><span class="pa-time">${timeAgo(p.created_at)}${editedMark(p)}</span></div>
     <div class="post-body">${fmtBody(p.body)}</div>
     <div class="post-actions">
       ${likeBtn('post_id', p.id, n, mine)}
@@ -1416,6 +1509,7 @@ function postBlock(p, n, mine, canMod, canReply, depth) {
     </div>
     ${hasManage ? `<div class="manage-row hidden">
       ${canMod ? `<button class="btn sm ${p.is_answer ? '' : 'outline'}" data-answer="${p.id}" data-cur="${p.is_answer ? '1' : '0'}">${p.is_answer ? 'إلغاء الاعتماد' : '✅ اعتماد كإجابة'}</button>` : ''}
+      ${canMod ? `<button class="btn sm outline" data-hide="${p.id}" data-cur="${p.is_hidden ? '1' : '0'}">${p.is_hidden ? '👁 إظهار' : '🙈 إخفاء'}</button>` : ''}
       ${showEdit ? `<button class="btn sm outline" data-edit-post="${p.id}">✎ تعديل</button>` : ''}
       ${showDel ? `<button class="btn sm danger" data-del-post="${p.id}">🗑 حذف</button>` : ''}
     </div>` : ''}</div>`;
@@ -1430,6 +1524,11 @@ function bindReplyEvents(topicId, posts) {
     const cur = b.dataset.cur === '1';
     const ok = await guard(async () => { const { error } = await sb.from('mrahi_forum_posts').update({ is_answer: !cur }).eq('id', b.dataset.answer); if (error) throw error; });
     if (ok) { toast(cur ? 'أُلغي الاعتماد' : 'تم اعتماده كإجابة'); refreshReplies(topicId); }
+  }));
+  box.querySelectorAll('[data-hide]').forEach(b => b.addEventListener('click', async () => {
+    const cur = b.dataset.cur === '1';
+    const ok = await guard(async () => { const { error } = await sb.from('mrahi_forum_posts').update({ is_hidden: !cur }).eq('id', b.dataset.hide); if (error) throw error; });
+    if (ok) { toast(cur ? 'أُظهرت المشاركة' : 'أُخفيت المشاركة'); refreshReplies(topicId); }
   }));
   box.querySelectorAll('[data-del-post]').forEach(b => b.addEventListener('click', async () => {
     if (!await confirm2('حذف هذا الرد وكل الردود المتفرّعة عنه؟')) return;
@@ -1456,6 +1555,7 @@ async function refreshReplies(topicId) {
 
 // شاشة الموضوع: التفاصيل + الردود + التحديث اللحظي
 async function screenForumTopic(topicId) {
+  if (!forumEnabled) { view().innerHTML = forumOffMsg(); return; }
   if (!canForumView()) { view().innerHTML = noPerm(); return; }
   topicId = parseInt(topicId, 10);
   showLoading(true);
@@ -1472,7 +1572,7 @@ async function screenForumTopic(topicId) {
   view().innerHTML = `
     <div class="card topic-head">
       <div class="th-title">${topic.is_pinned ? '📌 ' : ''}${topic.is_locked ? '🔒 ' : ''}${esc(topic.title)}</div>
-      <div class="li-sub">${esc(topic.author_name || 'عضو')}${modBadge(topic.category_id, topic.author_id)} • ${timeAgo(topic.created_at)} • ${esc(forumCatName(topic.category_id))}</div>
+      <div class="li-sub">${esc(topic.author_name || 'عضو')}${modBadge(topic.category_id, topic.author_id)} • ${timeAgo(topic.created_at)}${editedMark(topic)} • ${esc(forumCatName(topic.category_id))}</div>
       ${topic.body ? `<div class="post-body">${fmtBody(topic.body)}</div>` : ''}
       <div class="post-actions">
         ${likeBtn('topic_id', topic.id, topicLikes, myTopicLike)}
@@ -1487,11 +1587,13 @@ async function screenForumTopic(topicId) {
     </div>
     <div class="forum-replies-h">الردود (<span id="rcount">${topic.reply_count || 0}</span>)</div>
     <div id="freplies"></div>
-    ${!canForumAddIn(topic.category_id)
-      ? ''
-      : (topic.is_locked && !canMod
-        ? '<div class="center-empty" style="padding:18px">🔒 هذا الموضوع مغلق ولا يقبل ردوداً جديدة.</div>'
-        : `<div class="card composer"><textarea id="freply" placeholder="اكتب ردّك..."></textarea><button class="btn" id="fsend">إرسال الرد</button></div>`)}`;
+    ${forumBanned()
+      ? '<div class="center-empty" style="padding:18px">🚷 أنت محظور من المشاركة في المنتدى.</div>'
+      : (!canForumAddIn(topic.category_id)
+        ? ''
+        : (topic.is_locked && !canMod
+          ? '<div class="center-empty" style="padding:18px">🔒 هذا الموضوع مغلق ولا يقبل ردوداً جديدة.</div>'
+          : `<div class="card composer"><textarea id="freply" placeholder="اكتب ردّك..."></textarea><button class="btn" id="fsend">إرسال الرد</button></div>`))}`;
   // أحداث مستوى الموضوع
   const mt = view().querySelector('[data-mng-topic]'); if (mt) mt.addEventListener('click', () => { const r = document.getElementById('topicManage'); if (r) r.classList.toggle('hidden'); mt.classList.toggle('active'); });
   const lk = view().querySelector('.topic-head [data-lk]'); if (lk) lk.addEventListener('click', () => { const [col, id] = lk.dataset.lk.split(':'); forumToggleLike(col, id, lk); });
@@ -1640,7 +1742,7 @@ function renderPending() {
 /* ===== المصادقة ===== */
 function buildNav() {
   const tabs = [['#/home', '🏠', 'الرئيسية'], ['#/animals', '🐑', 'الحلال']];
-  if (canForumView()) tabs.push(['#/forum', '💬', 'المنتدى']);
+  if (forumEnabled && canForumView()) tabs.push(['#/forum', '💬', 'المنتدى']);
   tabs.push(['#/alerts', '🔔', 'التنبيهات'], ['#/more', '☰', 'المزيد']);
   const nav = document.getElementById('bottomnav');
   nav.style.gridTemplateColumns = `repeat(${tabs.length},1fr)`;
@@ -1746,6 +1848,7 @@ async function enterApp(session) {
   buildNav();   // بعد تحميل الصلاحيات حتى يظهر تبويب المنتدى حسبها
   if (!me.is_active) { showLoading(false); renderPending(); return; }
   try { await loadAll(); } catch (e) { toast('خطأ تحميل: ' + e.message); }
+  buildNav();   // إعادة البناء بعد تحميل إعدادات المنتدى (التفعيل/التعطيل)
   showLoading(false);
   if (!location.hash) location.hash = '#/home';
   render();
