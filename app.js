@@ -1047,15 +1047,15 @@ function adminEditUser(m) {
   const isAdminUser = m.role === 'admin';
   const permGrid = `<div class="perm-grid">
     <div class="h">القسم</div><div class="h">عرض</div><div class="h">إضافة</div><div class="h">تعديل</div><div class="h">حذف</div>
-    ${MODULES.map(mod => `<div>${mod.ar}</div>` + ['view', 'add', 'edit', 'delete'].map(act => `<label><input type="checkbox" data-eu-mod="${mod.k}" data-eu-act="${act}" ${p[mod.k] && p[mod.k][act] ? 'checked' : ''} ${isAdminUser ? 'disabled' : ''}></label>`).join('')).join('')}
-    <div>النسخ الاحتياطي</div><label><input type="checkbox" data-eu-mod="backup" data-eu-act="view" ${p.backup && p.backup.view ? 'checked' : ''} ${isAdminUser ? 'disabled' : ''}></label><label></label><label></label><label></label>
+    ${MODULES.map(mod => `<div>${mod.ar}</div>` + ['view', 'add', 'edit', 'delete'].map(act => `<label><input type="checkbox" data-eu-mod="${mod.k}" data-eu-act="${act}" ${p[mod.k] && p[mod.k][act] ? 'checked' : ''}></label>`).join('')).join('')}
+    <div>النسخ الاحتياطي</div><label><input type="checkbox" data-eu-mod="backup" data-eu-act="view" ${p.backup && p.backup.view ? 'checked' : ''}></label><label></label><label></label><label></label>
   </div>`;
   openModal('تعديل بيانات المستخدم', `
     ${fInput('الاسم', 'eu_name', m.full_name || '')}
     ${fInput('رقم الجوال', 'eu_phone', m.phone || '', 'tel', 'inputmode="tel"')}
     ${fInput('اسم المستخدم', 'eu_user', m.username || '', 'text', 'autocomplete="off"')}
     <div class="li-title sm" style="margin:12px 0 4px">🔐 الصلاحيات</div>
-    ${isAdminUser ? '<div class="muted" style="font-size:.82rem;margin-bottom:6px">هذا الحساب مدير — لديه كل الصلاحيات تلقائياً.</div>' : ''}
+    ${isAdminUser ? '<div class="muted" style="font-size:.82rem;margin-bottom:6px">هذا الحساب مدير ويملك كل الصلاحيات تلقائياً. التحديد أدناه يُطبَّق إذا أُنزل لمستخدم.</div>' : ''}
     ${permGrid}
     <div class="li-title sm" style="margin:14px 0 4px">🔑 الرقم السري</div>
     ${fInput('رقم سري جديد (٤ أرقام — اتركه فارغاً لعدم التغيير)', 'eu_pin', '', 'text', 'inputmode="numeric" maxlength="4" autocomplete="off"')}
@@ -1070,12 +1070,9 @@ function adminEditUser(m) {
       if (phone.length < 7) { toast('أدخل رقم جوال صحيح'); return; }
       if (pin && !/^\d{4}$/.test(pin)) { toast('الرقم السري ٤ أرقام'); return; }
       if (!await confirm2('حفظ تعديلات هذا المستخدم؟')) return;
-      const update = { full_name, phone, username: username || null };
-      if (!isAdminUser) {
-        const perms = {};
-        document.querySelectorAll('[data-eu-mod]').forEach(cb => { if (cb.checked) { const mod = cb.dataset.euMod, act = cb.dataset.euAct; perms[mod] = perms[mod] || {}; perms[mod][act] = true; } });
-        update.perms = perms;
-      }
+      const perms = {};
+      document.querySelectorAll('#modalRoot [data-eu-mod]').forEach(cb => { if (cb.checked) { const mod = cb.dataset.euMod, act = cb.dataset.euAct; perms[mod] = perms[mod] || {}; perms[mod][act] = true; } });
+      const update = { full_name, phone, username: username || null, perms };
       const ok = await guard(async () => {
         await dbUpdateMember(m.user_id, update);
         if (pin) {
