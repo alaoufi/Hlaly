@@ -1056,23 +1056,50 @@ function bindMemberCard(m) {
 }
 async function dbUpdateMember(uid, obj) { const { error } = await sb.from('mrahi_members').update(obj).eq('user_id', uid); if (error) throw error; }
 
-// المدير يعدّل بيانات مستخدم (الاسم/الجوال/اسم المستخدم) — الدخول يُحلّ من جدول الأعضاء فلا يتأثر
+// المدير يعدّل بيانات مستخدم: الاسم/الجوال/اسم المستخدم + الصلاحيات + الرقم السري
 function adminEditUser(m) {
+  const p = m.perms || {};
+  const isAdminUser = m.role === 'admin';
+  const permGrid = `<div class="perm-grid">
+    <div class="h">القسم</div><div class="h">عرض</div><div class="h">إضافة</div><div class="h">تعديل</div><div class="h">حذف</div>
+    ${MODULES.map(mod => `<div>${mod.ar}</div>` + ['view', 'add', 'edit', 'delete'].map(act => `<label><input type="checkbox" data-eu-mod="${mod.k}" data-eu-act="${act}" ${p[mod.k] && p[mod.k][act] ? 'checked' : ''} ${isAdminUser ? 'disabled' : ''}></label>`).join('')).join('')}
+    <div>النسخ الاحتياطي</div><label><input type="checkbox" data-eu-mod="backup" data-eu-act="view" ${p.backup && p.backup.view ? 'checked' : ''} ${isAdminUser ? 'disabled' : ''}></label><label></label><label></label><label></label>
+  </div>`;
   openModal('تعديل بيانات المستخدم', `
     ${fInput('الاسم', 'eu_name', m.full_name || '')}
     ${fInput('رقم الجوال', 'eu_phone', m.phone || '', 'tel', 'inputmode="tel"')}
     ${fInput('اسم المستخدم', 'eu_user', m.username || '', 'text', 'autocomplete="off"')}
-    <button class="btn" id="eu_save" style="margin-top:6px">حفظ البيانات</button>
-    <div class="muted" style="font-size:.82rem;margin-top:6px">الرقم السري لا يُغيَّر من هنا — يغيّره المستخدم من حسابه. يدخل المستخدم بالجوال أو اسم المستخدم.</div>`, () => {
+    <div class="li-title sm" style="margin:12px 0 4px">🔐 الصلاحيات</div>
+    ${isAdminUser ? '<div class="muted" style="font-size:.82rem;margin-bottom:6px">هذا الحساب مدير — لديه كل الصلاحيات تلقائياً.</div>' : ''}
+    ${permGrid}
+    <div class="li-title sm" style="margin:14px 0 4px">🔑 الرقم السري</div>
+    ${fInput('رقم سري جديد (٤ أرقام — اتركه فارغاً لعدم التغيير)', 'eu_pin', '', 'text', 'inputmode="numeric" maxlength="4" autocomplete="off"')}
+    <button class="btn" id="eu_save" style="margin-top:12px">حفظ التغييرات</button>
+    <div class="muted" style="font-size:.82rem;margin-top:6px">يدخل المستخدم بالجوال أو اسم المستخدم. عند تعيين رقم سري جديد، أبلغه به ليدخل (ويمكنه تغييره لاحقاً).</div>`, () => {
     document.getElementById('eu_save').addEventListener('click', async () => {
       const full_name = val('eu_name').trim();
       const phone = normPhone(val('eu_phone'));
       const username = val('eu_user').trim();
+      const pin = val('eu_pin').trim();
       if (!full_name) { toast('أدخل الاسم'); return; }
       if (phone.length < 7) { toast('أدخل رقم جوال صحيح'); return; }
-      if (!await confirm2('حفظ تعديل بيانات هذا المستخدم؟')) return;
-      const ok = await guard(async () => { await dbUpdateMember(m.user_id, { full_name, phone, username: username || null }); });
-      if (ok) { closeModal(); toast('تم حفظ البيانات'); await loadAll(); screenMembers(); }
+      if (pin && !/^\d{4}$/.test(pin)) { toast('الرقم السري ٤ أرقام'); return; }
+      if (!await confirm2('حفظ تعديلات هذا المستخدم؟')) return;
+      const update = { full_name, phone, username: username || null };
+      if (!isAdminUser) {
+        const perms = {};
+        document.querySelectorAll('[data-eu-mod]').forEach(cb => { if (cb.checked) { const mod = cb.dataset.euMod, act = cb.dataset.euAct; perms[mod] = perms[mod] || {}; perms[mod][act] = true; } });
+        update.perms = perms;
+      }
+      const ok = await guard(async () => {
+        await dbUpdateMember(m.user_id, update);
+        if (pin) {
+          const { data, error } = await sb.functions.invoke('admin-set-password', { body: { target_user_id: m.user_id, pin } });
+          if (error) throw new Error('تعذّر تغيير الرقم السري — تأكّد من نشر دالة admin-set-password');
+          if (data && data.error) throw new Error('تعذّر تغيير الرقم السري: ' + data.error);
+        }
+      });
+      if (ok) { closeModal(); toast('تم حفظ التغييرات'); await loadAll(); screenMembers(); }
     });
   });
 }
@@ -1355,33 +1382,45 @@ async function screenForumCategory(catId) {
 // كتلة ردّ واحد
 function postBlock(p, n, mine, canMod) {
   const own = p.author_id === me.user_id;
-  return `<div class="card post" data-post="${p.id}">
+  return `<div class="card post${p.is_answer ? ' answer' : ''}" data-post="${p.id}">
+    ${p.is_answer ? '<div class="answer-tag">✅ إجابة معتمدة</div>' : ''}
     <div class="post-head"><span class="pa-name">${esc(p.author_name || 'عضو')}${modBadge(curForumCat, p.author_id)}</span><span class="pa-time">${timeAgo(p.created_at)}</span></div>
     <div class="post-body">${fmtBody(p.body)}</div>
     <div class="post-actions">
       ${likeBtn('post_id', p.id, n, mine)}
+      ${canMod ? `<button class="btn sm ${p.is_answer ? '' : 'outline'}" data-answer="${p.id}" data-cur="${p.is_answer ? '1' : '0'}">${p.is_answer ? 'إلغاء الاعتماد' : '✅ اعتماد كإجابة'}</button>` : ''}
       ${((own && can('forum', 'edit')) || canMod) ? `<button class="btn sm outline" data-edit-post="${p.id}">تعديل</button>` : ''}
       ${((own && can('forum', 'delete')) || canMod) ? `<button class="btn sm danger" data-del-post="${p.id}">حذف</button>` : ''}
     </div></div>`;
 }
 function bindReplyEvents(topicId, posts) {
-  const box = document.getElementById('freplies'); if (!box) return;
-  box.querySelectorAll('[data-lk]').forEach(b => b.addEventListener('click', () => { const [col, id] = b.dataset.lk.split(':'); forumToggleLike(col, id, b); }));
-  box.querySelectorAll('[data-edit-post]').forEach(b => b.addEventListener('click', () => { const p = posts.find(x => String(x.id) === b.dataset.editPost); if (p) forumPostEditModal(p, () => refreshReplies(topicId)); }));
-  box.querySelectorAll('[data-del-post]').forEach(b => b.addEventListener('click', async () => {
-    if (!await confirm2('حذف هذا الرد؟')) return;
-    const ok = await guard(async () => { const { error } = await sb.from('mrahi_forum_posts').delete().eq('id', b.dataset.delPost); if (error) throw error; });
-    if (ok) { toast('تم الحذف'); refreshReplies(topicId); }
-  }));
+  ['fanswers', 'freplies'].forEach(cid => {
+    const box = document.getElementById(cid); if (!box) return;
+    box.querySelectorAll('[data-lk]').forEach(b => b.addEventListener('click', () => { const [col, id] = b.dataset.lk.split(':'); forumToggleLike(col, id, b); }));
+    box.querySelectorAll('[data-edit-post]').forEach(b => b.addEventListener('click', () => { const p = posts.find(x => String(x.id) === b.dataset.editPost); if (p) forumPostEditModal(p, () => refreshReplies(topicId)); }));
+    box.querySelectorAll('[data-answer]').forEach(b => b.addEventListener('click', async () => {
+      const cur = b.dataset.cur === '1';
+      const ok = await guard(async () => { const { error } = await sb.from('mrahi_forum_posts').update({ is_answer: !cur }).eq('id', b.dataset.answer); if (error) throw error; });
+      if (ok) { toast(cur ? 'أُلغي الاعتماد' : 'تم اعتماده كإجابة'); refreshReplies(topicId); }
+    }));
+    box.querySelectorAll('[data-del-post]').forEach(b => b.addEventListener('click', async () => {
+      if (!await confirm2('حذف هذا الرد؟')) return;
+      const ok = await guard(async () => { const { error } = await sb.from('mrahi_forum_posts').delete().eq('id', b.dataset.delPost); if (error) throw error; });
+      if (ok) { toast('تم الحذف'); refreshReplies(topicId); }
+    }));
+  });
 }
 async function refreshReplies(topicId) {
-  const box = document.getElementById('freplies'); if (!box) return;
+  const ans = document.getElementById('fanswers'), box = document.getElementById('freplies'); if (!box) return;
   let posts = [];
   try { const { data } = await sb.from('mrahi_forum_posts').select('*').eq('topic_id', topicId).order('created_at', { ascending: true }); posts = data || []; } catch (e) { return; }
   const postLikes = {}, myPostLikes = new Set();
   try { const ids = posts.map(p => p.id); if (ids.length) { const { data } = await sb.from('mrahi_forum_likes').select('post_id,user_id').in('post_id', ids); (data || []).forEach(l => { postLikes[l.post_id] = (postLikes[l.post_id] || 0) + 1; if (l.user_id === me.user_id) myPostLikes.add(l.post_id); }); } } catch (e) { /* تجاهل */ }
-  const canMod = isAdmin();
-  box.innerHTML = posts.length ? posts.map(p => postBlock(p, postLikes[p.id] || 0, myPostLikes.has(p.id), canMod)).join('') : '<div class="muted" style="text-align:center;padding:10px">لا ردود بعد — كن أول من يردّ.</div>';
+  const canMod = isForumMod(curForumCat);
+  const block = p => postBlock(p, postLikes[p.id] || 0, myPostLikes.has(p.id), canMod);
+  const answers = posts.filter(p => p.is_answer), others = posts.filter(p => !p.is_answer);
+  if (ans) ans.innerHTML = answers.length ? `<div class="forum-answers-h">✅ الإجابة المعتمدة</div>${answers.map(block).join('')}` : '';
+  box.innerHTML = others.length ? others.map(block).join('') : (answers.length ? '' : '<div class="muted" style="text-align:center;padding:10px">لا ردود بعد — كن أول من يردّ.</div>');
   const rc = document.getElementById('rcount'); if (rc) rc.textContent = posts.length;
   bindReplyEvents(topicId, posts);
 }
@@ -1412,6 +1451,7 @@ async function screenForumTopic(topicId) {
         ${canMod ? `<button class="btn sm" data-lock>${topic.is_locked ? '🔓 فتح' : '🔒 إغلاق'}</button>` : ''}
       </div>
     </div>
+    <div id="fanswers"></div>
     <div class="forum-replies-h">الردود (<span id="rcount">${topic.reply_count || 0}</span>)</div>
     <div id="freplies"></div>
     ${!canForumAddIn(topic.category_id)
