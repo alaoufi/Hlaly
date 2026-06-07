@@ -1008,8 +1008,6 @@ function screenMembers() {
   list.forEach(m => bindMemberCard(m));
 }
 function memberCard(m) {
-  const p = m.perms || {};
-  const cb = (mod, act) => `<input type="checkbox" data-u="${m.user_id}" data-mod="${mod}" data-act="${act}" ${p[mod] && p[mod][act] ? 'checked' : ''} ${m.role === 'admin' ? 'disabled' : ''}>`;
   return `<div class="card">
     <div style="display:flex;justify-content:space-between;align-items:center">
       <div><div class="li-title">${esc(m.full_name || '—')}</div>
@@ -1019,17 +1017,11 @@ function memberCard(m) {
         ${m.user_id === me.user_id ? '<span class="badge">أنت</span>' : ''}</div>
         ${(m.phone || m.username) ? `<div class="li-sub">${m.phone ? '📱 ' + esc(m.phone) : ''}${m.phone && m.username ? ' • ' : ''}${m.username ? '@' + esc(m.username) : ''}</div>` : '<div class="li-sub muted">لا توجد بيانات اتصال</div>'}</div>
     </div>
-    <div class="perm-grid">
-      <div class="h">القسم</div><div class="h">عرض</div><div class="h">إضافة</div><div class="h">تعديل</div><div class="h">حذف</div>
-      ${MODULES.map(mod => `<div>${mod.ar}</div><label>${cb(mod.k, 'view')}</label><label>${cb(mod.k, 'add')}</label><label>${cb(mod.k, 'edit')}</label><label>${cb(mod.k, 'delete')}</label>`).join('')}
-      <div>النسخ الاحتياطي</div><label>${cb('backup', 'view')}</label><label></label><label></label><label></label>
-    </div>
-    <div class="btn-row" style="margin-top:6px">
+    <div class="btn-row" style="margin-top:8px">
       <button class="btn sm ${m.is_active ? 'danger' : ''}" data-toggle="${m.user_id}" ${m.user_id === me.user_id ? 'disabled' : ''}>${m.is_active ? 'إيقاف' : 'تفعيل'}</button>
       <button class="btn sm outline" data-role="${m.user_id}" ${m.user_id === me.user_id ? 'disabled' : ''}>${m.role === 'admin' ? 'إنزال لمستخدم' : 'ترقية لمدير'}</button>
       ${isSys() ? `<button class="btn sm outline" data-sys="${m.user_id}">${m.is_sysadmin ? 'سحب إدارة النظام' : 'منح إدارة النظام'}</button>` : ''}
-      <button class="btn sm outline" data-edit="${m.user_id}">✎ تعديل البيانات</button>
-      <button class="btn sm" data-save="${m.user_id}">حفظ الصلاحيات</button>
+      <button class="btn sm" data-edit="${m.user_id}">✎ تعديل البيانات والصلاحيات</button>
     </div></div>`;
 }
 function bindMemberCard(m) {
@@ -1045,14 +1037,6 @@ function bindMemberCard(m) {
     const ok = await guard(async () => { await dbUpdateMember(m.user_id, { is_sysadmin: !m.is_sysadmin }); }); if (ok) { await loadAll(); screenMembers(); }
   });
   const ed = q(`[data-edit="${m.user_id}"]`); if (ed) ed.addEventListener('click', () => adminEditUser(m));
-  const sv = q(`[data-save="${m.user_id}"]`); if (sv) sv.addEventListener('click', async () => {
-    const perms = {};
-    view().querySelectorAll(`input[data-u="${m.user_id}"]`).forEach(cbx => {
-      const mod = cbx.dataset.mod, act = cbx.dataset.act;
-      if (cbx.checked) { perms[mod] = perms[mod] || {}; perms[mod][act] = true; }
-    });
-    const ok = await guard(async () => { await dbUpdateMember(m.user_id, { perms }); }); if (ok) { toast('تم حفظ الصلاحيات'); await loadAll(); }
-  });
 }
 async function dbUpdateMember(uid, obj) { const { error } = await sb.from('mrahi_members').update(obj).eq('user_id', uid); if (error) throw error; }
 
@@ -1279,6 +1263,7 @@ function setupForumRealtime(name, subs) {
 const forumCatById = (id) => (C.forumCats || []).find(c => c.id === id);
 const forumCatName = (id) => { const c = forumCatById(id); return c ? c.name : 'عام'; };
 let curForumCat = null;   // قسم الموضوع المفتوح حالياً (لعرض شارات المشرفين)
+let curForumLocked = false; // هل الموضوع المفتوح مُغلق
 const forumMemberName = (uid) => { const m = (C.members || []).find(x => x.user_id === uid); return m ? (m.full_name || m.username || 'عضو') : 'عضو'; };
 const forumModsOf = (catId) => (C.forumMods || []).filter(m => m.category_id === catId);
 const isAnyForumMod = () => isAdmin() || (C.forumMods || []).some(m => m.user_id === me.user_id);
@@ -1380,47 +1365,49 @@ async function screenForumCategory(catId) {
 }
 
 // كتلة ردّ واحد
-function postBlock(p, n, mine, canMod) {
+function postBlock(p, n, mine, canMod, canReply, depth) {
   const own = p.author_id === me.user_id;
-  return `<div class="card post${p.is_answer ? ' answer' : ''}" data-post="${p.id}">
+  const ind = depth ? `margin-inline-start:${Math.min(depth, 5) * 16}px` : '';
+  return `<div class="card post${p.is_answer ? ' answer' : ''}${depth ? ' nested' : ''}" data-post="${p.id}" style="${ind}">
     ${p.is_answer ? '<div class="answer-tag">✅ إجابة معتمدة</div>' : ''}
     <div class="post-head"><span class="pa-name">${esc(p.author_name || 'عضو')}${modBadge(curForumCat, p.author_id)}</span><span class="pa-time">${timeAgo(p.created_at)}</span></div>
     <div class="post-body">${fmtBody(p.body)}</div>
     <div class="post-actions">
       ${likeBtn('post_id', p.id, n, mine)}
+      ${canReply ? `<button class="btn sm outline" data-reply="${p.id}">↩︎ رد</button>` : ''}
       ${canMod ? `<button class="btn sm ${p.is_answer ? '' : 'outline'}" data-answer="${p.id}" data-cur="${p.is_answer ? '1' : '0'}">${p.is_answer ? 'إلغاء الاعتماد' : '✅ اعتماد كإجابة'}</button>` : ''}
       ${((own && can('forum', 'edit')) || canMod) ? `<button class="btn sm outline" data-edit-post="${p.id}">تعديل</button>` : ''}
       ${((own && can('forum', 'delete')) || canMod) ? `<button class="btn sm danger" data-del-post="${p.id}">حذف</button>` : ''}
     </div></div>`;
 }
 function bindReplyEvents(topicId, posts) {
-  ['fanswers', 'freplies'].forEach(cid => {
-    const box = document.getElementById(cid); if (!box) return;
-    box.querySelectorAll('[data-lk]').forEach(b => b.addEventListener('click', () => { const [col, id] = b.dataset.lk.split(':'); forumToggleLike(col, id, b); }));
-    box.querySelectorAll('[data-edit-post]').forEach(b => b.addEventListener('click', () => { const p = posts.find(x => String(x.id) === b.dataset.editPost); if (p) forumPostEditModal(p, () => refreshReplies(topicId)); }));
-    box.querySelectorAll('[data-answer]').forEach(b => b.addEventListener('click', async () => {
-      const cur = b.dataset.cur === '1';
-      const ok = await guard(async () => { const { error } = await sb.from('mrahi_forum_posts').update({ is_answer: !cur }).eq('id', b.dataset.answer); if (error) throw error; });
-      if (ok) { toast(cur ? 'أُلغي الاعتماد' : 'تم اعتماده كإجابة'); refreshReplies(topicId); }
-    }));
-    box.querySelectorAll('[data-del-post]').forEach(b => b.addEventListener('click', async () => {
-      if (!await confirm2('حذف هذا الرد؟')) return;
-      const ok = await guard(async () => { const { error } = await sb.from('mrahi_forum_posts').delete().eq('id', b.dataset.delPost); if (error) throw error; });
-      if (ok) { toast('تم الحذف'); refreshReplies(topicId); }
-    }));
-  });
+  const box = document.getElementById('freplies'); if (!box) return;
+  box.querySelectorAll('[data-lk]').forEach(b => b.addEventListener('click', () => { const [col, id] = b.dataset.lk.split(':'); forumToggleLike(col, id, b); }));
+  box.querySelectorAll('[data-reply]').forEach(b => b.addEventListener('click', () => forumReplyModal(topicId, parseInt(b.dataset.reply, 10), () => refreshReplies(topicId))));
+  box.querySelectorAll('[data-edit-post]').forEach(b => b.addEventListener('click', () => { const p = posts.find(x => String(x.id) === b.dataset.editPost); if (p) forumPostEditModal(p, () => refreshReplies(topicId)); }));
+  box.querySelectorAll('[data-answer]').forEach(b => b.addEventListener('click', async () => {
+    const cur = b.dataset.cur === '1';
+    const ok = await guard(async () => { const { error } = await sb.from('mrahi_forum_posts').update({ is_answer: !cur }).eq('id', b.dataset.answer); if (error) throw error; });
+    if (ok) { toast(cur ? 'أُلغي الاعتماد' : 'تم اعتماده كإجابة'); refreshReplies(topicId); }
+  }));
+  box.querySelectorAll('[data-del-post]').forEach(b => b.addEventListener('click', async () => {
+    if (!await confirm2('حذف هذا الرد وكل الردود المتفرّعة عنه؟')) return;
+    const ok = await guard(async () => { const { error } = await sb.from('mrahi_forum_posts').delete().eq('id', b.dataset.delPost); if (error) throw error; });
+    if (ok) { toast('تم الحذف'); refreshReplies(topicId); }
+  }));
 }
 async function refreshReplies(topicId) {
-  const ans = document.getElementById('fanswers'), box = document.getElementById('freplies'); if (!box) return;
+  const box = document.getElementById('freplies'); if (!box) return;
   let posts = [];
   try { const { data } = await sb.from('mrahi_forum_posts').select('*').eq('topic_id', topicId).order('created_at', { ascending: true }); posts = data || []; } catch (e) { return; }
   const postLikes = {}, myPostLikes = new Set();
   try { const ids = posts.map(p => p.id); if (ids.length) { const { data } = await sb.from('mrahi_forum_likes').select('post_id,user_id').in('post_id', ids); (data || []).forEach(l => { postLikes[l.post_id] = (postLikes[l.post_id] || 0) + 1; if (l.user_id === me.user_id) myPostLikes.add(l.post_id); }); } } catch (e) { /* تجاهل */ }
   const canMod = isForumMod(curForumCat);
-  const block = p => postBlock(p, postLikes[p.id] || 0, myPostLikes.has(p.id), canMod);
-  const answers = posts.filter(p => p.is_answer), others = posts.filter(p => !p.is_answer);
-  if (ans) ans.innerHTML = answers.length ? `<div class="forum-answers-h">✅ الإجابة المعتمدة</div>${answers.map(block).join('')}` : '';
-  box.innerHTML = others.length ? others.map(block).join('') : (answers.length ? '' : '<div class="muted" style="text-align:center;padding:10px">لا ردود بعد — كن أول من يردّ.</div>');
+  const canReply = canForumAddIn(curForumCat) && (!curForumLocked || canMod);
+  // عرض شجري: كل رد يظهر متبوعاً بالردود المتفرّعة عنه مباشرة
+  const renderLevel = (parentId, depth) => posts.filter(p => (p.parent_id || null) === parentId)
+    .map(p => postBlock(p, postLikes[p.id] || 0, myPostLikes.has(p.id), canMod, canReply, depth) + renderLevel(p.id, depth + 1)).join('');
+  box.innerHTML = posts.length ? renderLevel(null, 0) : '<div class="muted" style="text-align:center;padding:10px">لا ردود بعد — كن أول من يردّ.</div>';
   const rc = document.getElementById('rcount'); if (rc) rc.textContent = posts.length;
   bindReplyEvents(topicId, posts);
 }
@@ -1437,6 +1424,7 @@ async function screenForumTopic(topicId) {
   showLoading(false);
   if (!topic) { view().innerHTML = '<div class="center-empty">الموضوع غير موجود أو حُذف.</div>'; return; }
   curForumCat = topic.category_id;
+  curForumLocked = !!topic.is_locked;
   const canMod = isForumMod(topic.category_id), mineTopic = topic.author_id === me.user_id;
   view().innerHTML = `
     <div class="card topic-head">
@@ -1451,7 +1439,6 @@ async function screenForumTopic(topicId) {
         ${canMod ? `<button class="btn sm" data-lock>${topic.is_locked ? '🔓 فتح' : '🔒 إغلاق'}</button>` : ''}
       </div>
     </div>
-    <div id="fanswers"></div>
     <div class="forum-replies-h">الردود (<span id="rcount">${topic.reply_count || 0}</span>)</div>
     <div id="freplies"></div>
     ${!canForumAddIn(topic.category_id)
@@ -1506,6 +1493,16 @@ function forumTopicModal(catId, t) {
         else { const { error } = await sb.from('mrahi_forum_topics').insert({ title, body, category_id, author_id: me.user_id, author_name: me.full_name || '' }); if (error) throw error; }
       });
       if (ok) { closeModal(); toast(t ? 'تم الحفظ' : 'تم نشر الموضوع'); if (t) screenForumTopic(t.id); else setHash('#/forum-cat/' + category_id); }
+    });
+  });
+}
+// الرد على مشاركة معيّنة (يظهر متداخلاً تحتها مباشرة)
+function forumReplyModal(topicId, parentId, after) {
+  openModal('رد على المشاركة', `${fTextarea('ردّك أو توضيحك', 'fr_body', '')}<button class="btn" id="fr_save" style="margin-top:6px">إرسال الرد</button>`, () => {
+    document.getElementById('fr_save').addEventListener('click', async () => {
+      const body = val('fr_body').trim(); if (!body) { toast('اكتب ردّاً'); return; }
+      const ok = await guard(async () => { const { error } = await sb.from('mrahi_forum_posts').insert({ topic_id: topicId, parent_id: parentId, body, author_id: me.user_id, author_name: me.full_name || '' }); if (error) throw error; });
+      if (ok) { closeModal(); toast('تم إرسال الرد'); if (after) after(); }
     });
   });
 }
