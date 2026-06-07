@@ -61,7 +61,8 @@ end;
 $$;
 
 drop trigger if exists on_auth_user_created_marahi on auth.users;
-create trigger on_auth_user_created_marahi
+drop trigger if exists on_auth_user_created_mrah on auth.users;
+create trigger on_auth_user_created_mrah
   after insert on auth.users
   for each row execute function public.mrahi_handle_new_user();
 

@@ -9,22 +9,22 @@
 ## إنشاء مستودع GitHub خاص ودفعه (مرة واحدة)
 انسخ هذا المجلد إلى مكان مستقل وادفعه كمستودع جديد:
 ```bash
-# 1) انسخ مجلد marahi-web خارج alaoufi.me ثم ادخله
-cp -r marahi-web ~/marahi && cd ~/marahi
+# 1) انسخ مجلد mrah-web خارج alaoufi.me ثم ادخله
+cp -r mrah-web ~/mrah && cd ~/mrah
 
 # 2) أنشئ المستودع وادفعه (يتطلب gh مُسجّل الدخول)
 git init -b main
 git add -A
 git commit -m "مراح — تطبيق ويب مستقل"
-gh repo create marahi --private --source=. --push
+gh repo create mrah --private --source=. --push
 # أو يدوياً: أنشئ مستودعاً فارغاً على GitHub ثم:
-#   git remote add origin https://github.com/<USER>/marahi.git
+#   git remote add origin https://github.com/<USER>/mrah.git
 #   git push -u origin main
 ```
 
 ## النشر على Vercel (مشروع منفصل)
-1. في Vercel: **New Project** ثم اربطه بمستودع `marahi` الجديد (أو بنفس مستودع alaoufi.me).
-2. إن ربطته بـ alaoufi.me: **Root Directory** ← `marahi-web`. وإن ربطته بمستودع `marahi` المستقل فاتركه على الجذر.
+1. في Vercel: **New Project** ثم اربطه بمستودع `mrah` الجديد (أو بنفس مستودع alaoufi.me).
+2. إن ربطته بـ alaoufi.me: **Root Directory** ← `mrah-web`. وإن ربطته بمستودع `mrah` المستقل فاتركه على الجذر.
 3. **Framework Preset** ← `Other` (موقع ثابت، بلا أمر بناء).
 4. Deploy. (إعداد no-cache مضبوط في `vercel.json`.)
 
@@ -44,7 +44,7 @@ gh repo create marahi --private --source=. --push
 
 ## التشغيل محلياً
 ```bash
-cd marahi-web
+cd mrah-web
 python3 -m http.server 8080
 # افتح http://localhost:8080
 ```
@@ -69,7 +69,7 @@ HTML + CSS + JavaScript صِرف (بلا أطر عمل ولا خطوة بناء)
 
 ## الملفات
 ```
-marahi-web/
+mrah-web/
 ├── index.html            هيكل الصفحة
 ├── app.css               التنسيقات
 ├── app.js                كل المنطق
