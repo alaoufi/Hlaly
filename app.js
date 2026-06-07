@@ -15,6 +15,7 @@ const PREG = [{ k: 'monitoring', ar: 'تحت المتابعة' }, { k: 'born', a
 const MODULES = [
   { k: 'animals', ar: 'الحلال' }, { k: 'breeding', ar: 'التلقيح/الولادات' },
   { k: 'vaccines', ar: 'التطعيمات' }, { k: 'treatments', ar: 'العلاجات' },
+  { k: 'forum', ar: 'المنتدى' },
 ];
 const arOf = (arr, k) => (arr.find(x => x.k === k) || {}).ar || '—';
 const gestOf = (t) => (TYPES.find(x => x.k === t) || TYPES[1]).gest;
@@ -837,7 +838,7 @@ async function bulkApply() {
 /* ===== المزيد ===== */
 function screenMore() {
   const items = [];
-  items.push(['💬 منتدى النقاش', '#/forum']);
+  if (can('forum', 'view')) items.push(['💬 منتدى النقاش', '#/forum']);
   if (can('breeding', 'view')) items.push(['🤰 الحمل والمتابعة', '#/pregnancies']);
   if (can('vaccines', 'view')) items.push(['💉 أنواع التطعيمات', '#/vaccine-types']);
   if (can('vaccines', 'edit')) items.push(['💉 إعطاء تطعيم', '#/vaccinate/0']);
@@ -1270,6 +1271,7 @@ async function forumToggleLike(col, id, btn) {
 
 // شاشة المنتدى: الأقسام + أحدث المواضيع
 async function screenForum() {
+  if (!can('forum', 'view')) { view().innerHTML = noPerm(); return; }
   showLoading(true);
   let cats = C.forumCats || [];
   if (!cats.length) { try { const fc = await sb.from('mrahi_forum_categories').select('*').order('sort', { ascending: true }); cats = C.forumCats = fc.data || []; } catch (e) { /* تجاهل */ } }
@@ -1301,6 +1303,7 @@ async function screenForum() {
 
 // شاشة قسم: قائمة المواضيع + بحث + إنشاء موضوع
 async function screenForumCategory(catId) {
+  if (!can('forum', 'view')) { view().innerHTML = noPerm(); return; }
   catId = parseInt(catId, 10);
   const cat = forumCatById(catId);
   document.getElementById('screenTitle').textContent = cat ? cat.name : 'المنتدى';
@@ -1326,7 +1329,7 @@ async function screenForumCategory(catId) {
   draw(topics);
   const fq = document.getElementById('fq');
   fq.addEventListener('input', () => { const term = fq.value.trim().toLowerCase(); draw(!term ? topics : topics.filter(t => (t.title || '').toLowerCase().includes(term) || (t.body || '').toLowerCase().includes(term))); });
-  addFab('➕ موضوع جديد', () => forumTopicModal(catId, null));
+  if (can('forum', 'add')) addFab('➕ موضوع جديد', () => forumTopicModal(catId, null));
   setupForumRealtime('forum-cat-' + catId, [{ event: '*', table: 'mrahi_forum_topics', cb: () => { const q = document.getElementById('fq'); if (parseHash().name === 'forum-cat' && !(q && q.value.trim())) screenForumCategory(catId); } }]);
 }
 
@@ -1338,8 +1341,8 @@ function postBlock(p, n, mine, canMod) {
     <div class="post-body">${fmtBody(p.body)}</div>
     <div class="post-actions">
       ${likeBtn('post_id', p.id, n, mine)}
-      ${(own || canMod) ? `<button class="btn sm outline" data-edit-post="${p.id}">تعديل</button>` : ''}
-      ${(own || canMod) ? `<button class="btn sm danger" data-del-post="${p.id}">حذف</button>` : ''}
+      ${((own && can('forum', 'edit')) || canMod) ? `<button class="btn sm outline" data-edit-post="${p.id}">تعديل</button>` : ''}
+      ${((own && can('forum', 'delete')) || canMod) ? `<button class="btn sm danger" data-del-post="${p.id}">حذف</button>` : ''}
     </div></div>`;
 }
 function bindReplyEvents(topicId, posts) {
@@ -1366,6 +1369,7 @@ async function refreshReplies(topicId) {
 
 // شاشة الموضوع: التفاصيل + الردود + التحديث اللحظي
 async function screenForumTopic(topicId) {
+  if (!can('forum', 'view')) { view().innerHTML = noPerm(); return; }
   topicId = parseInt(topicId, 10);
   showLoading(true);
   let topic = null;
@@ -1382,17 +1386,19 @@ async function screenForumTopic(topicId) {
       ${topic.body ? `<div class="post-body">${fmtBody(topic.body)}</div>` : ''}
       <div class="post-actions">
         ${likeBtn('topic_id', topic.id, topicLikes, myTopicLike)}
-        ${(mineTopic || canMod) ? `<button class="btn sm outline" data-edit-topic>تعديل</button>` : ''}
-        ${(mineTopic || canMod) ? `<button class="btn sm danger" data-del-topic>حذف</button>` : ''}
+        ${((mineTopic && can('forum', 'edit')) || canMod) ? `<button class="btn sm outline" data-edit-topic>تعديل</button>` : ''}
+        ${((mineTopic && can('forum', 'delete')) || canMod) ? `<button class="btn sm danger" data-del-topic>حذف</button>` : ''}
         ${canMod ? `<button class="btn sm" data-pin>${topic.is_pinned ? 'إلغاء التثبيت' : '📌 تثبيت'}</button>` : ''}
         ${canMod ? `<button class="btn sm" data-lock>${topic.is_locked ? '🔓 فتح' : '🔒 إغلاق'}</button>` : ''}
       </div>
     </div>
     <div class="forum-replies-h">الردود (<span id="rcount">${topic.reply_count || 0}</span>)</div>
     <div id="freplies"></div>
-    ${topic.is_locked && !canMod
-      ? '<div class="center-empty" style="padding:18px">🔒 هذا الموضوع مغلق ولا يقبل ردوداً جديدة.</div>'
-      : `<div class="card composer"><textarea id="freply" placeholder="اكتب ردّك..."></textarea><button class="btn" id="fsend">إرسال الرد</button></div>`}`;
+    ${!can('forum', 'add')
+      ? ''
+      : (topic.is_locked && !canMod
+        ? '<div class="center-empty" style="padding:18px">🔒 هذا الموضوع مغلق ولا يقبل ردوداً جديدة.</div>'
+        : `<div class="card composer"><textarea id="freply" placeholder="اكتب ردّك..."></textarea><button class="btn" id="fsend">إرسال الرد</button></div>`)}`;
   // أحداث مستوى الموضوع
   const lk = view().querySelector('.topic-head [data-lk]'); if (lk) lk.addEventListener('click', () => { const [col, id] = lk.dataset.lk.split(':'); forumToggleLike(col, id, lk); });
   const et = view().querySelector('[data-edit-topic]'); if (et) et.addEventListener('click', () => forumTopicModal(topic.category_id, topic));
@@ -1501,7 +1507,9 @@ function renderPending() {
 
 /* ===== المصادقة ===== */
 function buildNav() {
-  const tabs = [['#/home', '🏠', 'الرئيسية'], ['#/animals', '🐑', 'الحلال'], ['#/forum', '💬', 'المنتدى'], ['#/alerts', '🔔', 'التنبيهات'], ['#/more', '☰', 'المزيد']];
+  const tabs = [['#/home', '🏠', 'الرئيسية'], ['#/animals', '🐑', 'الحلال']];
+  if (can('forum', 'view')) tabs.push(['#/forum', '💬', 'المنتدى']);
+  tabs.push(['#/alerts', '🔔', 'التنبيهات'], ['#/more', '☰', 'المزيد']);
   const nav = document.getElementById('bottomnav');
   nav.style.gridTemplateColumns = `repeat(${tabs.length},1fr)`;
   nav.innerHTML = tabs.map(([r, i, l]) => `<button class="nav-item" data-route="${r}"><span>${i}</span>${l}</button>`).join('');
@@ -1599,11 +1607,11 @@ function translateAuthError(m) {
 async function enterApp(session) {
   document.getElementById('auth').classList.add('hidden');
   document.getElementById('app').classList.remove('hidden');
-  buildNav();
   showLoading(true);
   // تحميل صف العضو الحالي
   const { data: mem } = await sb.from('mrahi_members').select('*').eq('user_id', session.user.id).maybeSingle();
   me = mem || { user_id: session.user.id, full_name: '', role: 'member', is_active: false, perms: {}, is_sysadmin: false };
+  buildNav();   // بعد تحميل الصلاحيات حتى يظهر تبويب المنتدى حسبها
   if (!me.is_active) { showLoading(false); renderPending(); return; }
   try { await loadAll(); } catch (e) { toast('خطأ تحميل: ' + e.message); }
   showLoading(false);

@@ -94,9 +94,12 @@ alter table public.mrahi_forum_topics     enable row level security;
 alter table public.mrahi_forum_posts      enable row level security;
 alter table public.mrahi_forum_likes      enable row level security;
 
--- 5) السياسات — الأقسام (المدير يديرها، الأعضاء يقرؤون)
+-- 5) السياسات — مرتبطة بقسم الصلاحيات 'forum' (view/add/edit/delete)
+--    العرض/النشر/التعديل/الحذف حسب الصلاحية الممنوحة من المدير، والإشراف للمدير.
+
+-- الأقسام: العرض حسب صلاحية المنتدى، والإدارة للمدير
 drop policy if exists fcat_sel on public.mrahi_forum_categories;
-create policy fcat_sel on public.mrahi_forum_categories for select using (public.mrahi_is_member());
+create policy fcat_sel on public.mrahi_forum_categories for select using (public.mrahi_can('forum','view'));
 drop policy if exists fcat_ins on public.mrahi_forum_categories;
 create policy fcat_ins on public.mrahi_forum_categories for insert with check (public.mrahi_is_admin());
 drop policy if exists fcat_upd on public.mrahi_forum_categories;
@@ -106,32 +109,38 @@ create policy fcat_del on public.mrahi_forum_categories for delete using (public
 
 -- المواضيع
 drop policy if exists ftop_sel on public.mrahi_forum_topics;
-create policy ftop_sel on public.mrahi_forum_topics for select using (public.mrahi_is_member());
+create policy ftop_sel on public.mrahi_forum_topics for select using (public.mrahi_can('forum','view'));
 drop policy if exists ftop_ins on public.mrahi_forum_topics;
-create policy ftop_ins on public.mrahi_forum_topics for insert with check (public.mrahi_is_member() and author_id = auth.uid());
+create policy ftop_ins on public.mrahi_forum_topics for insert with check (public.mrahi_can('forum','add') and author_id = auth.uid());
 drop policy if exists ftop_upd on public.mrahi_forum_topics;
-create policy ftop_upd on public.mrahi_forum_topics for update using (public.mrahi_is_member() and (author_id = auth.uid() or public.mrahi_is_admin())) with check (public.mrahi_is_member() and (author_id = auth.uid() or public.mrahi_is_admin()));
+create policy ftop_upd on public.mrahi_forum_topics for update
+  using ((author_id = auth.uid() and public.mrahi_can('forum','edit')) or public.mrahi_is_admin())
+  with check ((author_id = auth.uid() and public.mrahi_can('forum','edit')) or public.mrahi_is_admin());
 drop policy if exists ftop_del on public.mrahi_forum_topics;
-create policy ftop_del on public.mrahi_forum_topics for delete using (author_id = auth.uid() or public.mrahi_is_admin());
+create policy ftop_del on public.mrahi_forum_topics for delete
+  using ((author_id = auth.uid() and public.mrahi_can('forum','delete')) or public.mrahi_is_admin());
 
 -- الردود (يُمنع الرد على موضوع مُغلق إلا للمدير)
 drop policy if exists fpost_sel on public.mrahi_forum_posts;
-create policy fpost_sel on public.mrahi_forum_posts for select using (public.mrahi_is_member());
+create policy fpost_sel on public.mrahi_forum_posts for select using (public.mrahi_can('forum','view'));
 drop policy if exists fpost_ins on public.mrahi_forum_posts;
 create policy fpost_ins on public.mrahi_forum_posts for insert with check (
-  public.mrahi_is_member() and author_id = auth.uid()
+  public.mrahi_can('forum','add') and author_id = auth.uid()
   and (public.mrahi_is_admin() or not exists (select 1 from public.mrahi_forum_topics t where t.id = topic_id and t.is_locked))
 );
 drop policy if exists fpost_upd on public.mrahi_forum_posts;
-create policy fpost_upd on public.mrahi_forum_posts for update using (author_id = auth.uid() or public.mrahi_is_admin()) with check (author_id = auth.uid() or public.mrahi_is_admin());
+create policy fpost_upd on public.mrahi_forum_posts for update
+  using ((author_id = auth.uid() and public.mrahi_can('forum','edit')) or public.mrahi_is_admin())
+  with check ((author_id = auth.uid() and public.mrahi_can('forum','edit')) or public.mrahi_is_admin());
 drop policy if exists fpost_del on public.mrahi_forum_posts;
-create policy fpost_del on public.mrahi_forum_posts for delete using (author_id = auth.uid() or public.mrahi_is_admin());
+create policy fpost_del on public.mrahi_forum_posts for delete
+  using ((author_id = auth.uid() and public.mrahi_can('forum','delete')) or public.mrahi_is_admin());
 
--- الإعجابات (كل عضو يدير إعجاباته فقط)
+-- الإعجابات (تتطلب صلاحية العرض، وكل عضو يدير إعجاباته فقط)
 drop policy if exists flike_sel on public.mrahi_forum_likes;
-create policy flike_sel on public.mrahi_forum_likes for select using (public.mrahi_is_member());
+create policy flike_sel on public.mrahi_forum_likes for select using (public.mrahi_can('forum','view'));
 drop policy if exists flike_ins on public.mrahi_forum_likes;
-create policy flike_ins on public.mrahi_forum_likes for insert with check (public.mrahi_is_member() and user_id = auth.uid());
+create policy flike_ins on public.mrahi_forum_likes for insert with check (public.mrahi_can('forum','view') and user_id = auth.uid());
 drop policy if exists flike_del on public.mrahi_forum_likes;
 create policy flike_del on public.mrahi_forum_likes for delete using (user_id = auth.uid());
 
