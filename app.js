@@ -50,7 +50,7 @@ const noItem = () => '<div class="muted">لا يوجد</div>';
 let sb = null;        // عميل Supabase
 let me = null;        // صف العضو الحالي (الصلاحيات)
 let signupOpen = true; // هل التسجيل (حساب جديد) مفتوح؟ يتحكّم به المدير
-const C = { animals: [], matings: [], pregnancies: [], births: [], vaccineTypes: [], vaccinations: [], treatments: [], treatmentTypes: [], members: [], backups: [], types: [], tips: [], forumCats: [] };
+const C = { animals: [], matings: [], pregnancies: [], births: [], vaccineTypes: [], vaccinations: [], treatments: [], treatmentTypes: [], members: [], backups: [], types: [], tips: [], forumCats: [], forumMods: [] };
 const TABLES = {
   animals: 'mrahi_animals', matings: 'mrahi_matings', pregnancies: 'mrahi_pregnancies',
   births: 'mrahi_births', vaccineTypes: 'mrahi_vaccine_types', vaccinations: 'mrahi_vaccinations',
@@ -81,11 +81,15 @@ async function loadAll() {
     const tp = await sb.from('mrahi_tips').select('*');
     C.tips = tp.error ? [] : (tp.data || []);
   } catch (e) { C.tips = []; }
-  // أقسام المنتدى (محتوى عام)
+  // أقسام المنتدى ومشرفوها (محتوى عام)
   try {
     const fc = await sb.from('mrahi_forum_categories').select('*').order('sort', { ascending: true });
     C.forumCats = fc.error ? [] : (fc.data || []);
   } catch (e) { C.forumCats = []; }
+  try {
+    const fm = await sb.from('mrahi_forum_moderators').select('*');
+    C.forumMods = fm.error ? [] : (fm.data || []);
+  } catch (e) { C.forumMods = []; }
   await loadSignupOpen();
   try { await sb.rpc('mrahi_purge_trash'); } catch (e) { /* تنظيف أفضل جهد */ }
 }
@@ -838,7 +842,7 @@ async function bulkApply() {
 /* ===== المزيد ===== */
 function screenMore() {
   const items = [];
-  if (can('forum', 'view')) items.push(['💬 منتدى النقاش', '#/forum']);
+  if (canForumView()) items.push(['💬 منتدى النقاش', '#/forum']);
   if (can('breeding', 'view')) items.push(['🤰 الحمل والمتابعة', '#/pregnancies']);
   if (can('vaccines', 'view')) items.push(['💉 أنواع التطعيمات', '#/vaccine-types']);
   if (can('vaccines', 'edit')) items.push(['💉 إعطاء تطعيم', '#/vaccinate/0']);
@@ -1247,6 +1251,15 @@ function setupForumRealtime(name, subs) {
 }
 const forumCatById = (id) => (C.forumCats || []).find(c => c.id === id);
 const forumCatName = (id) => { const c = forumCatById(id); return c ? c.name : 'عام'; };
+let curForumCat = null;   // قسم الموضوع المفتوح حالياً (لعرض شارات المشرفين)
+const forumMemberName = (uid) => { const m = (C.members || []).find(x => x.user_id === uid); return m ? (m.full_name || m.username || 'عضو') : 'عضو'; };
+const forumModsOf = (catId) => (C.forumMods || []).filter(m => m.category_id === catId);
+const isAnyForumMod = () => isAdmin() || (C.forumMods || []).some(m => m.user_id === me.user_id);
+const isForumMod = (catId) => isAdmin() || (C.forumMods || []).some(m => m.category_id === catId && m.user_id === me.user_id);
+const forumModTitle = (catId, uid) => { const m = (C.forumMods || []).find(x => x.category_id === catId && x.user_id === uid); return m ? (m.title || 'مشرف') : null; };
+const modBadge = (catId, uid) => { const t = forumModTitle(catId, uid); return t ? ` <span class="badge mod">🛡️ ${esc(t)}</span>` : ''; };
+const canForumView = () => can('forum', 'view') || isAnyForumMod();
+const canForumAddIn = (catId) => can('forum', 'add') || isForumMod(catId);
 const fmtBody = (s) => esc(s || '').replace(/\n/g, '<br>');
 function timeAgo(iso) {
   if (!iso) return '';
@@ -1271,7 +1284,7 @@ async function forumToggleLike(col, id, btn) {
 
 // شاشة المنتدى: الأقسام + أحدث المواضيع
 async function screenForum() {
-  if (!can('forum', 'view')) { view().innerHTML = noPerm(); return; }
+  if (!canForumView()) { view().innerHTML = noPerm(); return; }
   showLoading(true);
   let cats = C.forumCats || [];
   if (!cats.length) { try { const fc = await sb.from('mrahi_forum_categories').select('*').order('sort', { ascending: true }); cats = C.forumCats = fc.data || []; } catch (e) { /* تجاهل */ } }
@@ -1292,8 +1305,9 @@ async function screenForum() {
       <div class="fc-count">${counts[c.id] || 0}</div>
     </div>`;
   view().innerHTML = `<div class="muted" style="margin-bottom:8px">منتدى مراح — تبادل الخبرات والاستشارات بين الأعضاء.</div>`
-    + (cats.length ? cats.map(catCard).join('') : '<div class="center-empty">لا توجد أقسام بعد.</div>')
-    + (latest.length ? `<div class="card"><h3>أحدث المواضيع</h3>${latest.map(t => `<div class="forum-latest" data-topic="${t.id}"><div class="li-title sm">${t.is_pinned ? '📌 ' : ''}${esc(t.title)}</div><div class="li-sub">${esc(forumCatName(t.category_id))} • ${esc(t.author_name || 'عضو')} • ${timeAgo(t.last_activity)}</div></div>`).join('')}</div>` : '');
+    + (latest.length ? `<div class="card"><h3>أحدث المواضيع</h3>${latest.map(t => `<div class="forum-latest" data-topic="${t.id}"><div class="li-title sm">${t.is_pinned ? '📌 ' : ''}${esc(t.title)}</div><div class="li-sub">${esc(forumCatName(t.category_id))} • ${esc(t.author_name || 'عضو')}${modBadge(t.category_id, t.author_id)} • ${timeAgo(t.last_activity)}</div></div>`).join('')}</div>` : '')
+    + `<div class="forum-section-h">الأقسام</div>`
+    + (cats.length ? cats.map(catCard).join('') : '<div class="center-empty">لا توجد أقسام بعد.</div>');
   view().querySelectorAll('[data-cat]').forEach(c => c.addEventListener('click', () => setHash('#/forum-cat/' + c.dataset.cat)));
   view().querySelectorAll('[data-editcat]').forEach(b => b.addEventListener('click', (e) => { e.stopPropagation(); forumCatModal(forumCatById(parseInt(b.dataset.editcat, 10))); }));
   view().querySelectorAll('[data-topic]').forEach(c => c.addEventListener('click', () => setHash('#/forum-topic/' + c.dataset.topic)));
@@ -1303,7 +1317,7 @@ async function screenForum() {
 
 // شاشة قسم: قائمة المواضيع + بحث + إنشاء موضوع
 async function screenForumCategory(catId) {
-  if (!can('forum', 'view')) { view().innerHTML = noPerm(); return; }
+  if (!canForumView()) { view().innerHTML = noPerm(); return; }
   catId = parseInt(catId, 10);
   const cat = forumCatById(catId);
   document.getElementById('screenTitle').textContent = cat ? cat.name : 'المنتدى';
@@ -1315,7 +1329,7 @@ async function screenForumCategory(catId) {
   showLoading(false);
   const topicRow = (t) => `<div class="card click topic-item" data-topic="${t.id}">
       <div class="li-title">${t.is_pinned ? '<span class="ft-pin">📌</span>' : ''}${t.is_locked ? '<span class="ft-lock">🔒</span>' : ''}${esc(t.title)}</div>
-      <div class="li-sub">${esc(t.author_name || 'عضو')} • ${timeAgo(t.last_activity)}</div>
+      <div class="li-sub">${esc(t.author_name || 'عضو')}${modBadge(catId, t.author_id)} • ${timeAgo(t.last_activity)}</div>
       <div class="topic-meta"><span>💬 ${t.reply_count || 0}</span><span>👍 ${likeMap[t.id] || 0}</span></div>
     </div>`;
   const draw = (list) => {
@@ -1323,13 +1337,18 @@ async function screenForumCategory(catId) {
     box.innerHTML = list.length ? list.map(topicRow).join('') : '<div class="center-empty">لا مواضيع في هذا القسم بعد. كن أول من يبدأ نقاشاً!</div>';
     box.querySelectorAll('[data-topic]').forEach(c => c.addEventListener('click', () => setHash('#/forum-topic/' + c.dataset.topic)));
   };
+  const mods = forumModsOf(catId);
+  const modsLine = mods.length ? `<div class="forum-mods">🛡️ مشرفو القسم: ${mods.map(m => esc(forumMemberName(m.user_id)) + ' (' + esc(m.title || 'مشرف') + ')').join('، ')}</div>` : '';
   view().innerHTML = `${cat ? `<div class="muted" style="margin-bottom:8px">${esc(cat.icon || '')} ${esc(cat.description || '')}</div>` : ''}
+    ${modsLine}
+    ${isAdmin() ? `<button class="btn sm outline" id="fmodbtn" style="margin-bottom:8px">👤 إدارة المشرفين</button>` : ''}
     <div class="search"><input id="fq" placeholder="ابحث في عناوين ومحتوى المواضيع"></div>
     <div id="ftopics"></div>`;
   draw(topics);
   const fq = document.getElementById('fq');
   fq.addEventListener('input', () => { const term = fq.value.trim().toLowerCase(); draw(!term ? topics : topics.filter(t => (t.title || '').toLowerCase().includes(term) || (t.body || '').toLowerCase().includes(term))); });
-  if (can('forum', 'add')) addFab('➕ موضوع جديد', () => forumTopicModal(catId, null));
+  const fmb = document.getElementById('fmodbtn'); if (fmb) fmb.addEventListener('click', () => forumModsModal(catId));
+  if (canForumAddIn(catId)) addFab('➕ موضوع جديد', () => forumTopicModal(catId, null));
   setupForumRealtime('forum-cat-' + catId, [{ event: '*', table: 'mrahi_forum_topics', cb: () => { const q = document.getElementById('fq'); if (parseHash().name === 'forum-cat' && !(q && q.value.trim())) screenForumCategory(catId); } }]);
 }
 
@@ -1337,7 +1356,7 @@ async function screenForumCategory(catId) {
 function postBlock(p, n, mine, canMod) {
   const own = p.author_id === me.user_id;
   return `<div class="card post" data-post="${p.id}">
-    <div class="post-head"><span class="pa-name">${esc(p.author_name || 'عضو')}</span><span class="pa-time">${timeAgo(p.created_at)}</span></div>
+    <div class="post-head"><span class="pa-name">${esc(p.author_name || 'عضو')}${modBadge(curForumCat, p.author_id)}</span><span class="pa-time">${timeAgo(p.created_at)}</span></div>
     <div class="post-body">${fmtBody(p.body)}</div>
     <div class="post-actions">
       ${likeBtn('post_id', p.id, n, mine)}
@@ -1369,7 +1388,7 @@ async function refreshReplies(topicId) {
 
 // شاشة الموضوع: التفاصيل + الردود + التحديث اللحظي
 async function screenForumTopic(topicId) {
-  if (!can('forum', 'view')) { view().innerHTML = noPerm(); return; }
+  if (!canForumView()) { view().innerHTML = noPerm(); return; }
   topicId = parseInt(topicId, 10);
   showLoading(true);
   let topic = null;
@@ -1378,11 +1397,12 @@ async function screenForumTopic(topicId) {
   try { const { data } = await sb.from('mrahi_forum_likes').select('user_id').eq('topic_id', topicId); topicLikes = (data || []).length; myTopicLike = (data || []).some(l => l.user_id === me.user_id); } catch (e) { /* تجاهل */ }
   showLoading(false);
   if (!topic) { view().innerHTML = '<div class="center-empty">الموضوع غير موجود أو حُذف.</div>'; return; }
-  const canMod = isAdmin(), mineTopic = topic.author_id === me.user_id;
+  curForumCat = topic.category_id;
+  const canMod = isForumMod(topic.category_id), mineTopic = topic.author_id === me.user_id;
   view().innerHTML = `
     <div class="card topic-head">
       <div class="th-title">${topic.is_pinned ? '📌 ' : ''}${topic.is_locked ? '🔒 ' : ''}${esc(topic.title)}</div>
-      <div class="li-sub">${esc(topic.author_name || 'عضو')} • ${timeAgo(topic.created_at)} • ${esc(forumCatName(topic.category_id))}</div>
+      <div class="li-sub">${esc(topic.author_name || 'عضو')}${modBadge(topic.category_id, topic.author_id)} • ${timeAgo(topic.created_at)} • ${esc(forumCatName(topic.category_id))}</div>
       ${topic.body ? `<div class="post-body">${fmtBody(topic.body)}</div>` : ''}
       <div class="post-actions">
         ${likeBtn('topic_id', topic.id, topicLikes, myTopicLike)}
@@ -1394,7 +1414,7 @@ async function screenForumTopic(topicId) {
     </div>
     <div class="forum-replies-h">الردود (<span id="rcount">${topic.reply_count || 0}</span>)</div>
     <div id="freplies"></div>
-    ${!can('forum', 'add')
+    ${!canForumAddIn(topic.category_id)
       ? ''
       : (topic.is_locked && !canMod
         ? '<div class="center-empty" style="padding:18px">🔒 هذا الموضوع مغلق ولا يقبل ردوداً جديدة.</div>'
@@ -1481,6 +1501,32 @@ function forumCatModal(c) {
   });
 }
 
+// إدارة مشرفي قسم (للمدير): تعيين عضو مشرفاً مع تعريف، وإزالته
+function forumModsModal(catId) {
+  const mods = forumModsOf(catId);
+  const candidates = (C.members || []).filter(m => m.is_active).map(m => ({ k: m.user_id, ar: (m.full_name || m.username || 'عضو') + (m.username ? ' (@' + m.username + ')' : '') }));
+  openModal('مشرفو القسم', `
+    <div class="muted" style="margin-bottom:8px">المشرف يستطيع تثبيت/إغلاق المواضيع وحذف/تعديل أي محتوى داخل هذا القسم فقط، ويظهر تعريفه بجانب اسمه.</div>
+    <div id="fmodlist">${mods.length ? mods.map(m => `<div class="fmod-row"><span>${esc(forumMemberName(m.user_id))} <span class="badge mod">🛡️ ${esc(m.title || 'مشرف')}</span></span><button class="btn sm danger" data-rmmod="${m.id}">إزالة</button></div>`).join('') : '<div class="muted">لا مشرفين بعد.</div>'}</div>
+    <hr style="border:none;border-top:1px solid #eee;margin:12px 0">
+    <div class="li-title sm" style="margin-bottom:6px">➕ تعيين مشرف</div>
+    ${fSelect('العضو', 'fm_user', candidates, '', '— اختر عضواً —')}
+    ${fInput('التعريف (مثل: بيطري، مربي، خبير أعلاف)', 'fm_title', '')}
+    <button class="btn" id="fm_add" style="margin-top:6px">تعيين مشرفاً</button>`, () => {
+    document.getElementById('fm_add').addEventListener('click', async () => {
+      const uid = val('fm_user'), title = val('fm_title').trim();
+      if (!uid) { toast('اختر العضو'); return; }
+      const ok = await guard(async () => { const { error } = await sb.from('mrahi_forum_moderators').upsert({ category_id: catId, user_id: uid, title }, { onConflict: 'category_id,user_id' }); if (error) throw error; });
+      if (ok) { closeModal(); toast('تم التعيين'); await loadAll(); if (parseHash().name === 'forum-cat') screenForumCategory(catId); }
+    });
+    document.querySelectorAll('[data-rmmod]').forEach(b => b.addEventListener('click', async () => {
+      if (!await confirm2('إزالة هذا المشرف؟')) return;
+      const ok = await guard(async () => { const { error } = await sb.from('mrahi_forum_moderators').delete().eq('id', b.dataset.rmmod); if (error) throw error; });
+      if (ok) { closeModal(); toast('تمت الإزالة'); await loadAll(); if (parseHash().name === 'forum-cat') screenForumCategory(catId); }
+    }));
+  });
+}
+
 /* ===== المودال ===== */
 function openModal(title, body, onMount) {
   const root = document.getElementById('modalRoot');
@@ -1508,7 +1554,7 @@ function renderPending() {
 /* ===== المصادقة ===== */
 function buildNav() {
   const tabs = [['#/home', '🏠', 'الرئيسية'], ['#/animals', '🐑', 'الحلال']];
-  if (can('forum', 'view')) tabs.push(['#/forum', '💬', 'المنتدى']);
+  if (canForumView()) tabs.push(['#/forum', '💬', 'المنتدى']);
   tabs.push(['#/alerts', '🔔', 'التنبيهات'], ['#/more', '☰', 'المزيد']);
   const nav = document.getElementById('bottomnav');
   nav.style.gridTemplateColumns = `repeat(${tabs.length},1fr)`;

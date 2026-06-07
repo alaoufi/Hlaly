@@ -175,3 +175,8 @@ main { padding: 14px; max-width: 760px; margin: 0 auto; }
 .like-btn:active { transform:scale(.96); }
 .forum-replies-h { font-weight:800; color:var(--green-d); margin:14px 2px 8px; font-size:1.05rem; }
 .composer textarea { width:100%; min-height:90px; border:1px solid #d0d5d0; border-radius:10px; padding:11px; font:inherit; resize:vertical; }
+.badge.mod { background:#FFE0B2; color:#8a5a00; font-weight:700; }
+.forum-mods { background:var(--green-l); color:var(--green-d); border-radius:10px; padding:8px 12px; font-size:.88rem; margin-bottom:8px; font-weight:600; }
+.forum-section-h { font-weight:800; color:var(--green-d); margin:14px 2px 8px; font-size:1.05rem; }
+.fmod-row { display:flex; justify-content:space-between; align-items:center; gap:8px; padding:7px 0; border-bottom:1px solid #f0f0f0; }
+.fmod-row:last-child { border-bottom:0; }
