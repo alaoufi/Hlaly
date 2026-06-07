@@ -1368,6 +1368,9 @@ async function screenForumCategory(catId) {
 function postBlock(p, n, mine, canMod, canReply, depth) {
   const own = p.author_id === me.user_id;
   const ind = depth ? `margin-inline-start:${Math.min(depth, 5) * 16}px` : '';
+  const showEdit = (own && can('forum', 'edit')) || canMod;
+  const showDel = (own && can('forum', 'delete')) || canMod;
+  const hasManage = showEdit || showDel || canMod;
   return `<div class="card post${p.is_answer ? ' answer' : ''}${depth ? ' nested' : ''}" data-post="${p.id}" style="${ind}">
     ${p.is_answer ? '<div class="answer-tag">✅ إجابة معتمدة</div>' : ''}
     <div class="post-head"><span class="pa-name">${esc(p.author_name || 'عضو')}${modBadge(curForumCat, p.author_id)}</span><span class="pa-time">${timeAgo(p.created_at)}</span></div>
@@ -1375,14 +1378,18 @@ function postBlock(p, n, mine, canMod, canReply, depth) {
     <div class="post-actions">
       ${likeBtn('post_id', p.id, n, mine)}
       ${canReply ? `<button class="btn sm outline" data-reply="${p.id}">↩︎ رد</button>` : ''}
+      ${hasManage ? `<button class="btn sm outline" data-mng aria-label="إدارة">⚙️</button>` : ''}
+    </div>
+    ${hasManage ? `<div class="manage-row hidden">
       ${canMod ? `<button class="btn sm ${p.is_answer ? '' : 'outline'}" data-answer="${p.id}" data-cur="${p.is_answer ? '1' : '0'}">${p.is_answer ? 'إلغاء الاعتماد' : '✅ اعتماد كإجابة'}</button>` : ''}
-      ${((own && can('forum', 'edit')) || canMod) ? `<button class="btn sm outline" data-edit-post="${p.id}">تعديل</button>` : ''}
-      ${((own && can('forum', 'delete')) || canMod) ? `<button class="btn sm danger" data-del-post="${p.id}">حذف</button>` : ''}
-    </div></div>`;
+      ${showEdit ? `<button class="btn sm outline" data-edit-post="${p.id}">✎ تعديل</button>` : ''}
+      ${showDel ? `<button class="btn sm danger" data-del-post="${p.id}">🗑 حذف</button>` : ''}
+    </div>` : ''}</div>`;
 }
 function bindReplyEvents(topicId, posts) {
   const box = document.getElementById('freplies'); if (!box) return;
   box.querySelectorAll('[data-lk]').forEach(b => b.addEventListener('click', () => { const [col, id] = b.dataset.lk.split(':'); forumToggleLike(col, id, b); }));
+  box.querySelectorAll('[data-mng]').forEach(b => b.addEventListener('click', () => { const row = b.closest('.post').querySelector('.manage-row'); if (row) row.classList.toggle('hidden'); b.classList.toggle('active'); }));
   box.querySelectorAll('[data-reply]').forEach(b => b.addEventListener('click', () => forumReplyModal(topicId, parseInt(b.dataset.reply, 10), () => refreshReplies(topicId))));
   box.querySelectorAll('[data-edit-post]').forEach(b => b.addEventListener('click', () => { const p = posts.find(x => String(x.id) === b.dataset.editPost); if (p) forumPostEditModal(p, () => refreshReplies(topicId)); }));
   box.querySelectorAll('[data-answer]').forEach(b => b.addEventListener('click', async () => {
@@ -1433,8 +1440,11 @@ async function screenForumTopic(topicId) {
       ${topic.body ? `<div class="post-body">${fmtBody(topic.body)}</div>` : ''}
       <div class="post-actions">
         ${likeBtn('topic_id', topic.id, topicLikes, myTopicLike)}
-        ${((mineTopic && can('forum', 'edit')) || canMod) ? `<button class="btn sm outline" data-edit-topic>تعديل</button>` : ''}
-        ${((mineTopic && can('forum', 'delete')) || canMod) ? `<button class="btn sm danger" data-del-topic>حذف</button>` : ''}
+        ${(((mineTopic && can('forum', 'edit')) || (mineTopic && can('forum', 'delete')) || canMod)) ? `<button class="btn sm outline" data-mng-topic>⚙️ إدارة</button>` : ''}
+      </div>
+      <div class="manage-row hidden" id="topicManage">
+        ${((mineTopic && can('forum', 'edit')) || canMod) ? `<button class="btn sm outline" data-edit-topic>✎ تعديل</button>` : ''}
+        ${((mineTopic && can('forum', 'delete')) || canMod) ? `<button class="btn sm danger" data-del-topic>🗑 حذف</button>` : ''}
         ${canMod ? `<button class="btn sm" data-pin>${topic.is_pinned ? 'إلغاء التثبيت' : '📌 تثبيت'}</button>` : ''}
         ${canMod ? `<button class="btn sm" data-lock>${topic.is_locked ? '🔓 فتح' : '🔒 إغلاق'}</button>` : ''}
       </div>
@@ -1447,6 +1457,7 @@ async function screenForumTopic(topicId) {
         ? '<div class="center-empty" style="padding:18px">🔒 هذا الموضوع مغلق ولا يقبل ردوداً جديدة.</div>'
         : `<div class="card composer"><textarea id="freply" placeholder="اكتب ردّك..."></textarea><button class="btn" id="fsend">إرسال الرد</button></div>`)}`;
   // أحداث مستوى الموضوع
+  const mt = view().querySelector('[data-mng-topic]'); if (mt) mt.addEventListener('click', () => { const r = document.getElementById('topicManage'); if (r) r.classList.toggle('hidden'); mt.classList.toggle('active'); });
   const lk = view().querySelector('.topic-head [data-lk]'); if (lk) lk.addEventListener('click', () => { const [col, id] = lk.dataset.lk.split(':'); forumToggleLike(col, id, lk); });
   const et = view().querySelector('[data-edit-topic]'); if (et) et.addEventListener('click', () => forumTopicModal(topic.category_id, topic));
   const dt = view().querySelector('[data-del-topic]'); if (dt) dt.addEventListener('click', async () => {
