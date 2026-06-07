@@ -254,7 +254,7 @@ const ROUTES = {
   trash: { t: 'سلة المحذوفات', back: true, fn: screenTrash },
   tips: { t: 'النصائح والمعلومات', back: true, fn: screenTips },
   forum: { t: 'المنتدى', back: false, fn: screenForum },
-  'forum-admin': { t: 'إدارة المنتدى', back: true, fn: screenForumAdmin },
+  'forum-admin': { t: 'إعدادات المنتدى', back: true, fn: screenForumAdmin },
   'forum-cat': { t: 'المنتدى', back: true, fn: screenForumCategory },
   'forum-topic': { t: 'الموضوع', back: true, fn: screenForumTopic },
 };
@@ -843,7 +843,7 @@ async function bulkApply() {
 /* ===== المزيد ===== */
 function screenMore() {
   const items = [];
-  if (isAdmin() || isAnyForumMod()) items.push(['🛠️ إدارة المنتدى', '#/forum-admin']);
+  if (isAdmin() || isAnyForumMod()) items.push(['⚙️ إعدادات المنتدى', '#/forum-admin']);
   if (can('breeding', 'view')) items.push(['🤰 الحمل والمتابعة', '#/pregnancies']);
   if (can('vaccines', 'view')) items.push(['💉 أنواع التطعيمات', '#/vaccine-types']);
   if (can('vaccines', 'edit')) items.push(['💉 إعطاء تطعيم', '#/vaccinate/0']);
@@ -1328,6 +1328,7 @@ async function screenForumAdmin() {
   if (!(isAdmin() || isAnyForumMod())) { view().innerHTML = noPerm(); return; }
   const admin = isAdmin();
   const cats = C.forumCats || [];
+  const intro = `<div class="muted" style="margin-bottom:8px">إعدادات المنتدى والتحكم به. للتصفّح والمشاركة استخدم تبويب «المنتدى 💬» في الأسفل.</div>`;
   const toolsCard = `<div class="card">
     <div class="li-title">🛡️ أدوات التحكم بالمواضيع والمشاركات</div>
     <div class="li-sub">${forumShowModTools ? 'ظاهرة الآن — يظهر زر ⚙️ على المواضيع والمشاركات لإدارتها.' : 'مخفيّة — تتصفّح وتردّ بلا أزرار تحكم.'}</div>
@@ -1348,7 +1349,7 @@ async function screenForumAdmin() {
             </div></div>`;
       }).join('') : '<div class="muted">لا أقسام بعد — أضِف قسماً بالزر بالأسفل.</div>');
   }
-  view().innerHTML = toolsCard + adminBlocks;
+  view().innerHTML = intro + toolsCard + adminBlocks;
   const tb = document.getElementById('fa_tools');
   if (tb) tb.addEventListener('click', () => {
     forumShowModTools = !forumShowModTools;
