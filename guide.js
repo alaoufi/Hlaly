@@ -250,8 +250,8 @@
     state.book = BOOKS[key];
     state.idx = idx || 0;
     const b = state.book;
-    state.container.innerHTML = `<div class="gd-wrap gd-reading">
-        <div class="gd-topbar" style="--tint:${b.tint}">
+    state.container.innerHTML = `<div class="gd-wrap gd-reading" style="--tint:${b.tint}">
+        <div class="gd-topbar">
           <button class="gd-btn ghost" id="gdBack">‹ الكتب</button>
           <div class="gd-rtitle">${b.emoji} ${b.title}</div>
           <div class="gd-prog" id="gdProg"></div>
@@ -261,6 +261,7 @@
             <div class="gd-paper gd-current" id="gdPage"></div>
           </div>
         </div>
+        <div class="gd-bar"><span class="gd-bar-fill" id="gdBar"></span></div>
         <div class="gd-controls">
           <button class="gd-btn" id="gdPrev">‹ السابق</button>
           <div class="gd-dots" id="gdDots"></div>
@@ -289,9 +290,13 @@
   }
 
   function pageHtml(i) {
-    const p = state.book.pages[i];
-    return `<div class="gd-paper-inner">${p.html}
-        <div class="gd-pagenum">${i + 1}</div></div>`;
+    const p = state.book.pages[i], b = state.book, n = b.pages.length;
+    return `<div class="gd-paper-inner">
+        <div class="gd-band"><span class="gd-band-emoji">${b.emoji}</span>`
+      + `<span class="gd-band-title">${esc(b.title)}</span>`
+      + `<span class="gd-band-num">${i + 1} / ${n}</span></div>
+        <div class="gd-content">${p.html}</div>
+      </div>`;
   }
 
   function paint() {
@@ -299,8 +304,11 @@
     if (!page) return;
     page.innerHTML = pageHtml(state.idx);
     page.scrollTop = 0;
+    const n = state.book.pages.length;
     const prog = document.getElementById('gdProg');
-    if (prog) prog.textContent = `${state.idx + 1} / ${state.book.pages.length}`;
+    if (prog) prog.textContent = `${state.idx + 1} / ${n}`;
+    const bar = document.getElementById('gdBar');
+    if (bar) bar.style.width = (((state.idx + 1) / n) * 100) + '%';
     const prev = document.getElementById('gdPrev'), next = document.getElementById('gdNext');
     if (prev) prev.disabled = state.idx === 0;
     if (next) next.disabled = state.idx === state.book.pages.length - 1;

@@ -200,90 +200,137 @@ main { padding: 14px; max-width: 760px; margin: 0 auto; }
 .post.hidden-post { opacity:.66; border:1px dashed #c08a8a; background:#fbf5f5; }
 .hidden-tag { display:inline-block; background:#b34747; color:#fff; font-weight:700; font-size:.76rem; border-radius:8px; padding:2px 9px; margin-bottom:6px; }
 
-/* ===== دليل الاستخدام — كتاب ثلاثي الأبعاد ===== */
+/* ===== دليل الاستخدام — كتاب ثلاثي الأبعاد (تصميم مُحسّن) ===== */
 .gd-wrap { padding: 2px; }
-.gd-shelf-head { font-size: 1.5rem; font-weight: 800; text-align: center; margin-top: 6px; }
-.gd-shelf-sub { text-align: center; color: var(--muted); font-size: .9rem; margin: 4px 0 18px; }
-.gd-shelf { display: grid; gap: 26px; grid-template-columns: 1fr; perspective: 1400px; }
-@media (min-width: 560px) { .gd-shelf { grid-template-columns: repeat(3, 1fr); gap: 18px; } }
+.gd-shelf-head { font-size: 1.6rem; font-weight: 800; text-align: center; margin-top: 8px;
+  background: linear-gradient(90deg, #2e7d32, #6a1b9a, #3949ab); -webkit-background-clip: text;
+  background-clip: text; color: transparent; }
+.gd-shelf-sub { text-align: center; color: var(--muted); font-size: .92rem; margin: 6px 0 22px; }
+.gd-shelf { display: grid; gap: 30px; grid-template-columns: 1fr; perspective: 1500px; padding: 6px 4px 10px; }
+@media (min-width: 580px) { .gd-shelf { grid-template-columns: repeat(3, 1fr); gap: 20px; } }
 
+/* غلاف الكتاب على الرفّ */
 .gd-cover {
   position: relative; cursor: pointer; border: none; color: #fff; text-align: center;
   background-color: var(--tint);
-  background-image: linear-gradient(135deg, rgba(255,255,255,.22), rgba(0,0,0,.30));
-  border-radius: 6px 14px 14px 6px; padding: 30px 18px 16px; min-height: 210px;
-  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 7px;
-  transform: rotateY(-16deg); transform-origin: right center;
-  box-shadow: -2px 0 0 #ffffffcc, -4px 0 0 #ffffff99, -6px 0 0 #ffffff66, -8px 0 0 #ffffff44,
-              10px 14px 30px rgba(0,0,0,.32);
-  transition: transform .4s cubic-bezier(.2,.7,.3,1), box-shadow .4s;
+  background-image:
+    linear-gradient(135deg, rgba(255,255,255,.28), rgba(255,255,255,0) 42%),
+    linear-gradient(310deg, rgba(0,0,0,.34), rgba(0,0,0,0) 55%);
+  border-radius: 5px 16px 16px 5px; padding: 34px 18px 18px; min-height: 224px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+  transform: rotateY(-17deg) rotateX(3deg); transform-origin: right center;
+  box-shadow:
+    -2px 0 0 #ffffffdd, -4px 0 0 #ffffffb0, -6px 0 0 #ffffff85, -8px 0 0 #ffffff5c, -10px 0 0 #ffffff3a,
+    12px 16px 34px rgba(0,0,0,.36);
+  transition: transform .45s cubic-bezier(.2,.7,.3,1), box-shadow .45s; isolation: isolate;
 }
-.gd-cover:hover, .gd-cover:focus-visible { transform: rotateY(-3deg) translateY(-5px); outline: none;
-  box-shadow: -2px 0 0 #ffffffcc, -4px 0 0 #ffffff99, -6px 0 0 #ffffff66, -8px 0 0 #ffffff44,
-              14px 20px 40px rgba(0,0,0,.4); }
-.gd-cover:active { transform: rotateY(-1deg) translateY(-2px) scale(.99); }
-.gd-cover-spine { position: absolute; inset-inline-end: 0; top: 0; bottom: 0; width: 12px;
-  background: rgba(0,0,0,.28); border-radius: 0 14px 14px 0; }
-.gd-cover-emoji { font-size: 3rem; filter: drop-shadow(0 3px 4px rgba(0,0,0,.3)); }
-.gd-cover-title { font-size: 1.18rem; font-weight: 800; text-shadow: 0 1px 3px rgba(0,0,0,.3); }
-.gd-cover-sub { font-size: .82rem; opacity: .92; }
-.gd-cover-foot { margin-top: 6px; font-size: .72rem; background: rgba(0,0,0,.22); padding: 3px 10px; border-radius: 20px; }
-.gd-rec { position: absolute; top: 10px; inset-inline-start: 10px; background: #fff; color: var(--tint);
-  font-weight: 800; font-size: .72rem; padding: 3px 9px; border-radius: 20px; box-shadow: 0 2px 6px rgba(0,0,0,.25); }
+.gd-cover::before { content: ''; position: absolute; inset: 5px; border-radius: 4px 12px 12px 4px;
+  border: 1.5px solid rgba(255,255,255,.45); pointer-events: none; }
+.gd-cover::after { content: ''; position: absolute; top: 0; bottom: 0; inset-inline-start: 0; width: 46%;
+  background: linear-gradient(105deg, rgba(255,255,255,.20), rgba(255,255,255,0)); pointer-events: none;
+  border-radius: 5px 0 0 5px; }
+.gd-cover:hover, .gd-cover:focus-visible { transform: rotateY(-5deg) rotateX(1deg) translateY(-6px); outline: none;
+  box-shadow:
+    -2px 0 0 #ffffffdd, -4px 0 0 #ffffffb0, -6px 0 0 #ffffff85, -8px 0 0 #ffffff5c, -10px 0 0 #ffffff3a,
+    18px 24px 48px rgba(0,0,0,.45); }
+.gd-cover:active { transform: rotateY(-2deg) translateY(-2px) scale(.99); }
+.gd-cover-spine { position: absolute; inset-inline-end: 0; top: 0; bottom: 0; width: 14px;
+  background: linear-gradient(90deg, rgba(0,0,0,.40), rgba(0,0,0,.10)); border-radius: 0 16px 16px 0; }
+.gd-cover-emoji { font-size: 3.1rem; line-height: 1; width: 84px; height: 84px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(255,255,255,.16); border: 1.5px solid rgba(255,255,255,.4);
+  box-shadow: inset 0 2px 8px rgba(255,255,255,.25), 0 4px 10px rgba(0,0,0,.25); }
+.gd-cover-title { font-size: 1.22rem; font-weight: 800; text-shadow: 0 1px 4px rgba(0,0,0,.35); }
+.gd-cover-sub { font-size: .82rem; opacity: .94; max-width: 80%; }
+.gd-cover-foot { margin-top: 8px; font-size: .72rem; background: rgba(0,0,0,.26); padding: 4px 12px;
+  border-radius: 20px; box-shadow: inset 0 1px 2px rgba(0,0,0,.2); }
+.gd-rec { position: absolute; top: -9px; inset-inline-start: 14px; background: #fff; color: var(--tint);
+  font-weight: 800; font-size: .72rem; padding: 4px 11px; border-radius: 20px;
+  box-shadow: 0 3px 8px rgba(0,0,0,.28); z-index: 2; }
 
 /* القارئ */
-.gd-reading { display: flex; flex-direction: column; height: calc(100dvh - 116px); min-height: 460px; }
-.gd-topbar { display: flex; align-items: center; gap: 8px; padding: 4px 2px 10px; }
-.gd-rtitle { flex: 1; text-align: center; font-weight: 800; font-size: 1.05rem; color: var(--tint); }
-.gd-prog { font-size: .82rem; color: var(--muted); min-width: 54px; text-align: center; }
-.gd-btn { background: var(--tint, var(--green)); color: #fff; border: none; border-radius: 12px;
-  padding: 9px 16px; font-weight: 700; font-size: .92rem; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,.18); }
-.gd-btn:disabled { opacity: .4; cursor: default; box-shadow: none; }
-.gd-btn.ghost { background: transparent; color: var(--tint); box-shadow: none; padding: 9px 10px; }
+.gd-reading { display: flex; flex-direction: column; height: calc(100dvh - 116px); min-height: 470px; }
+.gd-topbar { display: flex; align-items: center; gap: 8px; padding: 4px 2px 8px; }
+.gd-rtitle { flex: 1; text-align: center; font-weight: 800; font-size: 1.06rem; color: var(--tint); }
+.gd-prog { font-size: .8rem; color: var(--muted); min-width: 56px; text-align: center; font-variant-numeric: tabular-nums; }
 
-.gd-stage { flex: 1; perspective: 2200px; display: flex; align-items: stretch; justify-content: center;
-  min-height: 0; padding: 4px; }
-.gd-book { position: relative; width: 100%; max-width: 640px; transform-style: preserve-3d; }
-.gd-paper { position: absolute; inset: 0; background: #fffdf7;
-  background-image: linear-gradient(110deg, #f3efe2 0 14px, #fffdf7 14px);
-  border-radius: 4px 12px 12px 4px; box-shadow: 0 10px 30px rgba(0,0,0,.22);
-  overflow: auto; -webkit-overflow-scrolling: touch; }
-.gd-paper-inner { padding: 20px 20px 30px; }
+/* مسرح يشبه المكتب لإبراز الكتاب */
+.gd-stage { flex: 1; perspective: 2400px; display: flex; align-items: stretch; justify-content: center;
+  min-height: 0; padding: 14px 8px;
+  background:
+    radial-gradient(120% 70% at 50% -10%, rgba(255,255,255,.5), rgba(255,255,255,0) 60%),
+    linear-gradient(165deg, #ece4d3, #cdbfa3);
+  border-radius: 16px; box-shadow: inset 0 0 60px rgba(80,60,30,.28); overflow: hidden; }
+.gd-book { position: relative; width: 100%; max-width: 660px; transform-style: preserve-3d;
+  animation: gd-open .5s cubic-bezier(.2,.8,.3,1); }
+@keyframes gd-open { from { transform: rotateY(-22deg) scale(.94); opacity: 0; } to { transform: none; opacity: 1; } }
+/* انعكاس خفيف أسفل الكتاب */
+.gd-book::before { content: ''; position: absolute; inset-inline: 6%; bottom: -16px; height: 26px;
+  background: radial-gradient(60% 100% at 50% 0%, rgba(0,0,0,.32), rgba(0,0,0,0) 72%); filter: blur(3px); }
+
+.gd-paper { position: absolute; inset: 0; background: #fffdf6;
+  border-radius: 4px 12px 12px 4px; overflow: auto; -webkit-overflow-scrolling: touch;
+  box-shadow: inset -22px 0 26px -22px rgba(60,40,10,.45), 0 16px 40px rgba(0,0,0,.32); }
+.gd-paper-inner { padding: 0 0 26px; min-height: 100%; }
 .gd-current { z-index: 1; }
 .gd-leaf { z-index: 3; backface-visibility: hidden; transform: rotateY(0deg);
-  transition: transform .62s cubic-bezier(.3,.6,.25,1); will-change: transform; }
+  transition: transform .66s cubic-bezier(.34,.55,.25,1); will-change: transform; }
 .gd-leaf::after { content: ''; position: absolute; inset: 0; pointer-events: none; border-radius: inherit;
-  background: linear-gradient(90deg, rgba(0,0,0,.16), rgba(0,0,0,0) 30%); opacity: .0; transition: opacity .3s; }
-.gd-leaf.to-next { transform-origin: left center; box-shadow: 14px 0 26px rgba(0,0,0,.18); }
+  opacity: 0; transition: opacity .33s; }
+.gd-leaf.to-next { transform-origin: left center; }
 .gd-leaf.to-prev { transform-origin: right center; }
-.gd-leaf.to-next.go { transform: rotateY(-178deg); }
-.gd-leaf.to-prev.go { transform: rotateY(178deg); }
+.gd-leaf.to-next::after { background: linear-gradient(90deg, rgba(0,0,0,.28), rgba(0,0,0,0) 34%); }
+.gd-leaf.to-prev::after { background: linear-gradient(270deg, rgba(0,0,0,.28), rgba(0,0,0,0) 34%); }
+.gd-leaf.to-next.go { transform: rotateY(-176deg); }
+.gd-leaf.to-prev.go { transform: rotateY(176deg); }
 .gd-leaf.go::after { opacity: 1; }
 
-.gd-controls { display: flex; align-items: center; gap: 10px; padding: 10px 2px 2px; }
-.gd-controls .gd-btn { min-width: 92px; }
+/* شريط رأس الصفحة بلون الكتاب */
+.gd-band { display: flex; align-items: center; gap: 9px; padding: 13px 18px;
+  background: linear-gradient(135deg, var(--tint), color-mix(in srgb, var(--tint) 62%, #000));
+  color: #fff; border-radius: 4px 12px 0 0; box-shadow: 0 2px 10px rgba(0,0,0,.18); }
+.gd-band-emoji { font-size: 1.3rem; }
+.gd-band-title { font-weight: 800; font-size: 1rem; flex: 1; }
+.gd-band-num { font-size: .8rem; background: rgba(255,255,255,.22); padding: 2px 10px; border-radius: 20px;
+  font-variant-numeric: tabular-nums; }
+.gd-content { padding: 18px 20px 4px; }
+
+.gd-controls { display: flex; align-items: center; gap: 10px; padding: 8px 2px 2px; }
+.gd-controls .gd-btn { min-width: 94px; }
+.gd-bar { height: 5px; background: #e3ddcd; border-radius: 6px; margin: 10px 4px 0; overflow: hidden; }
+.gd-bar-fill { display: block; height: 100%; width: 0;
+  background: linear-gradient(90deg, var(--tint), color-mix(in srgb, var(--tint) 55%, #fff));
+  border-radius: 6px; transition: width .4s cubic-bezier(.3,.7,.3,1); }
 .gd-dots { flex: 1; display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
-.gd-dot { width: 8px; height: 8px; border-radius: 50%; background: #cdd3cd; cursor: pointer; transition: .2s; }
-.gd-dot.on { background: var(--tint, var(--green)); transform: scale(1.35); }
+.gd-dot { width: 8px; height: 8px; border-radius: 50%; background: #cdc6b4; cursor: pointer; transition: .2s; }
+.gd-dot.on { background: var(--tint, var(--green)); transform: scale(1.4); box-shadow: 0 0 0 3px color-mix(in srgb, var(--tint) 22%, transparent); }
+
+.gd-btn { background: var(--tint, var(--green)); color: #fff; border: none; border-radius: 12px;
+  padding: 10px 16px; font-weight: 700; font-size: .92rem; cursor: pointer; box-shadow: 0 3px 10px rgba(0,0,0,.2);
+  transition: transform .12s, box-shadow .2s; }
+.gd-btn:not(:disabled):active { transform: translateY(1px); }
+.gd-btn:disabled { opacity: .38; cursor: default; box-shadow: none; }
+.gd-btn.ghost { background: transparent; color: var(--tint); box-shadow: none; padding: 10px 10px; }
 
 /* محتوى الصفحة */
-.gd-h { font-size: 1.28rem; font-weight: 800; color: #222; margin: 0 0 14px;
-  padding-bottom: 10px; border-bottom: 2px solid #ece5d2; }
-.gd-blk { margin: 0 0 14px; }
+.gd-h { font-size: 1.3rem; font-weight: 800; color: #2a241c; margin: 0 0 16px; position: relative;
+  padding-inline-start: 14px; line-height: 1.4; }
+.gd-h::before { content: ''; position: absolute; inset-inline-start: 0; top: 4px; bottom: 4px; width: 5px;
+  border-radius: 4px; background: var(--tint, var(--green)); }
+.gd-blk { margin: 0 0 15px; }
 .gd-lbl { display: inline-block; font-weight: 800; font-size: .76rem; color: #fff;
-  padding: 3px 11px; border-radius: 20px; margin-bottom: 6px; }
+  padding: 4px 12px; border-radius: 20px; margin-bottom: 7px; box-shadow: 0 2px 6px rgba(0,0,0,.14); }
 .gd-lbl.idea { background: #3949ab; }
 .gd-lbl.brief { background: #00897b; }
 .gd-lbl.detail { background: #6d4c41; }
-.gd-txt { font-size: .96rem; line-height: 1.85; color: #2b2b2b; }
+.gd-txt { font-size: .97rem; line-height: 1.9; color: #322c22; }
 .gd-ul { margin: 6px 0 0; padding-inline-start: 18px; }
-.gd-ul li { margin-bottom: 6px; line-height: 1.7; font-size: .92rem; }
-.gd-note { margin-top: 14px; background: #fff7e6; border: 1px solid #ffe2a8; color: #8a5a00;
-  border-radius: 10px; padding: 9px 12px; font-size: .88rem; font-weight: 600; }
-.gd-pagenum { text-align: center; color: #b9b09a; font-size: .8rem; margin-top: 18px;
-  border-top: 1px dashed #e6dec9; padding-top: 8px; }
+.gd-ul li { margin-bottom: 7px; line-height: 1.7; font-size: .92rem; }
+.gd-note { margin-top: 16px; background: linear-gradient(135deg, #fff7e6, #ffeec2); border: 1px solid #ffdf9e;
+  color: #835200; border-radius: 12px; padding: 11px 14px; font-size: .89rem; font-weight: 600;
+  box-shadow: 0 2px 8px rgba(180,120,0,.12); }
 
 @media (prefers-reduced-motion: reduce) {
   .gd-leaf { transition-duration: .01ms; }
-  .gd-cover { transition: none; }
+  .gd-cover, .gd-book, .gd-bar-fill { animation: none; transition: none; }
 }
