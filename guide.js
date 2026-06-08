@@ -217,14 +217,18 @@
   function render(container, bookKey, ctx) {
     state.container = container;
     state.ctx = ctx || {};
-    if (bookKey && BOOKS[bookKey]) openBook(bookKey, 0);
+    // الكتب المسموح بها لهذا المستخدم حسب صلاحياته (يُمرَّر من app.js)
+    state.allowed = (state.ctx.books && state.ctx.books.length)
+      ? state.ctx.books.filter(k => BOOKS[k])
+      : ['visitor', 'owner', 'admin'];
+    if (bookKey && BOOKS[bookKey] && state.allowed.includes(bookKey)) openBook(bookKey, 0);
     else renderShelf();
   }
 
   // رفّ الكتب: اختيار الكتيّب بأغلفة ثلاثية الأبعاد
   function renderShelf() {
     const rec = recommendedKey(state.ctx);
-    const order = ['visitor', 'owner', 'admin'];
+    const order = ['visitor', 'owner', 'admin'].filter(k => state.allowed.includes(k));
     const cards = order.map(k => {
       const b = BOOKS[k];
       const recBadge = k === rec ? '<span class="gd-rec">موصى به لك</span>' : '';
@@ -250,9 +254,11 @@
     state.book = BOOKS[key];
     state.idx = idx || 0;
     const b = state.book;
+    // زرّ «الكتب» يظهر فقط عند توفّر أكثر من كتيّب لهذا المستخدم
+    const multi = (state.allowed || []).length > 1;
     state.container.innerHTML = `<div class="gd-wrap gd-reading" style="--tint:${b.tint}">
         <div class="gd-topbar">
-          <button class="gd-btn ghost" id="gdBack">‹ الكتب</button>
+          <button class="gd-btn ghost ${multi ? '' : 'gd-hidden'}" id="gdBack">‹ الكتب</button>
           <div class="gd-rtitle">${b.emoji} ${b.title}</div>
           <div class="gd-prog" id="gdProg"></div>
         </div>
@@ -268,7 +274,7 @@
           <button class="gd-btn" id="gdNext">التالي ›</button>
         </div>
       </div>`;
-    document.getElementById('gdBack').addEventListener('click', renderShelf);
+    if (multi) document.getElementById('gdBack').addEventListener('click', renderShelf);
     document.getElementById('gdPrev').addEventListener('click', () => turn(-1));
     document.getElementById('gdNext').addEventListener('click', () => turn(1));
     // إيماءات السحب على المسرح

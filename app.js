@@ -346,7 +346,6 @@ function screenHome() {
     ${sharesIn.filter(s => s.status === 'pending').length ? `<div class="card click hl" data-go="#/shares"><div class="li-title">📨 دعوة لمشاهدة حلال (${sharesIn.filter(s => s.status === 'pending').length})</div><div class="li-sub">عضو يدعوك لمشاهدة حلاله — اضغط للرد</div></div>` : ''}
     ${sharesIn.filter(s => s.status === 'accepted').map(s => `<div class="card click" data-go="#/shared-herd/${s.owner_id}"><div class="li-title">🤝 حلال ${esc(s.owner_name || 'عضو')}</div><div class="li-sub">مُشارَك معك — عرض فقط</div></div>`).join('')}
     ${!hasHerd && forumEnabled && canForumView() ? `<div class="card click" data-go-forum><div class="li-title">💬 المنتدى</div><div class="li-sub">شارك واطرح أسئلتك مع المجتمع</div></div>` : ''}
-    <div class="card click" data-go="#/guide"><div class="li-title">📖 دليل الاستخدام</div><div class="li-sub">كتيّب تفاعلي يشرح التطبيق خطوة بخطوة — افتحه وقلّب صفحاته</div></div>
     ${hasHerd ? `<div class="search"><input id="q" placeholder="ابحث برقم/وسم/شريحة/اسم البهيمة"></div><div id="qr"></div>` : ''}
     ${can('breeding', 'view') ? `<div class="card"><h3>الولادات القادمة (٧ أيام)</h3>${births.length ? births.map(p => row(display(animalById(p.animal_id)), `${fmtDate(p.expected)} (بعد ${daysUntil(p.expected)} يوم)`)).join('') : noItem()}</div>` : ''}
     ${can('treatments', 'view') ? `<div class="card"><h3>العلاجات الحالية (تحت التحريم)</h3>${treats.length ? treats.map(t => row(display(animalById(t.animal_id)), `${esc(t.med_name)} • ينتهي ${fmtDate(t.withdrawal_end)}`)).join('') : noItem()}</div>` : ''}`;
@@ -898,7 +897,8 @@ async function bulkApply() {
 /* ===== المزيد ===== */
 function screenMore() {
   const items = [];
-  items.push(['📖 دليل الاستخدام', '#/guide']);
+  if (can('animals', 'view') || (me && me.account_type === 'owner')) items.push(['🐑 دليل صاحب المراح', '#/guide/owner']);
+  if (isAdmin()) items.push(['🛡️ دليل مدير النظام', '#/guide/admin']);
   if (isAdmin() || isAnyForumMod()) items.push(['⚙️ إعدادات المنتدى', '#/forum-admin']);
   if (can('animals', 'view') || sharesIn.length) { const np = sharesIn.filter(s => s.status === 'pending').length; items.push([`🤝 مشاركة الحلال${np ? ` (${np} دعوة)` : ''}`, '#/shares']); }
   if (can('breeding', 'view')) items.push(['🤰 الحمل والمتابعة', '#/pregnancies']);
@@ -918,11 +918,23 @@ function screenMore() {
 }
 
 /* ===== دليل الاستخدام (كتاب ثلاثي الأبعاد) ===== */
+function guideBooks() {
+  // الكتب المتاحة حسب الصلاحيات: الجميع يرى دليل الاستخدام العام،
+  // وأصحاب الحلال يرون دليلهم، والمدير يرى دليل الإدارة أيضاً.
+  const books = ['visitor'];
+  if (can('animals', 'view') || (me && me.account_type === 'owner')) books.push('owner');
+  if (isAdmin()) books.push('admin');
+  return books;
+}
 function screenGuide(arg) {
   if (!window.MrahiGuide) { view().innerHTML = '<div class="center-empty">تعذّر تحميل الدليل.</div>'; return; }
-  window.MrahiGuide.render(view(), arg || null, {
+  const books = guideBooks();
+  // أيقونة (i) في الهيدر تفتح الدليل العام مباشرةً؛ والمدخلات في «المزيد» تفتح كتاب الدور
+  const wanted = (arg && books.includes(arg)) ? arg : 'visitor';
+  window.MrahiGuide.render(view(), wanted, {
     isAdmin: isAdmin(),
     accountType: (me && me.account_type) || 'owner',
+    books: books,
   });
 }
 
@@ -2085,6 +2097,7 @@ async function init() {
   sb = window.supabase.createClient(window.MRAH_CONFIG.SUPABASE_URL, window.MRAH_CONFIG.SUPABASE_ANON_KEY);
 
   document.getElementById('backBtn').addEventListener('click', goBack);
+  document.getElementById('guideBtn').addEventListener('click', () => setHash('#/guide'));
   document.getElementById('signoutBtn').addEventListener('click', async () => { await sb.auth.signOut(); });
   window.addEventListener('hashchange', () => { if (me && me.is_active) render(); });
 
