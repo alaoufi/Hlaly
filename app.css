@@ -163,6 +163,7 @@ main { padding: 14px; max-width: 760px; margin: 0 auto; }
 .forum-latest:first-of-type { border-top:0; }
 .li-title.sm { font-size:.98rem; font-weight:700; }
 .topic-item .topic-meta { display:flex; gap:14px; margin-top:6px; color:var(--muted); font-size:.85rem; }
+.site-visits { text-align:center; font-size:.85rem; margin:2px 0 10px; }
 .topic-item .ft-pin, .topic-item .ft-lock { margin-inline-end:4px; }
 .topic-head .th-title { font-size:1.2rem; font-weight:800; color:var(--green-d); margin-bottom:4px; }
 .post-body { margin:10px 0; white-space:pre-wrap; word-break:break-word; line-height:1.7; }

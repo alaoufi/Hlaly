@@ -52,6 +52,9 @@ let me = null;        // صف العضو الحالي (الصلاحيات)
 let signupOpen = true; // هل التسجيل (حساب جديد) مفتوح؟ يتحكّم به المدير
 let forumEnabled = true;        // المنتدى مُفعّل؟ (يخفيه المدير كاملاً عند التعطيل)
 let forumTopicsModsOnly = false; // إنشاء المواضيع للمشرفين فقط؟
+let siteVisits = 0;              // عدد زيارات الموقع الإجمالي (يظهر في الرئيسية)
+let siteVisitCounted = false;    // احتُسبت زيارة هذه الجلسة؟ (مرة واحدة لكل تحميل)
+const viewedTopics = new Set();  // مواضيع احتُسبت مشاهدتها هذه الجلسة (تفادي التكرار)
 const C = { animals: [], matings: [], pregnancies: [], births: [], vaccineTypes: [], vaccinations: [], treatments: [], treatmentTypes: [], members: [], backups: [], types: [], tips: [], forumCats: [], forumMods: [], forumBans: [] };
 const TABLES = {
   animals: 'mrahi_animals', matings: 'mrahi_matings', pregnancies: 'mrahi_pregnancies',
@@ -98,6 +101,10 @@ async function loadAll() {
   } catch (e) { C.forumBans = []; }
   await loadForumSettings();
   await loadSignupOpen();
+  try {
+    const { data } = await sb.from('mrahi_counters').select('value').eq('key', 'site_visits').maybeSingle();
+    if (data && typeof data.value === 'number') siteVisits = data.value;
+  } catch (e) { /* تجاهل */ }
   try { await sb.rpc('mrahi_purge_trash'); } catch (e) { /* تنظيف أفضل جهد */ }
 }
 // التطعيمات الموصى بها لكل نوع بهيمة — تُضاف مرة واحدة في جدول mrahi_vaccine_types
@@ -313,6 +320,7 @@ function screenHome() {
       <div class="stat blue"><div class="n">${vaccs.length}</div><div class="l">تطعيمات قادمة</div></div>
       <div class="stat red"><div class="n">${treats.length}</div><div class="l">علاجات حالية</div></div>
     </div>
+    ${siteVisits ? `<div class="muted site-visits">👁 زيارات الموقع: ${siteVisits.toLocaleString('ar-EG')}</div>` : ''}
     ${can('animals', 'view') ? `<div class="search"><input id="q" placeholder="ابحث برقم/وسم/شريحة/اسم البهيمة"></div><div id="qr"></div>` : ''}
     <div class="card"><h3>الولادات القادمة (٧ أيام)</h3>${births.length ? births.map(p => row(display(animalById(p.animal_id)), `${fmtDate(p.expected)} (بعد ${daysUntil(p.expected)} يوم)`)).join('') : noItem()}</div>
     <div class="card"><h3>العلاجات الحالية (تحت التحريم)</h3>${treats.length ? treats.map(t => row(display(animalById(t.animal_id)), `${esc(t.med_name)} • ينتهي ${fmtDate(t.withdrawal_end)}`)).join('') : noItem()}</div>`;
@@ -1470,7 +1478,7 @@ async function screenForumCategory(catId) {
   const topicRow = (t) => `<div class="card click topic-item" data-topic="${t.id}">
       <div class="li-title">${t.is_pinned ? '<span class="ft-pin">📌</span>' : ''}${t.is_locked ? '<span class="ft-lock">🔒</span>' : ''}${esc(t.title)}</div>
       <div class="li-sub">${esc(t.author_name || 'عضو')}${modBadge(catId, t.author_id)} • ${timeAgo(t.last_activity)}</div>
-      <div class="topic-meta"><span>💬 ${t.reply_count || 0}</span><span>👍 ${likeMap[t.id] || 0}</span></div>
+      <div class="topic-meta"><span>💬 ${t.reply_count || 0}</span><span>👍 ${likeMap[t.id] || 0}</span><span>👁 ${t.view_count || 0}</span></div>
     </div>`;
   const draw = (list) => {
     const box = document.getElementById('ftopics'); if (!box) return;
@@ -1565,6 +1573,11 @@ async function screenForumTopic(topicId) {
   try { const { data } = await sb.from('mrahi_forum_likes').select('user_id').eq('topic_id', topicId); topicLikes = (data || []).length; myTopicLike = (data || []).some(l => l.user_id === me.user_id); } catch (e) { /* تجاهل */ }
   showLoading(false);
   if (!topic) { view().innerHTML = '<div class="center-empty">الموضوع غير موجود أو حُذف.</div>'; return; }
+  // احتساب مشاهدة الموضوع مرة واحدة لكل جلسة، وإلا نعرض العدد المحمَّل
+  if (!viewedTopics.has(topicId)) {
+    viewedTopics.add(topicId);
+    try { const { data } = await sb.rpc('mrahi_forum_topic_view', { p_topic_id: topicId }); if (typeof data === 'number') topic.view_count = data; } catch (e) { /* تجاهل */ }
+  }
   curForumCat = topic.category_id;
   curForumLocked = !!topic.is_locked;
   const canMod = isForumMod(topic.category_id), mineTopic = topic.author_id === me.user_id;
@@ -1572,7 +1585,7 @@ async function screenForumTopic(topicId) {
   view().innerHTML = `
     <div class="card topic-head">
       <div class="th-title">${topic.is_pinned ? '📌 ' : ''}${topic.is_locked ? '🔒 ' : ''}${esc(topic.title)}</div>
-      <div class="li-sub">${esc(topic.author_name || 'عضو')}${modBadge(topic.category_id, topic.author_id)} • ${timeAgo(topic.created_at)}${editedMark(topic)} • ${esc(forumCatName(topic.category_id))}</div>
+      <div class="li-sub">${esc(topic.author_name || 'عضو')}${modBadge(topic.category_id, topic.author_id)} • ${timeAgo(topic.created_at)}${editedMark(topic)} • ${esc(forumCatName(topic.category_id))} • 👁 ${topic.view_count || 0}</div>
       ${topic.body ? `<div class="post-body">${fmtBody(topic.body)}</div>` : ''}
       <div class="post-actions">
         ${likeBtn('topic_id', topic.id, topicLikes, myTopicLike)}
@@ -1848,6 +1861,11 @@ async function enterApp(session) {
   buildNav();   // بعد تحميل الصلاحيات حتى يظهر تبويب المنتدى حسبها
   if (!me.is_active) { showLoading(false); renderPending(); return; }
   try { await loadAll(); } catch (e) { toast('خطأ تحميل: ' + e.message); }
+  // احتساب زيارة الموقع مرة واحدة لكل تحميل صفحة (لا يتكرر مع تجديد الجلسة)
+  if (!siteVisitCounted) {
+    siteVisitCounted = true;
+    try { const { data } = await sb.rpc('mrahi_site_visit'); if (typeof data === 'number') siteVisits = data; } catch (e) { /* تجاهل */ }
+  }
   buildNav();   // إعادة البناء بعد تحميل إعدادات المنتدى (التفعيل/التعطيل)
   showLoading(false);
   if (!location.hash) location.hash = '#/home';
