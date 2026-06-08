@@ -310,20 +310,24 @@ const activeTreatments = () => C.treatments.filter(t => t.withdrawal_end && days
 function screenHome() {
   const present = C.animals.filter(a => a.status === 'present').length;
   const births = upcomingBirths(), vaccs = upcomingVacc(), treats = activeTreatments();
+  const hasHerd = can('animals', 'view');
+  const roleLabel = isAdmin() ? 'مدير' : (me.account_type === 'visitor' ? 'زائر' : 'صاحب حلال');
   view().innerHTML = `
     <div class="title-lg">مراح</div>
-    <div class="muted">أهلاً ${esc(me.full_name || '')} • ${isAdmin() ? 'مدير' : 'مستخدم'}</div>
+    <div class="muted">أهلاً ${esc(me.full_name || '')} • ${roleLabel}</div>
     ${tipsHomeCards()}
-    <div class="stats">
+    ${hasHerd ? `<div class="stats">
       <div class="stat green"><div class="n">${present}</div><div class="l">عدد الحلال</div></div>
       <div class="stat amber"><div class="n">${births.length}</div><div class="l">ولادات قادمة</div></div>
       <div class="stat blue"><div class="n">${vaccs.length}</div><div class="l">تطعيمات قادمة</div></div>
       <div class="stat red"><div class="n">${treats.length}</div><div class="l">علاجات حالية</div></div>
-    </div>
+    </div>` : ''}
     ${siteVisits ? `<div class="muted site-visits">👁 زيارات الموقع: ${siteVisits.toLocaleString('ar-EG')}</div>` : ''}
-    ${can('animals', 'view') ? `<div class="search"><input id="q" placeholder="ابحث برقم/وسم/شريحة/اسم البهيمة"></div><div id="qr"></div>` : ''}
-    <div class="card"><h3>الولادات القادمة (٧ أيام)</h3>${births.length ? births.map(p => row(display(animalById(p.animal_id)), `${fmtDate(p.expected)} (بعد ${daysUntil(p.expected)} يوم)`)).join('') : noItem()}</div>
-    <div class="card"><h3>العلاجات الحالية (تحت التحريم)</h3>${treats.length ? treats.map(t => row(display(animalById(t.animal_id)), `${esc(t.med_name)} • ينتهي ${fmtDate(t.withdrawal_end)}`)).join('') : noItem()}</div>`;
+    ${!hasHerd && forumEnabled && canForumView() ? `<div class="card click" data-go-forum><div class="li-title">💬 المنتدى</div><div class="li-sub">شارك واطرح أسئلتك مع المجتمع</div></div>` : ''}
+    ${hasHerd ? `<div class="search"><input id="q" placeholder="ابحث برقم/وسم/شريحة/اسم البهيمة"></div><div id="qr"></div>` : ''}
+    ${can('breeding', 'view') ? `<div class="card"><h3>الولادات القادمة (٧ أيام)</h3>${births.length ? births.map(p => row(display(animalById(p.animal_id)), `${fmtDate(p.expected)} (بعد ${daysUntil(p.expected)} يوم)`)).join('') : noItem()}</div>` : ''}
+    ${can('treatments', 'view') ? `<div class="card"><h3>العلاجات الحالية (تحت التحريم)</h3>${treats.length ? treats.map(t => row(display(animalById(t.animal_id)), `${esc(t.med_name)} • ينتهي ${fmtDate(t.withdrawal_end)}`)).join('') : noItem()}</div>` : ''}`;
+  { const gf = view().querySelector('[data-go-forum]'); if (gf) gf.addEventListener('click', () => setHash('#/forum')); }
   const q = document.getElementById('q');
   if (q) q.addEventListener('input', () => {
     const term = q.value.trim().toLowerCase(); const box = document.getElementById('qr');
@@ -1039,7 +1043,7 @@ function memberCard(m) {
   return `<div class="card">
     <div style="display:flex;justify-content:space-between;align-items:center">
       <div><div class="li-title">${esc(m.full_name || '—')}</div>
-        <div class="li-sub"><span class="badge ${m.role === 'admin' ? 'role' : ''}">${m.role === 'admin' ? 'مدير المراح' : 'مستخدم'}</span>
+        <div class="li-sub"><span class="badge ${m.role === 'admin' ? 'role' : ''}">${m.role === 'admin' ? 'مدير المراح' : (m.account_type === 'visitor' ? '👤 زائر' : '🐑 صاحب حلال')}</span>
         ${m.is_sysadmin ? '<span class="badge role">مدير النظام</span>' : ''}
         <span class="badge ${m.is_active ? '' : 'off'}">${m.is_active ? 'مفعّل' : 'موقوف'}</span>
         ${m.user_id === me.user_id ? '<span class="badge">أنت</span>' : ''}</div>
@@ -1747,14 +1751,15 @@ function renderPending() {
   document.getElementById('bottomnav').innerHTML = '';
   document.querySelectorAll('.fab').forEach(f => f.remove());
   view().innerHTML = `<div class="center-empty"><div style="font-size:3rem">⏳</div>
-    <h3>حسابك بانتظار التفعيل</h3>
-    <p class="muted">تم إنشاء حسابك بنجاح. يرجى أن يقوم مدير النظام بتفعيلك ومنحك الصلاحيات، ثم أعد تسجيل الدخول.</p>
+    <h3>حسابك بانتظار موافقة المدير</h3>
+    <p class="muted">تم إنشاء حسابك كـ«صاحب حلال». بمجرّد موافقة المدير ستتمكّن من الدخول وإدارة حلالك الخاص. أعد تسجيل الدخول بعد التفعيل.</p>
     <div class="muted">${esc((me && me.full_name) || '')}</div></div>`;
 }
 
 /* ===== المصادقة ===== */
 function buildNav() {
-  const tabs = [['#/home', '🏠', 'الرئيسية'], ['#/animals', '🐑', 'الحلال']];
+  const tabs = [['#/home', '🏠', 'الرئيسية']];
+  if (can('animals', 'view')) tabs.push(['#/animals', '🐑', 'الحلال']);
   if (forumEnabled && canForumView()) tabs.push(['#/forum', '💬', 'المنتدى']);
   tabs.push(['#/alerts', '🔔', 'التنبيهات'], ['#/more', '☰', 'المزيد']);
   const nav = document.getElementById('bottomnav');
@@ -1780,13 +1785,23 @@ function renderAuth() {
   document.getElementById('app').classList.add('hidden');
   const box = document.getElementById('auth'); box.classList.remove('hidden');
   let mode = 'signin';
+  let acctType = 'owner';   // نوع الحساب عند التسجيل: صاحب حلال / زائر
   function draw() {
+    const typeSel = `
+      <div class="acct-type">
+        <button type="button" id="ty_owner" class="${acctType === 'owner' ? 'active' : ''}">🐑 صاحب حلال</button>
+        <button type="button" id="ty_visitor" class="${acctType === 'visitor' ? 'active' : ''}">👤 زائر</button>
+      </div>
+      <div class="muted acct-hint">${acctType === 'owner'
+        ? 'تدير حلالك الخاص (بهائمك، تلقيحك، تطعيماتك…) بخصوصية تامة. يُفعّل حسابك بعد موافقة المدير.'
+        : 'تتصفّح وتشارك في المنتدى والنصائح. الدخول فوري بلا انتظار، دون إدارة حلال.'}</div>`;
     box.innerHTML = `<div class="auth-box">
       <div class="logo">🐪</div><h2>مراح</h2><div class="sub">إدارة الحلال — دخول الفريق</div>
       <div class="auth-tabs"><button id="t_in" class="${mode === 'signin' ? 'active' : ''}">دخول</button>${signupOpen ? `<button id="t_up" class="${mode === 'signup' ? 'active' : ''}">حساب جديد</button>` : ''}</div>
       ${signupOpen ? '' : '<div class="muted" style="text-align:center;font-size:.85rem;margin:-4px 0 8px">التسجيل مغلق حالياً. راجع مدير النظام.</div>'}
       ${mode === 'signup'
-        ? fInput('الاسم', 'a_name', '') +
+        ? typeSel +
+          fInput('الاسم', 'a_name', '') +
           fInput('رقم الجوال', 'a_phone', '', 'tel', 'inputmode="tel"') +
           fInput('اسم المستخدم (اختياري)', 'a_user', '', 'text', 'autocomplete="off"') +
           pinField('الرقم السري (٤ أرقام)', 'a_pin')
@@ -1796,6 +1811,8 @@ function renderAuth() {
       <div class="auth-msg" id="a_msg"></div></div>`;
     document.getElementById('t_in').addEventListener('click', () => { mode = 'signin'; draw(); });
     { const up = document.getElementById('t_up'); if (up) up.addEventListener('click', () => { mode = 'signup'; draw(); }); }
+    { const o = document.getElementById('ty_owner'); if (o) o.addEventListener('click', () => { acctType = 'owner'; draw(); }); }
+    { const z = document.getElementById('ty_visitor'); if (z) z.addEventListener('click', () => { acctType = 'visitor'; draw(); }); }
     if (!signupOpen && mode === 'signup') { mode = 'signin'; }
     document.getElementById('a_submit').addEventListener('click', submit);
     box.querySelectorAll('.eye').forEach(b => b.addEventListener('click', () => {
@@ -1830,10 +1847,17 @@ function renderAuth() {
         if (phone.length < 7) { msg.classList.add('err'); msg.textContent = 'أدخل رقم جوال صحيح'; return; }
         const { data, error } = await sb.auth.signUp({
           email: phoneToEmail(phone), password: pinToPass(pin),
-          options: { data: { full_name, username, phone, app: 'mrahi' } },
+          options: { data: { full_name, username, phone, app: 'mrahi', account_type: acctType } },
         });
         if (error) throw error;
-        if (!data.session) { msg.classList.add('ok'); msg.textContent = 'تم إنشاء الحساب. حسابك بانتظار تفعيل المدير، ثم سجّل الدخول.'; mode = 'signin'; return; }
+        // الزائر: دخول فوري. صاحب الحلال: بانتظار موافقة المدير.
+        if (!data.session) {
+          msg.classList.add('ok');
+          msg.textContent = acctType === 'visitor'
+            ? 'تم إنشاء حساب الزائر. سجّل الدخول للمشاركة في المنتدى.'
+            : 'تم إنشاء حسابك كصاحب حلال. ينتظر موافقة المدير، ثم سجّل الدخول.';
+          mode = 'signin'; return;
+        }
       }
     } catch (e) {
       msg.classList.add('err'); msg.textContent = translateAuthError(e.message);
@@ -1857,7 +1881,7 @@ async function enterApp(session) {
   showLoading(true);
   // تحميل صف العضو الحالي
   const { data: mem } = await sb.from('mrahi_members').select('*').eq('user_id', session.user.id).maybeSingle();
-  me = mem || { user_id: session.user.id, full_name: '', role: 'member', is_active: false, perms: {}, is_sysadmin: false };
+  me = mem || { user_id: session.user.id, full_name: '', role: 'member', is_active: false, perms: {}, is_sysadmin: false, account_type: 'owner' };
   buildNav();   // بعد تحميل الصلاحيات حتى يظهر تبويب المنتدى حسبها
   if (!me.is_active) { showLoading(false); renderPending(); return; }
   try { await loadAll(); } catch (e) { toast('خطأ تحميل: ' + e.message); }
