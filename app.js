@@ -55,7 +55,11 @@ let forumTopicsModsOnly = false; // إنشاء المواضيع للمشرفين
 let siteVisits = 0;              // عدد زيارات الموقع الإجمالي (يظهر في الرئيسية)
 let siteVisitCounted = false;    // احتُسبت زيارة هذه الجلسة؟ (مرة واحدة لكل تحميل)
 const viewedTopics = new Set();  // مواضيع احتُسبت مشاهدتها هذه الجلسة (تفادي التكرار)
+let sharesOut = [];  // دعوات مشاركة حلالي التي أرسلتُها (أنا المالك)
+let sharesIn = [];   // دعوات/حلال مُشارَك معي (أنا المدعوّ)
 const C = { animals: [], matings: [], pregnancies: [], births: [], vaccineTypes: [], vaccinations: [], treatments: [], treatmentTypes: [], members: [], backups: [], types: [], tips: [], forumCats: [], forumMods: [], forumBans: [] };
+// جداول الحلال المعزولة بالمالك — تُحفظ نسخة خام في C._<key> ويُعرض في التطبيق حلالي فقط
+const HERD_KEYS = ['animals', 'matings', 'pregnancies', 'births', 'vaccinations', 'treatments'];
 const TABLES = {
   animals: 'mrahi_animals', matings: 'mrahi_matings', pregnancies: 'mrahi_pregnancies',
   births: 'mrahi_births', vaccineTypes: 'mrahi_vaccine_types', vaccinations: 'mrahi_vaccinations',
@@ -65,6 +69,8 @@ function can(mod, act) { return !!(me && me.is_active && (me.role === 'admin' ||
 const isAdmin = () => !!(me && me.role === 'admin' && me.is_active);
 // مدير النظام: صلاحية منفصلة عن إدارة المراح، تتحكّم بالمحتوى العام (النصائح والمعلومات)
 const isSys = () => !!(me && me.is_active && me.is_sysadmin);
+// صف حلال يخصّني؟ (التطبيق يعرض حلالي فقط؛ المدير يرى الكل؛ الحلال المُشارَك يُعرض في شاشة مستقلة)
+function mineHerdRow(r) { return !!(me && (me.role === 'admin' || r.owner_id === me.user_id)); }
 const animalById = (id) => C.animals.find(a => a.id === id);
 function display(a) { if (!a) return '—'; return esc(a.code || '—') + (a.name ? ' • ' + esc(a.name) : ''); }
 
@@ -72,7 +78,18 @@ function display(a) { if (!a) return '—'; return esc(a.code || '—') + (a.nam
 async function loadAll() {
   const keys = Object.keys(TABLES);
   const results = await Promise.all(keys.map(k => sb.from(TABLES[k]).select('*')));
-  keys.forEach((k, i) => { C[k] = results[i].error ? [] : (results[i].data || []); });
+  keys.forEach((k, i) => {
+    const data = results[i].error ? [] : (results[i].data || []);
+    if (HERD_KEYS.includes(k)) { C['_' + k] = data; C[k] = data.filter(r => mineHerdRow(r)); }
+    else C[k] = data;
+  });
+  // دعوات/مشاركات الحلال (الطرفان فقط يريانها)
+  try {
+    const sh = await sb.from('mrahi_herd_shares').select('*');
+    const all = sh.error ? [] : (sh.data || []);
+    sharesOut = all.filter(s => s.owner_id === me.user_id);
+    sharesIn = all.filter(s => s.member_id === me.user_id);
+  } catch (e) { sharesOut = []; sharesIn = []; }
   // أنواع الحلال القابلة للإدارة (تُحدّث القائمة العامة TYPES)
   try {
     const tr = await sb.from('mrahi_types').select('*');
@@ -279,6 +296,9 @@ const ROUTES = {
   types: { t: 'أنواع الحلال', back: true, fn: screenTypes },
   trash: { t: 'سلة المحذوفات', back: true, fn: screenTrash },
   tips: { t: 'النصائح والمعلومات', back: true, fn: screenTips },
+  guide: { t: 'دليل الاستخدام', back: true, fn: screenGuide },
+  shares: { t: 'مشاركة الحلال', back: true, fn: screenShares },
+  'shared-herd': { t: 'حلال مُشارَك', back: true, fn: screenSharedHerd },
   forum: { t: 'المنتدى', back: false, fn: screenForum },
   'forum-admin': { t: 'إعدادات المنتدى', back: true, fn: screenForumAdmin },
   'forum-cat': { t: 'المنتدى', back: true, fn: screenForumCategory },
@@ -323,11 +343,15 @@ function screenHome() {
       <div class="stat red"><div class="n">${treats.length}</div><div class="l">علاجات حالية</div></div>
     </div>` : ''}
     ${siteVisits ? `<div class="muted site-visits">👁 زيارات الموقع: ${siteVisits.toLocaleString('ar-EG')}</div>` : ''}
+    ${sharesIn.filter(s => s.status === 'pending').length ? `<div class="card click hl" data-go="#/shares"><div class="li-title">📨 دعوة لمشاهدة حلال (${sharesIn.filter(s => s.status === 'pending').length})</div><div class="li-sub">عضو يدعوك لمشاهدة حلاله — اضغط للرد</div></div>` : ''}
+    ${sharesIn.filter(s => s.status === 'accepted').map(s => `<div class="card click" data-go="#/shared-herd/${s.owner_id}"><div class="li-title">🤝 حلال ${esc(s.owner_name || 'عضو')}</div><div class="li-sub">مُشارَك معك — عرض فقط</div></div>`).join('')}
     ${!hasHerd && forumEnabled && canForumView() ? `<div class="card click" data-go-forum><div class="li-title">💬 المنتدى</div><div class="li-sub">شارك واطرح أسئلتك مع المجتمع</div></div>` : ''}
+    <div class="card click" data-go="#/guide"><div class="li-title">📖 دليل الاستخدام</div><div class="li-sub">كتيّب تفاعلي يشرح التطبيق خطوة بخطوة — افتحه وقلّب صفحاته</div></div>
     ${hasHerd ? `<div class="search"><input id="q" placeholder="ابحث برقم/وسم/شريحة/اسم البهيمة"></div><div id="qr"></div>` : ''}
     ${can('breeding', 'view') ? `<div class="card"><h3>الولادات القادمة (٧ أيام)</h3>${births.length ? births.map(p => row(display(animalById(p.animal_id)), `${fmtDate(p.expected)} (بعد ${daysUntil(p.expected)} يوم)`)).join('') : noItem()}</div>` : ''}
     ${can('treatments', 'view') ? `<div class="card"><h3>العلاجات الحالية (تحت التحريم)</h3>${treats.length ? treats.map(t => row(display(animalById(t.animal_id)), `${esc(t.med_name)} • ينتهي ${fmtDate(t.withdrawal_end)}`)).join('') : noItem()}</div>` : ''}`;
   { const gf = view().querySelector('[data-go-forum]'); if (gf) gf.addEventListener('click', () => setHash('#/forum')); }
+  view().querySelectorAll('[data-go]').forEach(c => c.addEventListener('click', () => setHash(c.dataset.go)));
   const q = document.getElementById('q');
   if (q) q.addEventListener('input', () => {
     const term = q.value.trim().toLowerCase(); const box = document.getElementById('qr');
@@ -874,7 +898,9 @@ async function bulkApply() {
 /* ===== المزيد ===== */
 function screenMore() {
   const items = [];
+  items.push(['📖 دليل الاستخدام', '#/guide']);
   if (isAdmin() || isAnyForumMod()) items.push(['⚙️ إعدادات المنتدى', '#/forum-admin']);
+  if (can('animals', 'view') || sharesIn.length) { const np = sharesIn.filter(s => s.status === 'pending').length; items.push([`🤝 مشاركة الحلال${np ? ` (${np} دعوة)` : ''}`, '#/shares']); }
   if (can('breeding', 'view')) items.push(['🤰 الحمل والمتابعة', '#/pregnancies']);
   if (can('vaccines', 'view')) items.push(['💉 أنواع التطعيمات', '#/vaccine-types']);
   if (can('vaccines', 'edit')) items.push(['💉 إعطاء تطعيم', '#/vaccinate/0']);
@@ -890,6 +916,145 @@ function screenMore() {
     + `<div class="muted" style="text-align:center;margin-top:18px;font-size:.85rem">مراح — مزرعة مشتركة • بياناتك على Supabase</div>`;
   view().querySelectorAll('[data-go]').forEach(c => c.addEventListener('click', () => setHash(c.dataset.go)));
 }
+
+/* ===== دليل الاستخدام (كتاب ثلاثي الأبعاد) ===== */
+function screenGuide(arg) {
+  if (!window.MrahiGuide) { view().innerHTML = '<div class="center-empty">تعذّر تحميل الدليل.</div>'; return; }
+  window.MrahiGuide.render(view(), arg || null, {
+    isAdmin: isAdmin(),
+    accountType: (me && me.account_type) || 'owner',
+  });
+}
+
+/* ===== مشاركة الحلال (دعوة وقبول متبادل) ===== */
+const shareStatusAr = (s) => ({ pending: 'بانتظار القبول', accepted: 'مقبولة', declined: 'مرفوضة', revoked: 'مسحوبة' }[s] || s);
+async function shareUpdate(id, obj) { const ok = await guard(async () => { const { error } = await sb.from('mrahi_herd_shares').update(obj).eq('id', id); if (error) throw error; }); if (ok) { await loadAll(); screenShares(); } }
+async function shareRemove(id) { if (!await confirm2('إزالة هذه المشاركة؟')) return; const ok = await guard(async () => { const { error } = await sb.from('mrahi_herd_shares').delete().eq('id', id); if (error) throw error; }); if (ok) { toast('تمت الإزالة'); await loadAll(); screenShares(); } }
+
+function screenShares() {
+  const owner = can('animals', 'view');               // أملك حلالاً أشاركه؟
+  const inPending = sharesIn.filter(s => s.status === 'pending');
+  const inAccepted = sharesIn.filter(s => s.status === 'accepted');
+  const out = sharesOut.slice().sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+
+  const inviteCard = owner ? `
+    <div class="card"><h3>🤝 دعوة عضو لمشاهدة حلالي</h3>
+      <div class="muted" style="font-size:.85rem;margin-bottom:8px">أدخل رقم جوال العضو أو اسم المستخدم الخاص به. سيصله طلب، وبقبوله يطّلع على حلالك <b>للعرض فقط</b> دون تعديل. يمكنك سحب المشاركة في أي وقت.</div>
+      <input id="sh_id" placeholder="رقم الجوال أو اسم المستخدم" inputmode="text" autocomplete="off">
+      <button class="btn" id="sh_send" style="margin-top:8px">إرسال الدعوة</button>
+      <div class="auth-msg" id="sh_msg"></div>
+    </div>
+    <div class="card"><h3>حلالي المُشارَك (${out.length})</h3>
+      ${out.length ? out.map(s => `<div class="share-row">
+          <div><div class="li-title sm">${esc(s.member_name || 'عضو')}</div>
+            <div class="li-sub"><span class="badge ${s.status === 'accepted' ? '' : 'off'}">${shareStatusAr(s.status)}</span></div></div>
+          <div class="btn-row">
+            ${s.status === 'accepted' ? `<button class="btn sm danger" data-revoke="${s.id}">سحب الوصول</button>`
+              : s.status === 'pending' ? `<button class="btn sm outline" data-rm="${s.id}">إلغاء الدعوة</button>`
+              : `<button class="btn sm outline" data-rm="${s.id}">حذف</button>`}
+          </div></div>`).join('') : '<div class="muted">لم تُشارك حلالك مع أحد بعد.</div>'}
+    </div>` : '';
+
+  const incomingCard = `
+    <div class="card"><h3>📨 حلال مُشارَك معي</h3>
+      ${inPending.length ? `<div class="muted" style="font-size:.85rem;margin-bottom:6px">دعوات بانتظار ردّك:</div>` + inPending.map(s => `<div class="share-row">
+          <div><div class="li-title sm">${esc(s.owner_name || 'عضو')}</div>
+            <div class="li-sub">يدعوك لمشاهدة حلاله (عرض فقط)</div></div>
+          <div class="btn-row">
+            <button class="btn sm" data-accept="${s.id}">قبول</button>
+            <button class="btn sm danger" data-decline="${s.id}">رفض</button>
+          </div></div>`).join('') : ''}
+      ${inAccepted.length ? `<div class="muted" style="font-size:.85rem;margin:8px 0 6px">حلال يمكنك مشاهدته:</div>` + inAccepted.map(s => `<div class="share-row">
+          <div><div class="li-title sm">${esc(s.owner_name || 'عضو')}</div>
+            <div class="li-sub">عرض فقط</div></div>
+          <div class="btn-row">
+            <button class="btn sm" data-view="${s.owner_id}">👁 عرض الحلال</button>
+            <button class="btn sm outline" data-rm="${s.id}">إزالة</button>
+          </div></div>`).join('') : ''}
+      ${(!inPending.length && !inAccepted.length) ? '<div class="muted">لا توجد دعوات أو حلال مُشارَك معك.</div>' : ''}
+    </div>`;
+
+  view().innerHTML = inviteCard + incomingCard;
+
+  const send = document.getElementById('sh_send');
+  if (send) send.addEventListener('click', async () => {
+    const msg = document.getElementById('sh_msg'); msg.className = 'auth-msg';
+    const id = document.getElementById('sh_id').value.trim();
+    if (!id) { msg.classList.add('err'); msg.textContent = 'أدخل رقم الجوال أو اسم المستخدم'; return; }
+    send.disabled = true;
+    try {
+      const { data, error } = await sb.rpc('mrahi_invite_to_herd', { p_identifier: id });
+      if (error) throw error;
+      if (data && data.ok) { msg.classList.add('ok'); msg.textContent = 'تم إرسال الدعوة بنجاح'; document.getElementById('sh_id').value = ''; await loadAll(); setTimeout(screenShares, 700); }
+      else {
+        const e = data && data.err;
+        msg.classList.add('err');
+        msg.textContent = e === 'notfound' ? 'لا يوجد عضو بهذا الرقم أو الاسم'
+          : e === 'self' ? 'لا يمكنك دعوة نفسك'
+          : e === 'empty' ? 'أدخل رقم الجوال أو اسم المستخدم'
+          : 'تعذّر إرسال الدعوة';
+      }
+    } catch (e) { const msg2 = document.getElementById('sh_msg'); msg2.classList.add('err'); msg2.textContent = 'تعذّر إرسال الدعوة: ' + (e.message || ''); }
+    finally { const s = document.getElementById('sh_send'); if (s) s.disabled = false; }
+  });
+
+  view().querySelectorAll('[data-accept]').forEach(b => b.addEventListener('click', () => shareUpdate(b.dataset.accept, { status: 'accepted', responded_at: new Date().toISOString() })));
+  view().querySelectorAll('[data-decline]').forEach(b => b.addEventListener('click', () => shareUpdate(b.dataset.decline, { status: 'declined', responded_at: new Date().toISOString() })));
+  view().querySelectorAll('[data-revoke]').forEach(b => b.addEventListener('click', async () => { if (await confirm2('سحب وصول هذا العضو إلى حلالك؟')) shareUpdate(b.dataset.revoke, { status: 'revoked' }); }));
+  view().querySelectorAll('[data-rm]').forEach(b => b.addEventListener('click', () => shareRemove(b.dataset.rm)));
+  view().querySelectorAll('[data-view]').forEach(b => b.addEventListener('click', () => setHash('#/shared-herd/' + b.dataset.view)));
+}
+
+/* ===== عرض حلال مُشارَك (عرض فقط) ===== */
+function screenSharedHerd() {
+  const ownerId = parseHash().arg;
+  const share = sharesIn.find(s => s.owner_id === ownerId && s.status === 'accepted');
+  if (!share) { view().innerHTML = `<div class="center-empty">لا تملك صلاحية مشاهدة هذا الحلال.</div>`; return; }
+  const ownerName = share.owner_name || 'عضو';
+  const ttl = document.getElementById('screenTitle'); if (ttl) ttl.textContent = 'حلال ' + ownerName;
+  const animals = (C._animals || []).filter(a => a.owner_id === ownerId);
+  const present = animals.filter(a => a.status === 'present');
+  view().innerHTML = `
+    <div class="ro-banner">👁 عرض فقط — حلال ${esc(ownerName)}</div>
+    <div class="stats">
+      <div class="stat green"><div class="n">${present.length}</div><div class="l">في المراح</div></div>
+      <div class="stat blue"><div class="n">${animals.length}</div><div class="l">الإجمالي</div></div>
+    </div>
+    <div class="search"><input id="shq" placeholder="ابحث برقم/اسم/مراح"></div>
+    <div class="card"><h3>الحلال (${present.length})</h3><div id="shlist"></div></div>`;
+  const listEl = document.getElementById('shlist');
+  const drawList = (term) => {
+    let arr = present;
+    if (term) { const t = term.toLowerCase(); arr = present.filter(a => [a.code, a.name, a.pen].some(x => (x || '').toLowerCase().includes(t))); }
+    arr = arr.slice().sort((a, b) => b.id - a.id);
+    listEl.innerHTML = arr.length ? arr.map(a => `<div class="card click" data-sa="${a.id}"><div class="li-title">${display(a)}</div><div class="li-sub">${arOf(TYPES, a.type)} • ${arOf(SEX, a.sex)}${a.pen ? ' • المراح: ' + esc(a.pen) : ''}</div></div>`).join('') : noItem();
+    listEl.querySelectorAll('[data-sa]').forEach(c => c.addEventListener('click', () => sharedAnimalModal(parseInt(c.dataset.sa, 10), ownerId)));
+  };
+  drawList('');
+  const q = document.getElementById('shq'); if (q) q.addEventListener('input', () => drawList(q.value.trim()));
+}
+
+// بطاقة بهيمة من حلال مُشارَك — سجلّ كامل للعرض فقط
+function sharedAnimalModal(id, ownerId) {
+  const a = (C._animals || []).find(x => x.id === id);
+  if (!a) return;
+  const f = (arr) => (arr || []).filter(r => r.owner_id === ownerId && r.animal_id === id);
+  const mts = f(C._matings).sort((x, y) => (y.date || '').localeCompare(x.date || ''));
+  const prg = f(C._pregnancies);
+  const vac = f(C._vaccinations).sort((x, y) => (y.date || '').localeCompare(x.date || ''));
+  const trt = f(C._treatments).sort((x, y) => (y.date || '').localeCompare(x.date || ''));
+  const vtName = (tid) => { const v = C.vaccineTypes.find(x => x.id === tid); return v ? esc(v.name) : 'تطعيم'; };
+  const sec = (title, html) => `<div class="card" style="margin:6px 0"><h3>${title}</h3>${html}</div>`;
+  openModal('سجل ' + (a.code || 'البهيمة'), `
+    <div class="muted" style="margin-bottom:8px">${arOf(TYPES, a.type)} • ${arOf(SEX, a.sex)}${a.birth ? ' • مواليد ' + fmtDate(a.birth) : ''}${a.color ? ' • ' + esc(a.color) : ''}</div>
+    ${sec('🤰 التلقيح والحمل', (mts.length || prg.length)
+      ? (matingRows(mts) + prg.map(p => row('حمل (' + arOf(PREG, p.status) + ')', p.expected ? 'متوقّع ' + fmtDate(p.expected) : '—')).join(''))
+      : noItem())}
+    ${sec('💉 التطعيمات', vac.length ? vac.map(v => row(fmtDate(v.date) + ' — ' + vtName(v.type_id), v.withdrawal_end ? 'تحريم حتى ' + fmtDate(v.withdrawal_end) : '—')).join('') : noItem())}
+    ${sec('💊 العلاجات', trt.length ? trt.map(t => row(esc(t.med_name) + ' (' + fmtDate(t.date) + ')', t.withdrawal_end ? 'تحريم حتى ' + fmtDate(t.withdrawal_end) : '—')).join('') : noItem())}
+  `);
+}
+function matingRows(mts) { return mts.map(m => row('تلقيح ' + fmtDate(m.date), 'الفحل: ' + (esc(m.sire_name) || esc(m.sire_code) || '—'))).join(''); }
 
 /* ===== النسخ الاحتياطي (تصدير) ===== */
 function snapshot() {
@@ -1295,6 +1460,8 @@ let curForumCat = null;   // قسم الموضوع المفتوح حالياً (
 let curForumLocked = false; // هل الموضوع المفتوح مُغلق
 let forumShowModTools = localStorage.getItem('mrahi_forum_modtools') !== '0'; // المشرف: إظهار أدوات التحكم بالمواضيع والمشاركات
 const forumMemberName = (uid) => { const m = (C.members || []).find(x => x.user_id === uid); return m ? (m.full_name || m.username || 'عضو') : 'عضو'; };
+// اسم المشرف للعرض العام — مخزّن في صف الإشراف (لا يتطلّب قراءة دليل الأعضاء)
+const forumModName = (m) => m.member_name || forumMemberName(m.user_id);
 const forumModsOf = (catId) => (C.forumMods || []).filter(m => m.category_id === catId);
 const isAnyForumMod = () => isAdmin() || (C.forumMods || []).some(m => m.user_id === me.user_id);
 const isForumMod = (catId) => isAdmin() || (C.forumMods || []).some(m => m.category_id === catId && m.user_id === me.user_id);
@@ -1403,7 +1570,7 @@ async function screenForumAdmin() {
         return `<div class="card">
             <div class="li-title">${esc(c.icon || '💬')} ${esc(c.name)} ${c.is_hidden ? '<span class="badge off">مخفي</span>' : ''}</div>
             ${c.description ? `<div class="li-sub">${esc(c.description)}</div>` : ''}
-            <div class="li-sub">${mods.length ? '🛡️ ' + mods.map(m => esc(forumMemberName(m.user_id)) + ' (' + esc(m.title || 'مشرف') + ')').join('، ') : 'لا مشرفين لهذا القسم'}</div>
+            <div class="li-sub">${mods.length ? '🛡️ ' + mods.map(m => esc(forumModName(m)) + ' (' + esc(m.title || 'مشرف') + ')').join('، ') : 'لا مشرفين لهذا القسم'}</div>
             <div class="btn-row" style="margin-top:8px">
               <button class="btn sm outline" data-editcat="${c.id}">✎ تعديل</button>
               <button class="btn sm outline" data-mods="${c.id}">👤 المشرفون</button>
@@ -1490,7 +1657,7 @@ async function screenForumCategory(catId) {
     box.querySelectorAll('[data-topic]').forEach(c => c.addEventListener('click', () => setHash('#/forum-topic/' + c.dataset.topic)));
   };
   const mods = forumModsOf(catId);
-  const modsLine = mods.length ? `<div class="forum-mods">🛡️ مشرفو القسم: ${mods.map(m => esc(forumMemberName(m.user_id)) + ' (' + esc(m.title || 'مشرف') + ')').join('، ')}</div>` : '';
+  const modsLine = mods.length ? `<div class="forum-mods">🛡️ مشرفو القسم: ${mods.map(m => esc(forumModName(m)) + ' (' + esc(m.title || 'مشرف') + ')').join('، ')}</div>` : '';
   view().innerHTML = `${cat ? `<div class="muted" style="margin-bottom:8px">${esc(cat.icon || '')} ${esc(cat.description || '')}</div>` : ''}
     ${modsLine}
     <div class="search"><input id="fq" placeholder="ابحث في عناوين ومحتوى المواضيع"></div>
@@ -1712,7 +1879,7 @@ function forumModsModal(catId) {
   const candidates = (C.members || []).filter(m => m.is_active).map(m => ({ k: m.user_id, ar: (m.full_name || m.username || 'عضو') + (m.username ? ' (@' + m.username + ')' : '') }));
   openModal('مشرفو القسم', `
     <div class="muted" style="margin-bottom:8px">المشرف يستطيع تثبيت/إغلاق المواضيع وحذف/تعديل أي محتوى داخل هذا القسم فقط، ويظهر تعريفه بجانب اسمه.</div>
-    <div id="fmodlist">${mods.length ? mods.map(m => `<div class="fmod-row"><span>${esc(forumMemberName(m.user_id))} <span class="badge mod">🛡️ ${esc(m.title || 'مشرف')}</span></span><button class="btn sm danger" data-rmmod="${m.id}">إزالة</button></div>`).join('') : '<div class="muted">لا مشرفين بعد.</div>'}</div>
+    <div id="fmodlist">${mods.length ? mods.map(m => `<div class="fmod-row"><span>${esc(forumModName(m))} <span class="badge mod">🛡️ ${esc(m.title || 'مشرف')}</span></span><button class="btn sm danger" data-rmmod="${m.id}">إزالة</button></div>`).join('') : '<div class="muted">لا مشرفين بعد.</div>'}</div>
     <hr style="border:none;border-top:1px solid #eee;margin:12px 0">
     <div class="li-title sm" style="margin-bottom:6px">➕ تعيين مشرف</div>
     ${fSelect('العضو', 'fm_user', candidates, '', '— اختر عضواً —')}
@@ -1721,7 +1888,9 @@ function forumModsModal(catId) {
     document.getElementById('fm_add').addEventListener('click', async () => {
       const uid = val('fm_user'), title = val('fm_title').trim();
       if (!uid) { toast('اختر العضو'); return; }
-      const ok = await guard(async () => { const { error } = await sb.from('mrahi_forum_moderators').upsert({ category_id: catId, user_id: uid, title }, { onConflict: 'category_id,user_id' }); if (error) throw error; });
+      const mm = (C.members || []).find(x => x.user_id === uid);
+      const member_name = mm ? (mm.full_name || mm.username || '') : '';
+      const ok = await guard(async () => { const { error } = await sb.from('mrahi_forum_moderators').upsert({ category_id: catId, user_id: uid, title, member_name }, { onConflict: 'category_id,user_id' }); if (error) throw error; });
       if (ok) { closeModal(); toast('تم التعيين'); await loadAll(); forumModsRefresh(catId); }
     });
     document.querySelectorAll('[data-rmmod]').forEach(b => b.addEventListener('click', async () => {
@@ -1761,7 +1930,8 @@ function buildNav() {
   const tabs = [['#/home', '🏠', 'الرئيسية']];
   if (can('animals', 'view')) tabs.push(['#/animals', '🐑', 'الحلال']);
   if (forumEnabled && canForumView()) tabs.push(['#/forum', '💬', 'المنتدى']);
-  tabs.push(['#/alerts', '🔔', 'التنبيهات'], ['#/more', '☰', 'المزيد']);
+  if (can('animals', 'view') || can('breeding', 'view') || can('vaccines', 'view') || can('treatments', 'view')) tabs.push(['#/alerts', '🔔', 'التنبيهات']);
+  tabs.push(['#/more', '☰', 'المزيد']);
   const nav = document.getElementById('bottomnav');
   nav.style.gridTemplateColumns = `repeat(${tabs.length},1fr)`;
   nav.innerHTML = tabs.map(([r, i, l]) => `<button class="nav-item" data-route="${r}"><span>${i}</span>${l}</button>`).join('');
