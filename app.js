@@ -296,6 +296,7 @@ const ROUTES = {
   types: { t: 'أنواع الحلال', back: true, fn: screenTypes },
   trash: { t: 'سلة المحذوفات', back: true, fn: screenTrash },
   tips: { t: 'النصائح والمعلومات', back: true, fn: screenTips },
+  guide: { t: 'دليل الاستخدام', back: true, fn: screenGuide },
   shares: { t: 'مشاركة الحلال', back: true, fn: screenShares },
   'shared-herd': { t: 'حلال مُشارَك', back: true, fn: screenSharedHerd },
   forum: { t: 'المنتدى', back: false, fn: screenForum },
@@ -345,6 +346,7 @@ function screenHome() {
     ${sharesIn.filter(s => s.status === 'pending').length ? `<div class="card click hl" data-go="#/shares"><div class="li-title">📨 دعوة لمشاهدة حلال (${sharesIn.filter(s => s.status === 'pending').length})</div><div class="li-sub">عضو يدعوك لمشاهدة حلاله — اضغط للرد</div></div>` : ''}
     ${sharesIn.filter(s => s.status === 'accepted').map(s => `<div class="card click" data-go="#/shared-herd/${s.owner_id}"><div class="li-title">🤝 حلال ${esc(s.owner_name || 'عضو')}</div><div class="li-sub">مُشارَك معك — عرض فقط</div></div>`).join('')}
     ${!hasHerd && forumEnabled && canForumView() ? `<div class="card click" data-go-forum><div class="li-title">💬 المنتدى</div><div class="li-sub">شارك واطرح أسئلتك مع المجتمع</div></div>` : ''}
+    <div class="card click" data-go="#/guide"><div class="li-title">📖 دليل الاستخدام</div><div class="li-sub">كتيّب تفاعلي يشرح التطبيق خطوة بخطوة — افتحه وقلّب صفحاته</div></div>
     ${hasHerd ? `<div class="search"><input id="q" placeholder="ابحث برقم/وسم/شريحة/اسم البهيمة"></div><div id="qr"></div>` : ''}
     ${can('breeding', 'view') ? `<div class="card"><h3>الولادات القادمة (٧ أيام)</h3>${births.length ? births.map(p => row(display(animalById(p.animal_id)), `${fmtDate(p.expected)} (بعد ${daysUntil(p.expected)} يوم)`)).join('') : noItem()}</div>` : ''}
     ${can('treatments', 'view') ? `<div class="card"><h3>العلاجات الحالية (تحت التحريم)</h3>${treats.length ? treats.map(t => row(display(animalById(t.animal_id)), `${esc(t.med_name)} • ينتهي ${fmtDate(t.withdrawal_end)}`)).join('') : noItem()}</div>` : ''}`;
@@ -896,6 +898,7 @@ async function bulkApply() {
 /* ===== المزيد ===== */
 function screenMore() {
   const items = [];
+  items.push(['📖 دليل الاستخدام', '#/guide']);
   if (isAdmin() || isAnyForumMod()) items.push(['⚙️ إعدادات المنتدى', '#/forum-admin']);
   if (can('animals', 'view') || sharesIn.length) { const np = sharesIn.filter(s => s.status === 'pending').length; items.push([`🤝 مشاركة الحلال${np ? ` (${np} دعوة)` : ''}`, '#/shares']); }
   if (can('breeding', 'view')) items.push(['🤰 الحمل والمتابعة', '#/pregnancies']);
@@ -912,6 +915,15 @@ function screenMore() {
   view().innerHTML = (items.length ? items.map(([l, h]) => `<div class="card click" data-go="${h}"><div class="li-title">${l}</div></div>`).join('') : '<div class="center-empty">لا توجد عناصر متاحة بصلاحياتك.</div>')
     + `<div class="muted" style="text-align:center;margin-top:18px;font-size:.85rem">مراح — مزرعة مشتركة • بياناتك على Supabase</div>`;
   view().querySelectorAll('[data-go]').forEach(c => c.addEventListener('click', () => setHash(c.dataset.go)));
+}
+
+/* ===== دليل الاستخدام (كتاب ثلاثي الأبعاد) ===== */
+function screenGuide(arg) {
+  if (!window.MrahiGuide) { view().innerHTML = '<div class="center-empty">تعذّر تحميل الدليل.</div>'; return; }
+  window.MrahiGuide.render(view(), arg || null, {
+    isAdmin: isAdmin(),
+    accountType: (me && me.account_type) || 'owner',
+  });
 }
 
 /* ===== مشاركة الحلال (دعوة وقبول متبادل) ===== */
