@@ -359,6 +359,8 @@ const activeTreatments = () => C.treatments.filter(t => t.withdrawal_end && days
 /* ===== الرئيسية ===== */
 function screenHome() {
   const present = C.animals.filter(a => a.status === 'present').length;
+  const sold = C.animals.filter(a => a.status === 'sold').length;
+  const dead = C.animals.filter(a => a.status === 'dead').length;
   const births = upcomingBirths(), vaccs = upcomingVacc(), treats = activeTreatments();
   const hasHerd = can('animals', 'view');
   const roleLabel = isAdmin() ? 'مدير' : (me.account_type === 'visitor' ? 'زائر' : 'صاحب حلال');
@@ -366,11 +368,17 @@ function screenHome() {
     <div class="title-lg">مراح</div>
     <div class="muted">أهلاً ${esc(me.full_name || '')} • ${roleLabel}</div>
     ${tipsHomeCards()}
-    ${hasHerd ? `<div class="stats">
-      <div class="stat green"><div class="n">${present}</div><div class="l">عدد الحلال</div></div>
-      <div class="stat amber"><div class="n">${births.length}</div><div class="l">ولادات قادمة</div></div>
-      <div class="stat blue"><div class="n">${vaccs.length}</div><div class="l">تطعيمات قادمة</div></div>
-      <div class="stat red"><div class="n">${treats.length}</div><div class="l">علاجات حالية</div></div>
+    ${hasHerd ? `<div class="muted" style="font-size:.8rem;margin:2px 0 4px">اضغط أي بطاقة لعرض محتواها</div>
+    <div class="stats">
+      <div class="stat green" data-sfilter="present" style="cursor:pointer"><div class="n">${present}</div><div class="l">في المراح</div></div>
+      <div class="stat amber" data-go="#/alerts" style="cursor:pointer"><div class="n">${births.length}</div><div class="l">ولادات قادمة</div></div>
+      <div class="stat blue" data-go="#/alerts" style="cursor:pointer"><div class="n">${vaccs.length}</div><div class="l">تطعيمات قادمة</div></div>
+      <div class="stat red" data-go="#/alerts" style="cursor:pointer"><div class="n">${treats.length}</div><div class="l">علاجات حالية</div></div>
+    </div>
+    <div class="stats">
+      <div class="stat" data-sfilter="sold" style="cursor:pointer"><div class="n">${sold}</div><div class="l">مباعة</div></div>
+      <div class="stat" data-sfilter="dead" style="cursor:pointer"><div class="n">${dead}</div><div class="l">نافقة</div></div>
+      <div class="stat" data-go="#/inspect" style="cursor:pointer"><div class="n">📊</div><div class="l">إحصائيات</div></div>
     </div>` : ''}
     ${siteVisits ? `<div class="muted site-visits">👁 زيارات الموقع: ${siteVisits.toLocaleString('ar-EG')}</div>` : ''}
     ${sharesIn.filter(s => s.status === 'pending').length ? `<div class="card click hl" data-go="#/shares"><div class="li-title">📨 دعوة لمشاهدة حلال (${sharesIn.filter(s => s.status === 'pending').length})</div><div class="li-sub">عضو يدعوك لمشاهدة حلاله — اضغط للرد</div></div>` : ''}
@@ -382,6 +390,8 @@ function screenHome() {
     ${can('treatments', 'view') ? `<div class="card"><h3>العلاجات الحالية (تحت التحريم)</h3>${treats.length ? treats.map(t => row(display(animalById(t.animal_id)), `${esc(t.med_name)} • ينتهي ${fmtDate(t.withdrawal_end)}`)).join('') : noItem()}</div>` : ''}`;
   { const gf = view().querySelector('[data-go-forum]'); if (gf) gf.addEventListener('click', () => setHash('#/forum')); }
   view().querySelectorAll('[data-go]').forEach(c => c.addEventListener('click', () => setHash(c.dataset.go)));
+  // بطاقات الحالة: تفتح قائمة الحلال مُرشَّحة (في المراح/مباعة/نافقة)
+  view().querySelectorAll('[data-sfilter]').forEach(c => c.addEventListener('click', () => { animalFilter = ''; animalStatusFilter = c.dataset.sfilter; setHash('#/animals'); }));
   const q = document.getElementById('q');
   if (q) q.addEventListener('input', () => {
     const term = q.value.trim().toLowerCase(); const box = document.getElementById('qr');
@@ -1087,38 +1097,69 @@ async function bulkApply() {
 }
 
 /* ===== المزيد ===== */
+const moreOpen = new Set(['herd']);   // التصنيفات المفتوحة (الشائع «الحلال» مفتوح افتراضياً)
 function screenMore() {
-  const items = [];
-  if (can('animals', 'view') || (me && me.account_type === 'owner')) items.push(['🐑 دليل صاحب المراح', '#/guide/owner']);
-  if (isAdmin()) items.push(['🛡️ دليل مدير النظام', '#/guide/admin']);
-  if (!window.MRAH_LOCAL && (isAdmin() || isAnyForumMod())) items.push(['⚙️ إعدادات المنتدى', '#/forum-admin']);
-  if (!window.MRAH_LOCAL && (can('animals', 'view') || sharesIn.length)) { const np = sharesIn.filter(s => s.status === 'pending').length; items.push([`🤝 مشاركة الحلال${np ? ` (${np} دعوة)` : ''}`, '#/shares']); }
-  if (can('breeding', 'view')) items.push(['🤰 الحمل والمتابعة', '#/pregnancies']);
-  if (can('vaccines', 'view')) items.push(['💉 أنواع التطعيمات', '#/vaccine-types']);
-  if (can('vaccines', 'edit')) items.push(['💉 إعطاء تطعيم', '#/vaccinate/0']);
-  if (can('treatments', 'view')) items.push(['💊 أنواع العلاج', '#/treatment-types']);
-  if (can('treatments', 'edit')) items.push(['💊 إضافة علاج', '#/treat/0']);
-  if (can('animals', 'view')) items.push(['🔍 تفقد الحلال وإحصائيات', '#/inspect']);
-  if (can('animals', 'add')) items.push(['📋 إضافة جماعية (دفعة)', '#/bulk/buy']);
-  if (can('animals', 'add') || can('animals', 'edit') || can('vaccines', 'edit') || can('treatments', 'edit') || can('breeding', 'edit')) items.push(['⚙️ عمليات جماعية (تطعيم/علاج/بيع…)', '#/bulk']);
-  if (can('backup', 'view')) items.push(['💾 النسخ الاحتياطي', '#/backup']);
-  if (isAdmin()) items.push(['🐑 أنواع الحلال', '#/types']);
-  if (isAdmin()) items.push(['🗑️ سلة المحذوفات', '#/trash']);
-  if (!window.MRAH_LOCAL && isAdmin()) items.push(['👥 المستخدمون والصلاحيات', '#/members']);
-  if (isSys()) items.push(['💡 النصائح والمعلومات', '#/tips']);
-  const ver = window.MRAH_VERSION ? ` • نسخة ${window.MRAH_VERSION}` : '';
-  const footer = (window.MRAH_LOCAL ? 'مراح — تطبيق محلّي • بياناتك محفوظة على جهازك فقط' : 'مراح — مزرعة مشتركة • بياناتك على Supabase') + ver;
-  const switchCard = window.MRAH_APK ? `<div class="card click" data-switch><div class="li-title">🔧 وضع قاعدة البيانات (${window.MRAH_LOCAL ? 'محلي' : 'مشترك'}) — تغيير</div></div>` : '';
+  const owner = me && me.account_type === 'owner';
+  const I = (cond, label, hash) => cond ? [label, hash] : null;
+  const np = sharesIn.filter(s => s.status === 'pending').length;
+  const cats = [
+    { key: 'herd', title: '🐑 الحلال والمتابعة', items: [
+      I(can('animals', 'view'), '🔍 تفقد الحلال وإحصائيات', '#/inspect'),
+      I(can('animals', 'add'), '📋 إضافة جماعية (دفعة)', '#/bulk/buy'),
+      I(can('breeding', 'view'), '🤰 الحمل والمتابعة', '#/pregnancies'),
+    ].filter(Boolean) },
+    { key: 'health', title: '💉 الصحة (تطعيم وعلاج)', items: [
+      I(can('vaccines', 'edit'), '💉 إعطاء تطعيم', '#/vaccinate/0'),
+      I(can('vaccines', 'view'), '💉 أنواع التطعيمات', '#/vaccine-types'),
+      I(can('treatments', 'edit'), '💊 إضافة علاج', '#/treat/0'),
+      I(can('treatments', 'view'), '💊 أنواع العلاج', '#/treatment-types'),
+    ].filter(Boolean) },
+    { key: 'ops', title: '⚙️ عمليات وبيانات', items: [
+      I(can('animals', 'add') || can('animals', 'edit') || can('vaccines', 'edit') || can('treatments', 'edit') || can('breeding', 'edit'), '⚙️ عمليات جماعية (تطعيم/علاج/بيع…)', '#/bulk'),
+      I(can('backup', 'view'), '💾 النسخ الاحتياطي', '#/backup'),
+      I(!window.MRAH_LOCAL && (can('animals', 'view') || sharesIn.length), `🤝 مشاركة الحلال${np ? ` (${np} دعوة)` : ''}`, '#/shares'),
+    ].filter(Boolean) },
+    { key: 'guides', title: '📖 الأدلة', items: [
+      I(true, '📘 دليل الاستخدام', '#/guide'),
+    ].filter(Boolean) },
+    { key: 'admin', title: '🛡️ الإدارة', items: [
+      I(isAdmin(), '🐑 أنواع الحلال (مدة الحمل/البلوغ)', '#/types'),
+      I(isAdmin(), '🗑️ سلة المحذوفات', '#/trash'),
+      I(!window.MRAH_LOCAL && isAdmin(), '👥 المستخدمون والصلاحيات', '#/members'),
+      I(!window.MRAH_LOCAL && (isAdmin() || isAnyForumMod()), '⚙️ إعدادات المنتدى', '#/forum-admin'),
+      I(isSys(), '💡 النصائح والمعلومات', '#/tips'),
+      I(window.MRAH_APK, `🔧 وضع قاعدة البيانات (${window.MRAH_LOCAL ? 'محلي' : 'مشترك'}) — تغيير`, '__switch'),
+    ].filter(Boolean) },
+    { key: 'app', title: '📱 التطبيق', items: [
+      I(window.MRAH_APK, '🔄 تحقق من وجود تحديث', '__checkupdate'),
+    ].filter(Boolean) },
+  ].filter(c => c.items.length);
+
+  // عند توفّر تحديث: بطاقة بارزة دائمة أعلى الصفحة (تسهيل)
   const upd = window.mrahiUpdateInfo;
-  const updateCard = window.MRAH_APK
-    ? `<div class="card click ${upd ? 'hl' : ''}" data-checkupdate><div class="li-title">${upd ? `🔄 يوجد تحديث جديد (${esc(upd.version)}) — نزّله الآن` : '🔄 تحقق من وجود تحديث'}</div>${upd ? '<div class="li-sub">يفتح صفحة التنزيل لتثبيت النسخة الجديدة فوق الحالية (بياناتك محفوظة)</div>' : ''}</div>`
+  const topUpdate = (window.MRAH_APK && upd)
+    ? `<div class="card click hl" data-go="__checkupdate"><div class="li-title">🔄 يوجد تحديث جديد (${esc(upd.version)}) — نزّله الآن</div><div class="li-sub">يفتح صفحة التنزيل لتثبيت النسخة الجديدة (بياناتك محفوظة)</div></div>`
     : '';
-  view().innerHTML = (items.length ? items.map(([l, h]) => `<div class="card click" data-go="${h}"><div class="li-title">${l}</div></div>`).join('') : '<div class="center-empty">لا توجد عناصر متاحة بصلاحياتك.</div>')
-    + switchCard + updateCard
-    + `<div class="muted" style="text-align:center;margin-top:18px;font-size:.85rem">${footer}</div>`;
-  view().querySelectorAll('[data-go]').forEach(c => c.addEventListener('click', () => setHash(c.dataset.go)));
-  { const sw = view().querySelector('[data-switch]'); if (sw) sw.addEventListener('click', switchBackend); }
-  { const uc = view().querySelector('[data-checkupdate]'); if (uc) uc.addEventListener('click', () => { if (typeof window.mrahiCheckUpdate === 'function') window.mrahiCheckUpdate(); else toast('التحديث متاح في تطبيق الجوال'); }); }
+
+  const ver = window.MRAH_VERSION ? ` • نسخة ${window.MRAH_VERSION}` : '';
+  const footer = `<div class="muted" style="text-align:center;margin-top:18px;font-size:.85rem">
+    <div style="font-weight:700;color:var(--green)">✨ التسهيل · الحفظ · التخطيط</div>
+    ${window.MRAH_LOCAL ? 'مراح — تطبيق محلّي • بياناتك على جهازك' : 'مراح — مزرعة مشتركة'}${ver}</div>`;
+
+  view().innerHTML = topUpdate + cats.map(c => {
+    const open = moreOpen.has(c.key);
+    return `<div class="acc-head card click" data-cat="${c.key}" style="display:flex;align-items:center;justify-content:space-between">
+        <span class="li-title" style="margin:0">${c.title}</span><span style="color:var(--muted);font-size:1.1rem">${open ? '▾' : '▸'}</span></div>`
+      + (open ? `<div style="margin:0 8px 8px">${c.items.map(([l, h]) => `<div class="card click" data-go="${h}" style="margin:6px 0"><div class="li-title">${l}</div></div>`).join('')}</div>` : '');
+  }).join('') + footer;
+
+  view().querySelectorAll('[data-cat]').forEach(h => h.addEventListener('click', () => { const k = h.dataset.cat; moreOpen.has(k) ? moreOpen.delete(k) : moreOpen.add(k); screenMore(); }));
+  view().querySelectorAll('[data-go]').forEach(c => c.addEventListener('click', () => {
+    const h = c.dataset.go;
+    if (h === '__switch') return switchBackend();
+    if (h === '__checkupdate') return (typeof window.mrahiCheckUpdate === 'function') ? window.mrahiCheckUpdate() : toast('التحديث متاح في تطبيق الجوال');
+    setHash(h);
+  }));
 }
 
 /* ===== دليل الاستخدام (كتاب ثلاثي الأبعاد) ===== */
