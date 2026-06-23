@@ -527,6 +527,7 @@ function screenAnimalDetail(arg) {
       ${row('الأب / الفحل', esc(a.father_name) || '—')}
       ${a.notes ? row('ملاحظات', esc(a.notes)) : ''}</div>
     <div class="card"><h3>أنتجت (${offspring.length})</h3>
+      ${can('animals', 'edit') && a.sex === 'female' ? `<button class="btn outline" id="addOffspring">➕ إضافة مواليد (نتاج)</button>` : ''}
       ${offspring.length ? offspring.map(o => `<div class="card click" data-aid="${o.id}" style="margin:6px 0"><div class="li-title">${display(o)}</div><div class="li-sub">${arOf(SEX, o.sex)} • ${fmtDate(o.birth)}</div></div>`).join('') : noItem()}</div>
     ${can('breeding', 'view') ? `<div class="card"><h3>التلقيح والحمل</h3>
       ${can('breeding', 'edit') ? `<button class="btn outline" id="addMating">إضافة تلقيح / متابعة حمل</button>` : ''}
@@ -543,10 +544,46 @@ function screenAnimalDetail(arg) {
   const qs = document.getElementById('qSell'); if (qs) qs.addEventListener('click', () => quickSell(a));
   const qd = document.getElementById('qDead'); if (qd) qd.addEventListener('click', () => quickDead(a));
   const qb = document.getElementById('qBack'); if (qb) qb.addEventListener('click', () => quickRevert(a));
+  const ao = document.getElementById('addOffspring'); if (ao) ao.addEventListener('click', () => addOffspringModal(a));
   const am = document.getElementById('addMating'); if (am) am.addEventListener('click', () => setHash('#/mating/' + id));
   const av = document.getElementById('addVacc'); if (av) av.addEventListener('click', () => setHash('#/vaccinate/' + id));
   const at = document.getElementById('addTreat'); if (at) at.addEventListener('click', () => setHash('#/treat/' + id));
   if (can('animals', 'edit')) addFab('✎ تعديل', () => setHash('#/animal-edit/' + id));
+}
+
+/* ===== إضافة نتاج (مواليد) للأم — إدخال جماعي بترقيم تلقائي وربط بالأم ===== */
+function addOffspringModal(mother) {
+  openModal('مواليد ' + display(mother), `
+    ${fInput('عدد المواليد', 'of_count', '', 'number', 'min="1" inputmode="numeric"')}
+    ${fInput('بداية الترقيم', 'of_start', '', 'number', 'inputmode="numeric"')}
+    ${fInput('بادئة قبل الرقم (اختياري)', 'of_prefix', '')}
+    ${fSelect('الجنس', 'of_sex', SEX, 'female')}
+    ${fInput('تاريخ الميلاد', 'of_birth', todayStr(), 'date')}
+    ${fInput('رقم المراح', 'of_pen', mother.pen || lastPen)}
+    <div class="muted" id="of_prev" style="margin:6px 0"></div>
+    <button class="btn" id="of_save">➕ إضافة المواليد</button>`, () => {
+    const updPrev = () => {
+      const p = document.getElementById('of_prev'); if (!p) return;
+      const n = parseInt(val('of_count'), 10) || 0;
+      const codes = genSeq(val('of_prefix'), val('of_start'), Math.min(n, 60));
+      p.textContent = n > 0 ? `مثال: ${codes.slice(0, 6).join('، ')}${n > 6 ? ' …' : ''} (المجموع ${n})` : 'أدخل العدد وبداية الترقيم';
+    };
+    ['of_count', 'of_start', 'of_prefix'].forEach(idf => { const el = document.getElementById(idf); if (el) el.addEventListener('input', updPrev); });
+    updPrev();
+    document.getElementById('of_save').addEventListener('click', async () => {
+      const n = parseInt(val('of_count'), 10) || 0;
+      if (n <= 0) { toast('أدخل عدد المواليد'); return; }
+      const codes = genSeq(val('of_prefix'), val('of_start'), n);
+      const existing = new Set(C.animals.map(a => a.code || ''));
+      const dups = codes.filter(c => existing.has(c));
+      if (dups.length && !await confirm2(`${dups.length} معرّف موجود مسبقاً. أضيفها أيضاً؟`)) return;
+      if (!await confirm2(`إضافة ${codes.length} مولوداً وربطها بـ${display(mother)}؟`)) return;
+      const pen = val('of_pen').trim();
+      const base = { type: mother.type, pen, sex: val('of_sex'), source: 'born', status: 'present', color: '', birth: val('of_birth') || null, mother_id: mother.id, father_name: '', notes: '' };
+      const ok = await guard(async () => { for (const code of codes) await dbInsert('animals', { ...base, idkind: idkindFor(code), code, name: '' }); });
+      if (ok) { closeModal(); lastPen = pen; try { localStorage.setItem('mrahi_last_pen', pen); } catch (e) {} toast(`أُضيف ${codes.length} مولوداً`); await loadAll(); screenAnimalDetail(String(mother.id)); }
+    });
+  });
 }
 
 /* ===== التلقيح والحمل ===== */
@@ -823,8 +860,12 @@ async function quickRevert(a) {
 
 /* ===== عمليات بالجملة (قائمة) ===== */
 let bulkOp = 'vaccinate';
+let bulkNumMode = 'auto';   // ترقيم الإضافة الجماعية: تلقائي تسلسلي أو قائمة يدوية
 const bulkSel = new Set();
 const BULK_PERM = { vaccinate: ['vaccines', 'edit'], mate: ['breeding', 'edit'], treat: ['treatments', 'edit'], sell: ['animals', 'edit'], buy: ['animals', 'add'] };
+// توليد معرّفات تسلسلية: بادئة + (start, start+1, …). بلا بداية ⇒ 1..count
+function genSeq(prefix, start, count) { const out = []; const s = parseInt(start, 10); for (let i = 0; i < count; i++) { const num = isNaN(s) ? (i + 1) : (s + i); out.push((String(prefix || '') + num).trim()); } return out; }
+const idkindFor = (code) => /^\d+$/.test(String(code)) ? 'number' : 'tag';
 function screenBulk() {
   const ops = [
     { k: 'vaccinate', ar: '💉 تطعيم' }, { k: 'mate', ar: '❤ تلقيح' }, { k: 'treat', ar: '💊 علاج' },
@@ -841,23 +882,47 @@ function renderBulkBody() {
   if (bulkOp === 'buy') {
     body.innerHTML = `<div class="card"><h3>بيانات مشتركة لكل الرؤوس</h3>
       ${fSelect('نوع الحلال', 'bk_type', TYPES, 'sheep')}
-      ${fInput('رقم المراح (الحظيرة)', 'bk_pen', '')}
+      ${fInput('رقم المراح (الحظيرة)', 'bk_pen', lastPen)}
       ${fSelect('الجنس', 'bk_sex', SEX, 'female')}
-      ${fInput('تاريخ الشراء', 'bk_date', todayStr(), 'date')}
+      ${fSelect('المصدر', 'bk_source', SOURCE, 'purchased')}
+      ${fInput('التاريخ (شراء/ميلاد)', 'bk_date', todayStr(), 'date')}
       ${fInput('سعر الرأس (اختياري)', 'bk_price', '', 'number', 'min="0" step="any" inputmode="decimal"')}
-      ${fInput('اللون (اختياري)', 'bk_color', '')}
-      ${fInput('تاريخ الميلاد (اختياري)', 'bk_birth', '', 'date')}</div>
-     <div class="card"><h3>قائمة المعرّفات</h3>
-      <div class="muted" style="margin-bottom:6px">اكتب معرّفاً واحداً في كل سطر (رقم/وسم) — يُنشأ رأس مشترى لكل سطر.</div>
-      ${fTextarea('المعرّفات (سطر لكل رأس)', 'bk_codes', '')}</div>
-     <button class="btn" id="bk_apply">➕ إضافة القائمة</button>`;
+      ${fInput('اللون (اختياري)', 'bk_color', '')}</div>
+     <div class="card"><h3>الترقيم</h3>
+      <div class="chips"><span class="chip ${bulkNumMode === 'auto' ? 'active' : ''}" data-nm="auto">🔢 ترقيم تلقائي</span><span class="chip ${bulkNumMode === 'list' ? 'active' : ''}" data-nm="list">📝 قائمة يدوية</span></div>
+      <div id="nmAuto" class="${bulkNumMode === 'auto' ? '' : 'hidden'}">
+        ${fInput('عدد الرؤوس', 'bk_count', '', 'number', 'min="1" inputmode="numeric"')}
+        ${fInput('بداية الترقيم', 'bk_start', '', 'number', 'inputmode="numeric"')}
+        ${fInput('بادئة قبل الرقم (اختياري)', 'bk_prefix', '')}
+        <div class="muted" id="bk_prev" style="margin-top:6px"></div></div>
+      <div id="nmList" class="${bulkNumMode === 'list' ? '' : 'hidden'}">
+        <div class="muted" style="margin-bottom:6px">اكتب معرّفاً واحداً في كل سطر (رقم/وسم).</div>
+        ${fTextarea('المعرّفات (سطر لكل رأس)', 'bk_codes', '')}</div></div>
+     <button class="btn" id="bk_apply">➕ إضافة</button>`;
+    body.querySelectorAll('[data-nm]').forEach(c => c.addEventListener('click', () => { bulkNumMode = c.dataset.nm; renderBulkBody(); }));
+    const updPrev = () => {
+      const prev = document.getElementById('bk_prev'); if (!prev) return;
+      const n = parseInt(val('bk_count'), 10) || 0;
+      const codes = genSeq(val('bk_prefix'), val('bk_start'), Math.min(n, 60));
+      prev.textContent = n > 0 ? `مثال: ${codes.slice(0, 6).join('، ')}${n > 6 ? ' …' : ''} (المجموع ${n})` : 'أدخل العدد وبداية الترقيم';
+    };
+    ['bk_count', 'bk_start', 'bk_prefix'].forEach(idf => { const el = document.getElementById(idf); if (el) el.addEventListener('input', updPrev); });
+    updPrev();
     document.getElementById('bk_apply').addEventListener('click', async () => {
-      const codes = val('bk_codes').split('\n').map(s => s.trim()).filter(Boolean);
-      if (!codes.length) { toast('أدخل معرّفاً واحداً على الأقل'); return; }
-      if (!await confirm2(`إضافة ${codes.length} رأساً مشترى للمراح؟`)) return;
-      const base = { type: val('bk_type'), pen: val('bk_pen').trim(), idkind: 'number', sex: val('bk_sex'), source: 'purchased', status: 'present', color: val('bk_color').trim(), birth: val('bk_birth') || null, buy_date: val('bk_date') || null, buy_price: val('bk_price') !== '' ? parseFloat(val('bk_price')) : null };
-      const ok = await guard(async () => { for (const code of codes) await dbInsert('animals', { ...base, code, name: '', mother_id: null, father_name: '', notes: '' }); });
-      if (ok) { toast(`تمت إضافة ${codes.length} رأساً`); bulkSel.clear(); await loadAll(); setHash('#/animals'); }
+      let codes;
+      if (bulkNumMode === 'list') codes = val('bk_codes').split('\n').map(s => s.trim()).filter(Boolean);
+      else { const n = parseInt(val('bk_count'), 10) || 0; if (n <= 0) { toast('أدخل عدد الرؤوس'); return; } codes = genSeq(val('bk_prefix'), val('bk_start'), n); }
+      if (!codes.length) { toast('أدخل المعرّفات أو العدد'); return; }
+      const existing = new Set(C.animals.map(a => a.code || ''));
+      const dups = codes.filter(c => existing.has(c));
+      if (dups.length && !await confirm2(`${dups.length} معرّف موجود مسبقاً (${dups.slice(0, 4).join('، ')}${dups.length > 4 ? '…' : ''}). أضيفها أيضاً؟`)) return;
+      if (!await confirm2(`إضافة ${codes.length} رأساً للمراح؟`)) return;
+      const pen = val('bk_pen').trim(), src = val('bk_source'), datev = val('bk_date') || null;
+      const base = { type: val('bk_type'), pen, sex: val('bk_sex'), source: src, status: 'present', color: val('bk_color').trim(),
+        birth: src === 'born' ? datev : null, buy_date: src === 'purchased' ? datev : null,
+        buy_price: val('bk_price') !== '' ? parseFloat(val('bk_price')) : null };
+      const ok = await guard(async () => { for (const code of codes) await dbInsert('animals', { ...base, idkind: idkindFor(code), code, name: '', mother_id: null, father_name: '', notes: '' }); });
+      if (ok) { lastPen = pen; try { localStorage.setItem('mrahi_last_pen', pen); } catch (e) {} toast(`تمت إضافة ${codes.length} رأساً — اضغط أي بهيمة لتعديلها`); bulkSel.clear(); await loadAll(); setHash('#/animals'); }
     });
     return;
   }
