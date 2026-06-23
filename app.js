@@ -553,9 +553,10 @@ function screenAnimalDetail(arg) {
 
 /* ===== إضافة نتاج (مواليد) للأم — إدخال جماعي بترقيم تلقائي وربط بالأم ===== */
 function addOffspringModal(mother) {
+  let ofAuto = suggestStart('');   // اقتراح أوّلي قابل للتعديل
   openModal('مواليد ' + display(mother), `
     ${fInput('عدد المواليد', 'of_count', '', 'number', 'min="1" inputmode="numeric"')}
-    ${fInput('بداية الترقيم', 'of_start', '', 'number', 'inputmode="numeric"')}
+    ${fInput('بداية الترقيم (مقترحة — عدّلها إن شئت)', 'of_start', ofAuto, 'number', 'inputmode="numeric"')}
     ${fInput('بادئة قبل الرقم (اختياري)', 'of_prefix', '')}
     ${fSelect('الجنس', 'of_sex', SEX, 'female')}
     ${fInput('تاريخ الميلاد', 'of_birth', todayStr(), 'date')}
@@ -566,9 +567,15 @@ function addOffspringModal(mother) {
       const p = document.getElementById('of_prev'); if (!p) return;
       const n = parseInt(val('of_count'), 10) || 0;
       const codes = genSeq(val('of_prefix'), val('of_start'), Math.min(n, 60));
-      p.textContent = n > 0 ? `مثال: ${codes.slice(0, 6).join('، ')}${n > 6 ? ' …' : ''} (المجموع ${n})` : 'أدخل العدد وبداية الترقيم';
+      p.textContent = n > 0 ? `مثال: ${codes.slice(0, 6).join('، ')}${n > 6 ? ' …' : ''} (المجموع ${n})` : 'أدخل العدد';
     };
-    ['of_count', 'of_start', 'of_prefix'].forEach(idf => { const el = document.getElementById(idf); if (el) el.addEventListener('input', updPrev); });
+    const reSuggest = () => {
+      const el = document.getElementById('of_start'); if (!el) return;
+      const cur = el.value.trim();
+      if (cur === '' || cur === String(ofAuto)) { const s = suggestStart(val('of_prefix')); el.value = s === '' ? '' : String(s); ofAuto = s; }
+    };
+    { const pf = document.getElementById('of_prefix'); if (pf) pf.addEventListener('input', () => { reSuggest(); updPrev(); }); }
+    ['of_count', 'of_start'].forEach(idf => { const el = document.getElementById(idf); if (el) el.addEventListener('input', updPrev); });
     updPrev();
     document.getElementById('of_save').addEventListener('click', async () => {
       const n = parseInt(val('of_count'), 10) || 0;
@@ -866,6 +873,18 @@ const BULK_PERM = { vaccinate: ['vaccines', 'edit'], mate: ['breeding', 'edit'],
 // توليد معرّفات تسلسلية: بادئة + (start, start+1, …). بلا بداية ⇒ 1..count
 function genSeq(prefix, start, count) { const out = []; const s = parseInt(start, 10); for (let i = 0; i < count; i++) { const num = isNaN(s) ? (i + 1) : (s + i); out.push((String(prefix || '') + num).trim()); } return out; }
 const idkindFor = (code) => /^\d+$/.test(String(code)) ? 'number' : 'tag';
+// اقتراح بداية الترقيم: أكبر رقم مستخدم (ضمن نفس البادئة) + 1. فارغ إن لا يوجد.
+function suggestStart(prefix) {
+  const p = String(prefix || '');
+  let max = 0, found = false;
+  for (const a of C.animals) {
+    const code = String(a.code || '');
+    if (p && code.indexOf(p) !== 0) continue;
+    const tail = code.slice(p.length);
+    if (/^\d+$/.test(tail)) { const n = parseInt(tail, 10); if (n >= max) { max = n; found = true; } }
+  }
+  return found ? max + 1 : '';
+}
 function screenBulk() {
   const ops = [
     { k: 'vaccinate', ar: '💉 تطعيم' }, { k: 'mate', ar: '❤ تلقيح' }, { k: 'treat', ar: '💊 علاج' },
@@ -880,6 +899,7 @@ function screenBulk() {
 function renderBulkBody() {
   const body = document.getElementById('bulkBody');
   if (bulkOp === 'buy') {
+    let bkAuto = suggestStart('');   // اقتراح أوّلي قابل للتعديل
     body.innerHTML = `<div class="card"><h3>بيانات مشتركة لكل الرؤوس</h3>
       ${fSelect('نوع الحلال', 'bk_type', TYPES, 'sheep')}
       ${fInput('رقم المراح (الحظيرة)', 'bk_pen', lastPen)}
@@ -892,7 +912,7 @@ function renderBulkBody() {
       <div class="chips"><span class="chip ${bulkNumMode === 'auto' ? 'active' : ''}" data-nm="auto">🔢 ترقيم تلقائي</span><span class="chip ${bulkNumMode === 'list' ? 'active' : ''}" data-nm="list">📝 قائمة يدوية</span></div>
       <div id="nmAuto" class="${bulkNumMode === 'auto' ? '' : 'hidden'}">
         ${fInput('عدد الرؤوس', 'bk_count', '', 'number', 'min="1" inputmode="numeric"')}
-        ${fInput('بداية الترقيم', 'bk_start', '', 'number', 'inputmode="numeric"')}
+        ${fInput('بداية الترقيم (مقترحة — عدّلها إن شئت)', 'bk_start', bkAuto, 'number', 'inputmode="numeric"')}
         ${fInput('بادئة قبل الرقم (اختياري)', 'bk_prefix', '')}
         <div class="muted" id="bk_prev" style="margin-top:6px"></div></div>
       <div id="nmList" class="${bulkNumMode === 'list' ? '' : 'hidden'}">
@@ -904,9 +924,16 @@ function renderBulkBody() {
       const prev = document.getElementById('bk_prev'); if (!prev) return;
       const n = parseInt(val('bk_count'), 10) || 0;
       const codes = genSeq(val('bk_prefix'), val('bk_start'), Math.min(n, 60));
-      prev.textContent = n > 0 ? `مثال: ${codes.slice(0, 6).join('، ')}${n > 6 ? ' …' : ''} (المجموع ${n})` : 'أدخل العدد وبداية الترقيم';
+      prev.textContent = n > 0 ? `مثال: ${codes.slice(0, 6).join('، ')}${n > 6 ? ' …' : ''} (المجموع ${n})` : 'أدخل العدد';
     };
-    ['bk_count', 'bk_start', 'bk_prefix'].forEach(idf => { const el = document.getElementById(idf); if (el) el.addEventListener('input', updPrev); });
+    // عند تغيير البادئة: أعِد اقتراح البداية ما لم يعدّلها المستخدم يدوياً
+    const reSuggest = () => {
+      const el = document.getElementById('bk_start'); if (!el) return;
+      const cur = el.value.trim();
+      if (cur === '' || cur === String(bkAuto)) { const s = suggestStart(val('bk_prefix')); el.value = s === '' ? '' : String(s); bkAuto = s; }
+    };
+    { const pf = document.getElementById('bk_prefix'); if (pf) pf.addEventListener('input', () => { reSuggest(); updPrev(); }); }
+    ['bk_count', 'bk_start'].forEach(idf => { const el = document.getElementById(idf); if (el) el.addEventListener('input', updPrev); });
     updPrev();
     document.getElementById('bk_apply').addEventListener('click', async () => {
       let codes;
