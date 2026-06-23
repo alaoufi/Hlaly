@@ -745,8 +745,11 @@ function screenPregnancies() {
         <button class="btn sm outline" data-nope="${p.id}">لم يثبت</button></div>` : '';
     return `<div class="card"><h3>${display(a)}</h3>${row('تاريخ التلقيح', fmtDate(p.mating_date))}${row('مدة الحمل', p.gest + ' يوم')}${row('الولادة التقريبية', fmtDate(p.expected))}${row('الحالة', arOf(PREG, p.status))}${sonarRow}${actions}</div>`;
   }).join('');
-  const bulkBtn = (monitoring.length && can('breeding', 'edit')) ? '<button class="btn" id="bulkSonar" style="margin:4px 0 10px">🔊 فحص جماعي بالسونار</button>' : '';
-  view().innerHTML = list.length ? (pregTable(monitoring) + bulkBtn + cards) : '<div class="center-empty">لا توجد حالات حمل مسجّلة.</div>';
+  const startBtn = can('breeding', 'edit') ? '<button class="btn" id="startPreg" style="margin:0 0 8px">➕ بدء متابعة حمل (اختيار جماعي)</button>' : '';
+  const bulkBtn = (monitoring.length && can('breeding', 'edit')) ? '<button class="btn outline" id="bulkSonar" style="margin:0 0 10px">🔊 فحص جماعي بالسونار</button>' : '';
+  const bodyHtml = list.length ? (pregTable(monitoring) + cards) : '<div class="center-empty">لا توجد حالات حمل مسجّلة بعد — ابدأ متابعة حمل بالزر أعلاه.</div>';
+  view().innerHTML = startBtn + bulkBtn + bodyHtml;
+  { const sp = document.getElementById('startPreg'); if (sp) sp.addEventListener('click', startPregBulkModal); }
   { const bs = document.getElementById('bulkSonar'); if (bs) bs.addEventListener('click', bulkSonarModal); }
   view().querySelectorAll('.ptable tr[data-aid]').forEach(tr => { if (tr.dataset.aid) tr.addEventListener('click', () => setHash('#/animal/' + tr.dataset.aid)); });
   view().querySelectorAll('[data-nope]').forEach(b => b.addEventListener('click', async () => {
@@ -755,6 +758,38 @@ function screenPregnancies() {
   }));
   view().querySelectorAll('[data-sonar]').forEach(b => b.addEventListener('click', () => sonarModal(C.pregnancies.find(x => x.id === parseInt(b.dataset.sonar, 10)))));
   view().querySelectorAll('[data-birth]').forEach(b => b.addEventListener('click', () => openBirthModal(C.pregnancies.find(x => x.id === parseInt(b.dataset.birth, 10)))));
+}
+// بدء متابعة حمل جماعي: اختيار البهائم المفحوصة + مدة بالأيام من التاريخ ⇒ تُحسب الولادة
+function startPregBulkModal() {
+  const cands = C.animals.filter(a => a.status === 'present' && a.sex === 'female')
+    .filter(a => !C.pregnancies.some(p => p.animal_id === a.id && p.status === 'monitoring'))
+    .sort((a, b) => b.id - a.id);
+  if (!cands.length) { toast('لا توجد إناث متاحة (إمّا غير موجودة أو تحت متابعة بالفعل)'); return; }
+  const rows = cands.map(a => `<label class="bulk-row"><input type="checkbox" data-pp="${a.id}"><span>${display(a)} <span class="muted">${arOf(TYPES, a.type)}${a.pen ? ' • ' + esc(a.pen) : ''}</span></span></label>`).join('');
+  openModal('➕ بدء متابعة حمل (اختيار جماعي)', `
+    ${fInput('تاريخ الإدخال / الفحص', 'pp_date', todayStr(), 'date')}
+    ${fInput('مدة الحمل المتوقعة (أيام من التاريخ)', 'pp_days', '150', 'number', 'min="1" inputmode="numeric"')}
+    <div class="muted" style="font-size:.82rem;margin:6px 0">الولادة التقريبية = التاريخ + الأيام.</div>
+    ${fInput('🔍 بحث (رقم/مراح)', 'pp_search', '')}
+    <div style="max-height:42vh;overflow:auto" id="pp_list">${rows}</div>
+    <div class="muted" id="pp_count" style="margin-top:6px">المحدد: 0</div>
+    <button class="btn" id="pp_save" style="margin-top:8px">حفظ المتابعة للمحدد</button>`, () => {
+    const sel = new Set();
+    const upd = () => { document.getElementById('pp_count').textContent = 'المحدد: ' + sel.size; };
+    document.querySelectorAll('[data-pp]').forEach(cb => cb.addEventListener('change', () => { const id = parseInt(cb.dataset.pp, 10); cb.checked ? sel.add(id) : sel.delete(id); upd(); }));
+    { const se = document.getElementById('pp_search'); se.addEventListener('input', () => { const t = se.value.trim().toLowerCase(); document.querySelectorAll('#pp_list .bulk-row').forEach(r => { r.style.display = (!t || r.textContent.toLowerCase().includes(t)) ? '' : 'none'; }); }); }
+    document.getElementById('pp_save').addEventListener('click', async () => {
+      if (!sel.size) { toast('اختر بهيمة واحدة على الأقل'); return; }
+      const date = val('pp_date') || todayStr(); const days = parseInt(val('pp_days'), 10) || 0;
+      if (days <= 0) { toast('أدخل مدة الحمل بالأيام'); return; }
+      const exp = addDays(date, days);
+      if (!await confirm2(`بدء متابعة حمل لـ${sel.size} بهيمة؟ الولادة التقريبية ${fmtDate(exp)}`)) return;
+      const ok = await guard(async () => {
+        for (const id of sel) await dbInsert('pregnancies', { animal_id: id, mating_date: date, gest: days, expected: exp, status: 'monitoring', confirmed: true, sonar_date: date, notes: 'فحص سونار' });
+      });
+      if (ok) { closeModal(); toast(`بدأت متابعة ${sel.size} حمل`); await loadAll(); screenPregnancies(); }
+    });
+  });
 }
 // فحص حمل بالسونار من سجل البهيمة: يبدأ حملاً جديداً (مؤكّداً) أو يؤكّد/ينفي القائم
 function animalSonarModal(a) {
