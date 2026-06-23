@@ -407,6 +407,8 @@ function screenAlerts() {
 /* ===== الحلال ===== */
 let animalFilter = '';
 let animalStatusFilter = 'present';
+// آخر «رقم مراح» مُدخَل — يُثبَّت تلقائياً في إضافة البهيمة التالية حتى يُغيَّر (إدخال أسرع للدفعات)
+let lastPen = (() => { try { return localStorage.getItem('mrahi_last_pen') || ''; } catch (e) { return ''; } })();
 function animalCard(a) {
   const st = a.status === 'sold' ? 'sold' : a.status === 'dead' ? 'dead' : '';
   return `<div class="card click" data-aid="${a.id}">
@@ -443,7 +445,7 @@ function screenAnimalEdit(arg) {
   view().innerHTML = `
     <div class="card"><h3>البيانات الأساسية</h3>
       ${fSelect('نوع الحلال', 'f_type', TYPES, a ? a.type : 'sheep')}
-      ${fInput('رقم المراح (الحظيرة)', 'f_pen', a && a.pen)}
+      ${fInput('رقم المراح (الحظيرة)', 'f_pen', a ? a.pen : lastPen)}
       ${fSelect('نوع المعرّف', 'f_kind', IDKIND, a ? a.idkind : 'number')}
       ${fInput('المعرّف (رقم/وسم/شريحة/اسم)', 'f_code', a && a.code)}
       ${fInput('الاسم/المسمى (اختياري)', 'f_name', a && a.name)}
@@ -476,7 +478,11 @@ function screenAnimalEdit(arg) {
       dead_date: status === 'dead' ? (val('f_deaddate') || null) : null };
     if (a && !await confirm2('حفظ التعديل على هذه البهيمة؟ النسخة السابقة ستبقى في سلة المحذوفات.')) return;
     const ok = await guard(async () => { if (a) await dbUpdate('animals', id, obj); else await dbInsert('animals', obj); });
-    if (ok) { toast('تم الحفظ'); await loadAll(); goBack(); }
+    if (ok) {
+      // ثبّت آخر مراح للإضافة التالية (للبهائم الجديدة)
+      if (!a) { lastPen = obj.pen || ''; try { localStorage.setItem('mrahi_last_pen', lastPen); } catch (e) {} }
+      toast('تم الحفظ'); await loadAll(); goBack();
+    }
   });
   if (id) document.getElementById('delBtn').addEventListener('click', async () => {
     if (!await confirm2('حذف هذه البهيمة؟ ستنتقل إلى سلة المحذوفات (يمكن استعادتها خلال ٣٠ يوماً).')) return;
