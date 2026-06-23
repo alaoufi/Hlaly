@@ -469,10 +469,23 @@ function animalCard(a) {
     <div class="li-title">${display(a)}</div>
     <div class="li-sub">${arOf(TYPES, a.type)} • ${arOf(SEX, a.sex)} • <span class="badge ${st}">${arOf(STATUS, a.status)}</span></div>
     ${a.pen ? `<div class="li-sub">المراح: ${esc(a.pen)}</div>` : ''}
-    ${off ? `<div class="li-sub">👶 المواليد: ${off}</div>` : ''}
-    ${mother ? `<div class="li-sub">🤱 الأم: ${display(mother)}</div>` : ''}</div>`;
+    ${off ? `<div class="li-sub link" data-off="${a.id}">👶 المواليد: ${off} — عرض</div>` : ''}
+    ${mother ? `<div class="li-sub link" data-momopen="${a.mother_id}">🤱 الأم: ${display(mother)}</div>` : ''}</div>`;
 }
-function bindCards(root) { root.querySelectorAll('[data-aid]').forEach(c => c.addEventListener('click', () => setHash('#/animal/' + c.dataset.aid))); }
+function bindCards(root) {
+  root.querySelectorAll('[data-aid]').forEach(c => c.addEventListener('click', () => setHash('#/animal/' + c.dataset.aid)));
+  root.querySelectorAll('[data-off]').forEach(el => el.addEventListener('click', (e) => { e.stopPropagation(); offspringListModal(parseInt(el.dataset.off, 10)); }));
+  root.querySelectorAll('[data-momopen]').forEach(el => el.addEventListener('click', (e) => { e.stopPropagation(); setHash('#/animal/' + el.dataset.momopen); }));
+}
+// قائمة مواليد أمّ بعينها (من بطاقة البهيمة)
+function offspringListModal(motherId) {
+  const mother = animalById(motherId);
+  const off = C.animals.filter(x => x.mother_id === motherId || x.father_id === motherId).sort((a, b) => (b.birth || '').localeCompare(a.birth || ''));
+  openModal('مواليد ' + (mother ? display(mother) : ''),
+    `<div class="muted" style="margin-bottom:6px">${off.length} مولود</div>`
+    + (off.length ? off.map(o => `<div class="card click" data-aid="${o.id}" style="margin:6px 0"><div class="li-title">${display(o)}</div><div class="li-sub">${arOf(SEX, o.sex)} • ${fmtDate(o.birth)}${o.pen ? ' • ' + esc(o.pen) : ''}</div></div>`).join('') : noItem()),
+    () => { document.querySelectorAll('#modalRoot [data-aid]').forEach(c => c.addEventListener('click', () => { closeModal(); setHash('#/animal/' + c.dataset.aid); })); });
+}
 function screenAnimals() {
   if (!can('animals', 'view')) { view().innerHTML = noPerm(); return; }
   const chips = `<div class="chips"><span class="chip ${!animalFilter ? 'active' : ''}" data-f="">الكل</span>${TYPES.map(t => `<span class="chip ${animalFilter === t.k ? 'active' : ''}" data-f="${t.k}">${t.ar}</span>`).join('')}</div>`;
