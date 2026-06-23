@@ -346,6 +346,7 @@ function screenHome() {
     ${sharesIn.filter(s => s.status === 'pending').length ? `<div class="card click hl" data-go="#/shares"><div class="li-title">📨 دعوة لمشاهدة حلال (${sharesIn.filter(s => s.status === 'pending').length})</div><div class="li-sub">عضو يدعوك لمشاهدة حلاله — اضغط للرد</div></div>` : ''}
     ${sharesIn.filter(s => s.status === 'accepted').map(s => `<div class="card click" data-go="#/shared-herd/${s.owner_id}"><div class="li-title">🤝 حلال ${esc(s.owner_name || 'عضو')}</div><div class="li-sub">مُشارَك معك — عرض فقط</div></div>`).join('')}
     ${!hasHerd && forumEnabled && canForumView() ? `<div class="card click" data-go-forum><div class="li-title">💬 المنتدى</div><div class="li-sub">شارك واطرح أسئلتك مع المجتمع</div></div>` : ''}
+    ${hasHerd && can('animals', 'edit') && C.animals.length === 0 ? `<div class="card click hl" data-go="#/animal-edit/0"><div class="li-title">➕ أضف أول بهيمة</div><div class="li-sub">ابدأ بإضافة حلالك — تختار النوع (إبل/غنم/ماعز/بقر) داخل النموذج</div></div>` : ''}
     ${hasHerd ? `<div class="search"><input id="q" placeholder="ابحث برقم/وسم/شريحة/اسم البهيمة"></div><div id="qr"></div>` : ''}
     ${can('breeding', 'view') ? `<div class="card"><h3>الولادات القادمة (٧ أيام)</h3>${births.length ? births.map(p => row(display(animalById(p.animal_id)), `${fmtDate(p.expected)} (بعد ${daysUntil(p.expected)} يوم)`)).join('') : noItem()}</div>` : ''}
     ${can('treatments', 'view') ? `<div class="card"><h3>العلاجات الحالية (تحت التحريم)</h3>${treats.length ? treats.map(t => row(display(animalById(t.animal_id)), `${esc(t.med_name)} • ينتهي ${fmtDate(t.withdrawal_end)}`)).join('') : noItem()}</div>` : ''}`;
@@ -419,11 +420,17 @@ function screenAnimals() {
   const chips = `<div class="chips"><span class="chip ${!animalFilter ? 'active' : ''}" data-f="">الكل</span>${TYPES.map(t => `<span class="chip ${animalFilter === t.k ? 'active' : ''}" data-f="${t.k}">${t.ar}</span>`).join('')}</div>`;
   const stChips = `<div class="chips"><span class="chip ${animalStatusFilter === 'present' ? 'active' : ''}" data-s="present">في المراح</span><span class="chip ${animalStatusFilter === 'sold' ? 'active' : ''}" data-s="sold">مباعة</span><span class="chip ${animalStatusFilter === 'dead' ? 'active' : ''}" data-s="dead">نافقة</span><span class="chip ${!animalStatusFilter ? 'active' : ''}" data-s="">الكل</span></div>`;
   const list = C.animals.filter(a => (!animalFilter || a.type === animalFilter) && (!animalStatusFilter || a.status === animalStatusFilter)).sort((a, b) => b.id - a.id);
-  view().innerHTML = chips + stChips + `<div class="muted" style="margin-bottom:6px">العدد: ${list.length}</div>` + (list.length ? list.map(animalCard).join('') : '<div class="center-empty">لا توجد بهائم في هذا التصنيف.</div>');
+  const canEdit = can('animals', 'edit');
+  // عند خلو الحلال كلياً: حالة ترحيبية بزرّ إضافة واضح. وعند خلو التصنيف فقط: رسالة عادية.
+  const empty = C.animals.length === 0
+    ? `<div class="center-empty">🐑 لا يوجد حلال بعد.${canEdit ? '<br><button class="btn" id="add_first" style="margin-top:14px">➕ أضف أول بهيمة</button><div class="muted" style="margin-top:8px;font-size:.85rem">تختار النوع (إبل/غنم/ماعز/بقر) داخل النموذج — أضِف ما تشاء من كل نوع.</div>' : ''}</div>`
+    : '<div class="center-empty">لا توجد بهائم في هذا التصنيف.</div>';
+  view().innerHTML = chips + stChips + `<div class="muted" style="margin-bottom:6px">العدد: ${list.length}</div>` + (list.length ? list.map(animalCard).join('') : empty);
   view().querySelectorAll('[data-f]').forEach(c => c.addEventListener('click', () => { animalFilter = c.dataset.f; screenAnimals(); }));
   view().querySelectorAll('[data-s]').forEach(c => c.addEventListener('click', () => { animalStatusFilter = c.dataset.s; screenAnimals(); }));
   bindCards(view());
-  if (can('animals', 'edit')) addFab('+ إضافة بهيمة', () => setHash('#/animal-edit/0'));
+  { const af = document.getElementById('add_first'); if (af) af.addEventListener('click', () => setHash('#/animal-edit/0')); }
+  if (canEdit) addFab('+ إضافة بهيمة', () => setHash('#/animal-edit/0'));
 }
 
 /* ===== إضافة/تعديل بهيمة ===== */
