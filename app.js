@@ -899,8 +899,8 @@ function screenMore() {
   const items = [];
   if (can('animals', 'view') || (me && me.account_type === 'owner')) items.push(['🐑 دليل صاحب المراح', '#/guide/owner']);
   if (isAdmin()) items.push(['🛡️ دليل مدير النظام', '#/guide/admin']);
-  if (isAdmin() || isAnyForumMod()) items.push(['⚙️ إعدادات المنتدى', '#/forum-admin']);
-  if (can('animals', 'view') || sharesIn.length) { const np = sharesIn.filter(s => s.status === 'pending').length; items.push([`🤝 مشاركة الحلال${np ? ` (${np} دعوة)` : ''}`, '#/shares']); }
+  if (!window.MRAH_LOCAL && (isAdmin() || isAnyForumMod())) items.push(['⚙️ إعدادات المنتدى', '#/forum-admin']);
+  if (!window.MRAH_LOCAL && (can('animals', 'view') || sharesIn.length)) { const np = sharesIn.filter(s => s.status === 'pending').length; items.push([`🤝 مشاركة الحلال${np ? ` (${np} دعوة)` : ''}`, '#/shares']); }
   if (can('breeding', 'view')) items.push(['🤰 الحمل والمتابعة', '#/pregnancies']);
   if (can('vaccines', 'view')) items.push(['💉 أنواع التطعيمات', '#/vaccine-types']);
   if (can('vaccines', 'edit')) items.push(['💉 إعطاء تطعيم', '#/vaccinate/0']);
@@ -910,10 +910,11 @@ function screenMore() {
   if (can('backup', 'view')) items.push(['💾 النسخ الاحتياطي', '#/backup']);
   if (isAdmin()) items.push(['🐑 أنواع الحلال', '#/types']);
   if (isAdmin()) items.push(['🗑️ سلة المحذوفات', '#/trash']);
-  if (isAdmin()) items.push(['👥 المستخدمون والصلاحيات', '#/members']);
+  if (!window.MRAH_LOCAL && isAdmin()) items.push(['👥 المستخدمون والصلاحيات', '#/members']);
   if (isSys()) items.push(['💡 النصائح والمعلومات', '#/tips']);
+  const footer = window.MRAH_LOCAL ? 'مراح — تطبيق محلّي • بياناتك محفوظة على جهازك فقط' : 'مراح — مزرعة مشتركة • بياناتك على Supabase';
   view().innerHTML = (items.length ? items.map(([l, h]) => `<div class="card click" data-go="${h}"><div class="li-title">${l}</div></div>`).join('') : '<div class="center-empty">لا توجد عناصر متاحة بصلاحياتك.</div>')
-    + `<div class="muted" style="text-align:center;margin-top:18px;font-size:.85rem">مراح — مزرعة مشتركة • بياناتك على Supabase</div>`;
+    + `<div class="muted" style="text-align:center;margin-top:18px;font-size:.85rem">${footer}</div>`;
   view().querySelectorAll('[data-go]').forEach(c => c.addEventListener('click', () => setHash(c.dataset.go)));
 }
 
@@ -1941,7 +1942,7 @@ function renderPending() {
 function buildNav() {
   const tabs = [['#/home', '🏠', 'الرئيسية']];
   if (can('animals', 'view')) tabs.push(['#/animals', '🐑', 'الحلال']);
-  if (forumEnabled && canForumView()) tabs.push(['#/forum', '💬', 'المنتدى']);
+  if (!window.MRAH_LOCAL && forumEnabled && canForumView()) tabs.push(['#/forum', '💬', 'المنتدى']);
   if (can('animals', 'view') || can('breeding', 'view') || can('vaccines', 'view') || can('treatments', 'view')) tabs.push(['#/alerts', '🔔', 'التنبيهات']);
   tabs.push(['#/more', '☰', 'المزيد']);
   const nav = document.getElementById('bottomnav');
@@ -2093,13 +2094,30 @@ function showSetup() {
 }
 
 async function init() {
-  if (configMissing()) { showSetup(); return; }
-  sb = window.supabase.createClient(window.MRAH_CONFIG.SUPABASE_URL, window.MRAH_CONFIG.SUPABASE_ANON_KEY);
-
   document.getElementById('backBtn').addEventListener('click', goBack);
   document.getElementById('guideBtn').addEventListener('click', () => setHash('#/guide'));
-  document.getElementById('signoutBtn').addEventListener('click', async () => { await sb.auth.signOut(); });
   window.addEventListener('hashchange', () => { if (me && me.is_active) render(); });
+
+  // الوضع المحلي (تطبيق أندرويد/بلا إنترنت): قاعدة بيانات محلية، مستخدم واحد، بلا تسجيل دخول
+  if (window.MRAH_LOCAL) {
+    sb = window.createMrahLocalClient();
+    document.getElementById('signoutBtn').classList.add('hidden');
+    me = { user_id: 'local', full_name: '', role: 'admin', is_active: true, is_sysadmin: true, perms: {}, account_type: 'owner' };
+    forumEnabled = false; signupOpen = false;
+    document.getElementById('app').classList.remove('hidden');
+    showLoading(true);
+    try { await loadAll(); } catch (e) { toast('خطأ تحميل: ' + e.message); }
+    buildNav();
+    showLoading(false);
+    if (!location.hash) location.hash = '#/home';
+    render();
+    return;
+  }
+
+  // الوضع السحابي (الويب): Supabase + مصادقة الفريق
+  if (configMissing()) { showSetup(); return; }
+  sb = window.supabase.createClient(window.MRAH_CONFIG.SUPABASE_URL, window.MRAH_CONFIG.SUPABASE_ANON_KEY);
+  document.getElementById('signoutBtn').addEventListener('click', async () => { await sb.auth.signOut(); });
 
   sb.auth.onAuthStateChange((event, session) => {
     if (session && session.user) { enterApp(session); }

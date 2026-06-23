@@ -6,3 +6,9 @@ Thumbs.db
 # لا يوجد بناء — موقع ثابت صِرف
 node_modules/
 .vercel/
+
+# بناء تطبيق أندرويد (Capacitor) — يُولَّد في CI ولا يُلتزم
+www/
+android/
+.gradle/
+package-lock.json
