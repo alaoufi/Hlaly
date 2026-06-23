@@ -55,7 +55,9 @@ jobs:
           cat version.json
 
       - name: إضافة منصّة أندرويد
-        run: npx cap add android
+        run: |
+          rm -rf android          # تُولّد من جديد كل بناء (تفادي «android platform already exists»)
+          npx cap add android
 
       - name: توليد الأيقونات وشاشة البداية
         run: |
