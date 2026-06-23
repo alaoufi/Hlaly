@@ -16,6 +16,9 @@ on:
       - "scripts/**"
       - ".github/workflows/android.yml"
 
+permissions:
+  contents: write   # لإنشاء الإصدار (Release) ورفع ملف APK كأصل عام
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -52,9 +55,22 @@ jobs:
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon
 
-      - name: رفع ملف APK
+      - name: تجهيز ملف التنزيل
+        run: cp android/app/build/outputs/apk/debug/app-debug.apk mrahi.apk
+
+      - name: رفع ملف APK (أثر داخلي)
         uses: actions/upload-artifact@v4
         with:
           name: mrahi-app-debug
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          path: mrahi.apk
           if-no-files-found: error
+
+      - name: نشر إصدار برابط تنزيل مباشر
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: apk-latest
+          name: مراح — تطبيق أندرويد (أحدث نسخة)
+          body: |
+            تطبيق مراح لأندرويد. نزّل الملف **mrahi.apk** مباشرة من الأسفل وثبّته على جوالك.
+            عند أول فتح يطلب اختيار: محلي (بلا إنترنت) أو مشترك (Supabase).
+          files: mrahi.apk
