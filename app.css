@@ -95,6 +95,9 @@ main { padding: 14px; max-width: 760px; margin: 0 auto; }
 .bottomnav { position:fixed; bottom:0; inset-inline:0; z-index:20; display:grid; background:#fff; border-top:1px solid #e3e6e3; padding-bottom: env(safe-area-inset-bottom); }
 .nav-item { background:none; border:0; padding:8px 0 10px; cursor:pointer; display:flex; flex-direction:column; align-items:center; gap:2px; font:inherit; font-size:.72rem; color:var(--muted); }
 .nav-item span { font-size:1.3rem; line-height:1; }
+.nav-item .nav-ic { position:relative; display:inline-block; }
+.nav-badge { position:absolute; top:-3px; inset-inline-end:-5px; width:9px; height:9px; border-radius:50%;
+  background:#e53935; border:2px solid var(--card,#fff); box-sizing:content-box; }
 .nav-item.active { color:var(--green); font-weight:700; }
 
 /* Search */
