@@ -72,7 +72,7 @@ const isSys = () => !!(me && me.is_active && me.is_sysadmin);
 // صف حلال يخصّني؟ (التطبيق يعرض حلالي فقط؛ المدير يرى الكل؛ الحلال المُشارَك يُعرض في شاشة مستقلة)
 function mineHerdRow(r) { return !!(me && (me.role === 'admin' || r.owner_id === me.user_id)); }
 const animalById = (id) => C.animals.find(a => a.id === id);
-function display(a) { if (!a) return '—'; return esc(a.code || '—') + (a.name ? ' • ' + esc(a.name) : ''); }
+function display(a) { if (!a) return '—'; if (a.code) return esc(a.code) + (a.name ? ' • ' + esc(a.name) : ''); if (a.name) return esc(a.name); return 'غير مرقّمة'; }
 
 /* ===== طبقة البيانات ===== */
 async function loadAll() {
@@ -555,14 +555,26 @@ function screenAnimalDetail(arg) {
 function addOffspringModal(mother) {
   let ofAuto = suggestStart('');   // اقتراح أوّلي قابل للتعديل
   openModal('مواليد ' + display(mother), `
-    ${fInput('عدد المواليد', 'of_count', '', 'number', 'min="1" inputmode="numeric"')}
-    ${fInput('بداية الترقيم (مقترحة — عدّلها إن شئت)', 'of_start', ofAuto, 'number', 'inputmode="numeric"')}
-    ${fInput('بادئة قبل الرقم (اختياري)', 'of_prefix', '')}
     ${fSelect('الجنس', 'of_sex', SEX, 'female')}
     ${fInput('تاريخ الميلاد', 'of_birth', todayStr(), 'date')}
     ${fInput('رقم المراح', 'of_pen', mother.pen || lastPen)}
-    <div class="muted" id="of_prev" style="margin:6px 0"></div>
+    <div class="chips"><span class="chip active" data-om="num">🔢 مرقّمة</span><span class="chip" data-om="none">⭕ غير مرقّمة</span></div>
+    <div id="ofNum">
+      ${fInput('العدد', 'of_count', '', 'number', 'min="1" inputmode="numeric"')}
+      ${fInput('بداية الترقيم (مقترحة — عدّلها إن شئت)', 'of_start', ofAuto, 'number', 'inputmode="numeric"')}
+      ${fInput('بادئة قبل الرقم (اختياري)', 'of_prefix', '')}
+      <div class="muted" id="of_prev" style="margin:6px 0"></div></div>
+    <div id="ofNone" class="hidden">
+      ${fInput('عدد المواليد غير المرقّمة', 'of_ncount', '', 'number', 'min="1" inputmode="numeric"')}
+      <div class="muted" style="font-size:.82rem">تُحفظ بلا رقم (تُرقَّم لاحقاً عند الكبر).</div></div>
     <button class="btn" id="of_save">➕ إضافة المواليد</button>`, () => {
+    let omode = 'num';
+    document.querySelectorAll('[data-om]').forEach(c => c.addEventListener('click', () => {
+      omode = c.dataset.om;
+      document.querySelectorAll('[data-om]').forEach(x => x.classList.toggle('active', x.dataset.om === omode));
+      document.getElementById('ofNum').classList.toggle('hidden', omode !== 'num');
+      document.getElementById('ofNone').classList.toggle('hidden', omode !== 'none');
+    }));
     const updPrev = () => {
       const p = document.getElementById('of_prev'); if (!p) return;
       const n = parseInt(val('of_count'), 10) || 0;
@@ -578,12 +590,17 @@ function addOffspringModal(mother) {
     ['of_count', 'of_start'].forEach(idf => { const el = document.getElementById(idf); if (el) el.addEventListener('input', updPrev); });
     updPrev();
     document.getElementById('of_save').addEventListener('click', async () => {
-      const n = parseInt(val('of_count'), 10) || 0;
-      if (n <= 0) { toast('أدخل عدد المواليد'); return; }
-      const codes = genSeq(val('of_prefix'), val('of_start'), n);
-      const existing = new Set(C.animals.map(a => a.code || ''));
-      const dups = codes.filter(c => existing.has(c));
-      if (dups.length && !await confirm2(`${dups.length} معرّف موجود مسبقاً. أضيفها أيضاً؟`)) return;
+      let codes;
+      if (omode === 'num') {
+        const n = parseInt(val('of_count'), 10) || 0; if (n <= 0) { toast('أدخل عدد المواليد'); return; }
+        codes = genSeq(val('of_prefix'), val('of_start'), n);
+        const existing = new Set(C.animals.map(a => a.code || ''));
+        const dups = codes.filter(c => existing.has(c));
+        if (dups.length && !await confirm2(`${dups.length} معرّف موجود مسبقاً. أضيفها أيضاً؟`)) return;
+      } else {
+        const n = parseInt(val('of_ncount'), 10) || 0; if (n <= 0) { toast('أدخل عدد المواليد'); return; }
+        codes = new Array(n).fill('');   // بلا ترقيم
+      }
       if (!await confirm2(`إضافة ${codes.length} مولوداً وربطها بـ${display(mother)}؟`)) return;
       const pen = val('of_pen').trim();
       const base = { type: mother.type, pen, sex: val('of_sex'), source: 'born', status: 'present', color: '', birth: val('of_birth') || null, mother_id: mother.id, father_name: '', notes: '' };
@@ -867,7 +884,7 @@ async function quickRevert(a) {
 
 /* ===== عمليات بالجملة (قائمة) ===== */
 let bulkOp = 'vaccinate';
-let bulkNumMode = 'auto';   // ترقيم الإضافة الجماعية: تلقائي تسلسلي أو قائمة يدوية
+let bulkRows = [];          // قائمة الرؤوس المُجهَّزة للإضافة الجماعية: {sex, code}
 const bulkSel = new Set();
 const BULK_PERM = { vaccinate: ['vaccines', 'edit'], mate: ['breeding', 'edit'], treat: ['treatments', 'edit'], sell: ['animals', 'edit'], buy: ['animals', 'add'] };
 // توليد معرّفات تسلسلية: بادئة + (start, start+1, …). بلا بداية ⇒ 1..count
@@ -888,69 +905,82 @@ function suggestStart(prefix) {
 function screenBulk() {
   const ops = [
     { k: 'vaccinate', ar: '💉 تطعيم' }, { k: 'mate', ar: '❤ تلقيح' }, { k: 'treat', ar: '💊 علاج' },
-    { k: 'sell', ar: '💰 بيع' }, { k: 'buy', ar: '🛒 مشترى' },
+    { k: 'sell', ar: '💰 بيع' }, { k: 'buy', ar: '🛒 إضافة' },
   ].filter(o => can(BULK_PERM[o.k][0], BULK_PERM[o.k][1]));
   if (!ops.length) { view().innerHTML = noPerm(); return; }
   if (!ops.find(o => o.k === bulkOp)) bulkOp = ops[0].k;
   view().innerHTML = `<div class="chips">${ops.map(o => `<span class="chip ${bulkOp === o.k ? 'active' : ''}" data-op="${o.k}">${o.ar}</span>`).join('')}</div><div id="bulkBody"></div>`;
-  view().querySelectorAll('[data-op]').forEach(c => c.addEventListener('click', () => { bulkOp = c.dataset.op; bulkSel.clear(); screenBulk(); }));
+  view().querySelectorAll('[data-op]').forEach(c => c.addEventListener('click', () => { bulkOp = c.dataset.op; bulkSel.clear(); bulkRows = []; screenBulk(); }));
   renderBulkBody();
 }
 function renderBulkBody() {
   const body = document.getElementById('bulkBody');
   if (bulkOp === 'buy') {
-    let bkAuto = suggestStart('');   // اقتراح أوّلي قابل للتعديل
-    body.innerHTML = `<div class="card"><h3>بيانات مشتركة لكل الرؤوس</h3>
+    body.innerHTML = `<div class="card"><h3>حقول مشتركة لكل الرؤوس</h3>
       ${fSelect('نوع الحلال', 'bk_type', TYPES, 'sheep')}
       ${fInput('رقم المراح (الحظيرة)', 'bk_pen', lastPen)}
-      ${fSelect('الجنس', 'bk_sex', SEX, 'female')}
-      ${fSelect('المصدر', 'bk_source', SOURCE, 'purchased')}
+      ${fSelect('المصدر', 'bk_source', SOURCE, 'born')}
       ${fInput('التاريخ (شراء/ميلاد)', 'bk_date', todayStr(), 'date')}
-      ${fInput('سعر الرأس (اختياري)', 'bk_price', '', 'number', 'min="0" step="any" inputmode="decimal"')}
-      ${fInput('اللون (اختياري)', 'bk_color', '')}</div>
-     <div class="card"><h3>الترقيم</h3>
-      <div class="chips"><span class="chip ${bulkNumMode === 'auto' ? 'active' : ''}" data-nm="auto">🔢 ترقيم تلقائي</span><span class="chip ${bulkNumMode === 'list' ? 'active' : ''}" data-nm="list">📝 قائمة يدوية</span></div>
-      <div id="nmAuto" class="${bulkNumMode === 'auto' ? '' : 'hidden'}">
-        ${fInput('عدد الرؤوس', 'bk_count', '', 'number', 'min="1" inputmode="numeric"')}
-        ${fInput('بداية الترقيم (مقترحة — عدّلها إن شئت)', 'bk_start', bkAuto, 'number', 'inputmode="numeric"')}
-        ${fInput('بادئة قبل الرقم (اختياري)', 'bk_prefix', '')}
-        <div class="muted" id="bk_prev" style="margin-top:6px"></div></div>
-      <div id="nmList" class="${bulkNumMode === 'list' ? '' : 'hidden'}">
-        <div class="muted" style="margin-bottom:6px">اكتب معرّفاً واحداً في كل سطر (رقم/وسم).</div>
-        ${fTextarea('المعرّفات (سطر لكل رأس)', 'bk_codes', '')}</div></div>
-     <button class="btn" id="bk_apply">➕ إضافة</button>`;
-    body.querySelectorAll('[data-nm]').forEach(c => c.addEventListener('click', () => { bulkNumMode = c.dataset.nm; renderBulkBody(); }));
-    const updPrev = () => {
-      const prev = document.getElementById('bk_prev'); if (!prev) return;
-      const n = parseInt(val('bk_count'), 10) || 0;
-      const codes = genSeq(val('bk_prefix'), val('bk_start'), Math.min(n, 60));
-      prev.textContent = n > 0 ? `مثال: ${codes.slice(0, 6).join('، ')}${n > 6 ? ' …' : ''} (المجموع ${n})` : 'أدخل العدد';
+      ${fInput('اللون (اختياري)', 'bk_color', '')}
+      ${fInput('سعر الرأس (اختياري)', 'bk_price', '', 'number', 'min="0" step="any" inputmode="decimal"')}</div>
+     <div class="card"><h3>أضِف دفعة</h3>
+      ${fSelect('الجنس', 'bk_sex', SEX, 'female')}
+      <div class="chips"><span class="chip active" data-bm="num">🔢 مرقّمة</span><span class="chip" data-bm="none">⭕ غير مرقّمة</span></div>
+      <div id="bmNum">
+        ${fInput('العدد', 'bk_count', '', 'number', 'min="1" inputmode="numeric"')}
+        ${fInput('بداية الترقيم (مقترحة — عدّلها إن شئت)', 'bk_start', suggestStart(''), 'number', 'inputmode="numeric"')}
+        ${fInput('بادئة قبل الرقم (اختياري)', 'bk_prefix', '')}</div>
+      <div id="bmNone" class="hidden">
+        ${fInput('عدد الرؤوس غير المرقّمة', 'bk_ncount', '', 'number', 'min="1" inputmode="numeric"')}
+        <div class="muted" style="font-size:.82rem">تُحفظ بلا رقم (تُرقَّم لاحقاً عند الكبر). الذكور غالباً لا تُرقَّم.</div></div>
+      <button class="btn outline" id="bk_addrows" style="margin-top:8px">➕ أضِف للقائمة</button></div>
+     <div class="card"><h3>القائمة (<span id="bk_rowcount">0</span>)</h3>
+      <div id="bk_rows"></div>
+      <button class="btn" id="bk_save" style="margin-top:8px">💾 حفظ الكل</button></div>`;
+    let bmode = 'num';
+    body.querySelectorAll('[data-bm]').forEach(c => c.addEventListener('click', () => {
+      bmode = c.dataset.bm;
+      body.querySelectorAll('[data-bm]').forEach(x => x.classList.toggle('active', x.dataset.bm === bmode));
+      document.getElementById('bmNum').classList.toggle('hidden', bmode !== 'num');
+      document.getElementById('bmNone').classList.toggle('hidden', bmode !== 'none');
+    }));
+    const renderRows = () => {
+      document.getElementById('bk_rowcount').textContent = bulkRows.length;
+      document.getElementById('bk_save').textContent = `💾 حفظ الكل (${bulkRows.length})`;
+      const box = document.getElementById('bk_rows');
+      box.innerHTML = bulkRows.length
+        ? bulkRows.map((r, i) => `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 2px;border-bottom:1px solid #eee"><span>${arOf(SEX, r.sex)} — ${r.code ? esc(r.code) : 'غير مرقّمة'}</span><button class="btn sm danger" data-rmrow="${i}">✕</button></div>`).join('')
+        : '<div class="muted">لم تُضف رؤوس بعد. اختر الجنس والعدد ثم «أضِف للقائمة».</div>';
+      box.querySelectorAll('[data-rmrow]').forEach(b => b.addEventListener('click', () => { bulkRows.splice(parseInt(b.dataset.rmrow, 10), 1); renderRows(); }));
     };
-    // عند تغيير البادئة: أعِد اقتراح البداية ما لم يعدّلها المستخدم يدوياً
-    const reSuggest = () => {
-      const el = document.getElementById('bk_start'); if (!el) return;
-      const cur = el.value.trim();
-      if (cur === '' || cur === String(bkAuto)) { const s = suggestStart(val('bk_prefix')); el.value = s === '' ? '' : String(s); bkAuto = s; }
-    };
-    { const pf = document.getElementById('bk_prefix'); if (pf) pf.addEventListener('input', () => { reSuggest(); updPrev(); }); }
-    ['bk_count', 'bk_start'].forEach(idf => { const el = document.getElementById(idf); if (el) el.addEventListener('input', updPrev); });
-    updPrev();
-    document.getElementById('bk_apply').addEventListener('click', async () => {
-      let codes;
-      if (bulkNumMode === 'list') codes = val('bk_codes').split('\n').map(s => s.trim()).filter(Boolean);
-      else { const n = parseInt(val('bk_count'), 10) || 0; if (n <= 0) { toast('أدخل عدد الرؤوس'); return; } codes = genSeq(val('bk_prefix'), val('bk_start'), n); }
-      if (!codes.length) { toast('أدخل المعرّفات أو العدد'); return; }
+    document.getElementById('bk_addrows').addEventListener('click', () => {
+      const sex = val('bk_sex');
+      if (bmode === 'num') {
+        const n = parseInt(val('bk_count'), 10) || 0; if (n <= 0) { toast('أدخل العدد'); return; }
+        genSeq(val('bk_prefix'), val('bk_start'), n).forEach(code => bulkRows.push({ sex, code }));
+        const last = parseInt(val('bk_start'), 10); if (!isNaN(last)) { const el = document.getElementById('bk_start'); if (el) el.value = String(last + n); }  // قدّم البداية للدفعة التالية
+      } else {
+        const n = parseInt(val('bk_ncount'), 10) || 0; if (n <= 0) { toast('أدخل العدد'); return; }
+        for (let i = 0; i < n; i++) bulkRows.push({ sex, code: '' });
+        document.getElementById('bk_ncount').value = '';
+      }
+      renderRows();
+    });
+    document.getElementById('bk_save').addEventListener('click', async () => {
+      if (!bulkRows.length) { toast('أضِف رؤوساً للقائمة أولاً'); return; }
       const existing = new Set(C.animals.map(a => a.code || ''));
-      const dups = codes.filter(c => existing.has(c));
-      if (dups.length && !await confirm2(`${dups.length} معرّف موجود مسبقاً (${dups.slice(0, 4).join('، ')}${dups.length > 4 ? '…' : ''}). أضيفها أيضاً؟`)) return;
-      if (!await confirm2(`إضافة ${codes.length} رأساً للمراح؟`)) return;
+      const dups = bulkRows.filter(r => r.code && existing.has(r.code)).map(r => r.code);
+      if (dups.length && !await confirm2(`${dups.length} معرّف مكرّر (${dups.slice(0, 4).join('، ')}${dups.length > 4 ? '…' : ''}). متابعة؟`)) return;
+      if (!await confirm2(`حفظ ${bulkRows.length} رأساً؟`)) return;
       const pen = val('bk_pen').trim(), src = val('bk_source'), datev = val('bk_date') || null;
-      const base = { type: val('bk_type'), pen, sex: val('bk_sex'), source: src, status: 'present', color: val('bk_color').trim(),
+      const base = { type: val('bk_type'), pen, source: src, status: 'present', color: val('bk_color').trim(),
         birth: src === 'born' ? datev : null, buy_date: src === 'purchased' ? datev : null,
         buy_price: val('bk_price') !== '' ? parseFloat(val('bk_price')) : null };
-      const ok = await guard(async () => { for (const code of codes) await dbInsert('animals', { ...base, idkind: idkindFor(code), code, name: '', mother_id: null, father_name: '', notes: '' }); });
-      if (ok) { lastPen = pen; try { localStorage.setItem('mrahi_last_pen', pen); } catch (e) {} toast(`تمت إضافة ${codes.length} رأساً — اضغط أي بهيمة لتعديلها`); bulkSel.clear(); await loadAll(); setHash('#/animals'); }
+      const rows = bulkRows.slice();
+      const ok = await guard(async () => { for (const r of rows) await dbInsert('animals', { ...base, sex: r.sex, idkind: idkindFor(r.code), code: r.code, name: '', mother_id: null, father_name: '', notes: '' }); });
+      if (ok) { bulkRows.length = 0; lastPen = pen; try { localStorage.setItem('mrahi_last_pen', pen); } catch (e) {} toast(`تم حفظ ${rows.length} رأساً — اضغط أي بهيمة لتعديلها`); bulkSel.clear(); await loadAll(); setHash('#/animals'); }
     });
+    renderRows();
     return;
   }
   let form = '';
