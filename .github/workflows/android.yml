@@ -62,10 +62,13 @@ jobs:
           node scripts/make-icons.mjs
           npx @capacitor/assets generate --android
 
-      - name: ضبط اسم/رقم النسخة في APK
+      - name: ضبط اسم/رقم النسخة ومستوى SDK
         run: |
           sed -i "s/versionName \"[^\"]*\"/versionName \"$APP_VERSION\"/" android/app/build.gradle || true
           sed -i "s/versionCode [0-9]*/versionCode ${{ github.run_number }}/" android/app/build.gradle || true
+          # رفع compileSdk/targetSdk إلى 35 (تتطلّبه اعتمادية androidx.work عبر إضافة التحديث)
+          sed -i -E 's/(compileSdkVersion =) *[0-9]+/\1 35/; s/(targetSdkVersion =) *[0-9]+/\1 35/' android/variables.gradle
+          cat android/variables.gradle
 
       - name: مزامنة Capacitor
         run: npx cap sync android
