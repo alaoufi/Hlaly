@@ -58,7 +58,9 @@
       if (buildNum(meta.version) <= buildNum(current)) { if (manual) say('أنت على آخر نسخة ✅ (' + current + ')'); return; }
       if (manual) say('يوجد تحديث (' + meta.version + ') — يُنزَّل الآن…');
       var bundle = await Updater.download({ url: meta.url, version: meta.version }); // تنزيل هادئ في الخلفية
-      await Updater.set(bundle);                                                     // يُفعَّل عند إعادة الفتح
+      // next(): يُفعَّل عند إعادة فتح التطبيق طبيعياً — لا إعادة تحميل فورية (تفادياً للخروج المفاجئ للرئيسية).
+      if (Updater.next) await Updater.next(bundle);
+      else await Updater.set(bundle);
       try { localStorage.setItem('mrahi_applied_version', meta.version); } catch (e) {}
       if (manual) say('تحديث جديد جاهز — سيُطبَّق عند إعادة فتح التطبيق');
       else showUpdateBanner(meta.version);                                           // الخلفية: رسالة لطيفة
