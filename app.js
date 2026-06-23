@@ -3,8 +3,8 @@
 
 /* ===== مسميات ===== */
 let TYPES = [
-  { k: 'camel', ar: 'إبل', gest: 390 }, { k: 'sheep', ar: 'غنم', gest: 150 },
-  { k: 'goat', ar: 'ماعز', gest: 150 }, { k: 'cattle', ar: 'بقر', gest: 283 },
+  { k: 'camel', ar: 'إبل', gest: 390, puberty: 36, weaning: 12 }, { k: 'sheep', ar: 'غنم', gest: 150, puberty: 7, weaning: 3 },
+  { k: 'goat', ar: 'ماعز', gest: 150, puberty: 7, weaning: 3 }, { k: 'cattle', ar: 'بقر', gest: 283, puberty: 15, weaning: 7 },
 ];
 const SEX = [{ k: 'female', ar: 'أنثى' }, { k: 'male', ar: 'ذكر' }];
 const STATUS = [{ k: 'present', ar: 'موجودة' }, { k: 'sold', ar: 'مباعة' }, { k: 'dead', ar: 'نافقة' }];
@@ -19,12 +19,15 @@ const MODULES = [
 ];
 const arOf = (arr, k) => (arr.find(x => x.k === k) || {}).ar || '—';
 const gestOf = (t) => (TYPES.find(x => x.k === t) || TYPES[1]).gest;
+const pubertyOf = (t) => (TYPES.find(x => x.k === t) || {}).puberty;   // سن البلوغ (أشهر) أو undefined
+const weaningOf = (t) => (TYPES.find(x => x.k === t) || {}).weaning;   // سن الفطام (أشهر) أو undefined
 
 /* ===== أدوات ===== */
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const view = () => document.getElementById('view');
 const todayStr = () => new Date().toISOString().slice(0, 10);
 function addDays(d, n) { if (!d) return null; const x = new Date(d + 'T00:00:00'); x.setDate(x.getDate() + n); return x.toISOString().slice(0, 10); }
+function addMonths(d, n) { if (!d || n == null) return null; const x = new Date(d + 'T00:00:00'); x.setMonth(x.getMonth() + n); return x.toISOString().slice(0, 10); }
 function daysUntil(d) { if (!d) return null; return Math.round((new Date(d + 'T00:00:00') - new Date(todayStr() + 'T00:00:00')) / 86400000); }
 // أطول مدة تحريم لنوع التطعيم (الحليب أو اللحم، مع توافق عمود withdrawal_days القديم)
 const vtWithdrawDays = (t) => Math.max(t.milk_withdrawal_days || 0, t.meat_withdrawal_days || 0, t.withdrawal_days || 0);
@@ -64,6 +67,7 @@ const TABLES = {
   animals: 'mrahi_animals', matings: 'mrahi_matings', pregnancies: 'mrahi_pregnancies',
   births: 'mrahi_births', vaccineTypes: 'mrahi_vaccine_types', vaccinations: 'mrahi_vaccinations',
   treatments: 'mrahi_treatments', treatmentTypes: 'mrahi_treatment_types', members: 'mrahi_members', backups: 'mrahi_backups',
+  types: 'mrahi_types',
 };
 function can(mod, act) { return !!(me && me.is_active && (me.role === 'admin' || (me.perms && me.perms[mod] && me.perms[mod][act]))); }
 const isAdmin = () => !!(me && me.role === 'admin' && me.is_active);
@@ -96,8 +100,9 @@ async function loadAll() {
   try {
     const tr = await sb.from('mrahi_types').select('*');
     C.types = tr.error ? [] : (tr.data || []);
-    if (C.types.length) TYPES = C.types.slice().sort((a, b) => (a.sort || 0) - (b.sort || 0)).map(t => ({ k: t.key, ar: t.ar, gest: t.gest }));
+    if (C.types.length) TYPES = C.types.slice().sort((a, b) => (a.sort || 0) - (b.sort || 0)).map(t => ({ k: t.key, ar: t.ar, gest: t.gest, puberty: t.puberty, weaning: t.weaning }));
   } catch (e) { /* تجاهل */ }
+  await autoSeedTypes();      // تعبئة أنواع الحلال الافتراضية لتصبح قابلة للتعديل (مرة واحدة)
   await autoSeedVaccines();   // تعبئة أولية لأنواع التطعيمات الموصى بها (مرة واحدة) في القاعدة المشتركة
   await autoSeedTreatments(); // تعبئة أولية لأنواع العلاج الموصى بها (مرة واحدة) في القاعدة المشتركة
   // النصائح والمعلومات (محتوى عام يديره مدير النظام)
@@ -135,6 +140,28 @@ const RECOMMENDED_VACCINES = [
   ['نجد', 'البروسيلا'], ['نجد', 'الحمى القلاعية'],
   ['نعيم', 'الحمى القلاعية'], ['نعيم', 'الكزاز'],
 ];
+// بذر أنواع الحلال الافتراضية في القاعدة لتصبح قابلة للتعديل (الاسم/مدة الحمل/سن البلوغ/سن الفطام)
+async function autoSeedTypes() {
+  if (C.types.length) return;                        // توجد أنواع ⇒ لا بذر
+  let done = false; try { done = !!localStorage.getItem('mrahi_types_seeded'); } catch (e) { /* تجاهل */ }
+  if (done) return;
+  let added = 0;
+  try {
+    let sort = 10;
+    for (const t of [
+      { key: 'camel', ar: 'إبل', gest: 390, puberty: 36, weaning: 12 },
+      { key: 'sheep', ar: 'غنم', gest: 150, puberty: 7, weaning: 3 },
+      { key: 'goat', ar: 'ماعز', gest: 150, puberty: 7, weaning: 3 },
+      { key: 'cattle', ar: 'بقر', gest: 283, puberty: 15, weaning: 7 },
+    ]) { await dbInsert('types', { ...t, sort }); sort += 10; added++; }
+  } catch (e) { return; }                            // قد تفشل في القاعدة المشتركة قبل ترقية الأعمدة ⇒ تبقى الافتراضات
+  if (added) {
+    try { localStorage.setItem('mrahi_types_seeded', '1'); } catch (e) { /* تجاهل */ }
+    const r = await sb.from('mrahi_types').select('*');
+    C.types = r.error ? C.types : (r.data || []);
+    if (C.types.length) TYPES = C.types.slice().sort((a, b) => (a.sort || 0) - (b.sort || 0)).map(t => ({ k: t.key, ar: t.ar, gest: t.gest, puberty: t.puberty, weaning: t.weaning }));
+  }
+}
 async function autoSeedVaccines() {
   if (C.vaccineTypes.length) return;                 // توجد بيانات مسبقاً ⇒ لا تعبئة
   let done = false; try { done = !!localStorage.getItem('mrahi_vaccine_types_seeded'); } catch (e) { /* تجاهل */ }
@@ -521,6 +548,7 @@ function screenAnimalDetail(arg) {
       ${row('المراح', esc(a.pen) || '—')}
       ${row('المصدر', arOf(SOURCE, a.source || 'purchased'))}
       ${row('تاريخ الميلاد', fmtDate(a.birth))}
+      ${a.birth && pubertyOf(a.type) ? row('🌱 سن البلوغ المتوقّع', fmtDate(addMonths(a.birth, pubertyOf(a.type))) + ' (' + pubertyOf(a.type) + ' شهر)') : ''}
       ${row('اللون', esc(a.color) || '—')}
       ${row('الحالة', arOf(STATUS, a.status))}
       ${(a.source || 'purchased') === 'purchased' && (a.sale_date == null) && a.buy_date ? row('تاريخ الشراء', fmtDate(a.buy_date)) : ''}
@@ -1508,9 +1536,10 @@ function adminAddUser() {
 function screenTypes() {
   if (!isAdmin()) { view().innerHTML = noPerm(); return; }
   const list = (C.types || []).slice().sort((a, b) => (a.sort || 0) - (b.sort || 0));
-  view().innerHTML = `<div class="muted" style="margin-bottom:8px">أنواع الحلال المستخدمة عند تسجيل البهائم. مدة الحمل (بالأيام) تُستخدم لحساب موعد الولادة المتوقّع.</div>`
+  view().innerHTML = `<div class="muted" style="margin-bottom:8px">أنواع الحلال المستخدمة عند تسجيل البهائم. مدة الحمل (بالأيام) تُستخدم لحساب موعد الولادة المتوقّع، وسن البلوغ/الفطام (بالأشهر) للمتابعة.</div>`
     + (list.length ? list.map(t => `<div class="card">
-        <div class="li-title">${esc(t.ar)} <span class="muted" style="font-weight:400">(${t.gest} يوم)</span></div>
+        <div class="li-title">${esc(t.ar)}</div>
+        <div class="li-sub">🤰 مدة الحمل: ${t.gest} يوم${t.puberty ? ` • 🌱 سن البلوغ: ${t.puberty} شهر` : ''}${t.weaning ? ` • 🍼 سن الفطام: ${t.weaning} شهر` : ''}</div>
         <div class="btn-row" style="margin-top:6px">
           <button class="btn sm outline" data-edit="${t.id}">تعديل</button>
           <button class="btn sm danger" data-del="${t.id}">حذف</button>
@@ -1525,19 +1554,23 @@ function screenTypes() {
   }));
 }
 function typeModal(t) {
+  const optNum = (id) => { const v = val(id).trim(); return v === '' ? null : (parseInt(v, 10) || null); };
   openModal(t ? 'تعديل نوع' : 'إضافة نوع', `
     ${fInput('الاسم (مثل: خيل)', 'ty_ar', t && t.ar)}
-    ${fInput('مدة الحمل (يوم)', 'ty_gest', t ? t.gest : 150, 'number')}
+    ${fInput('مدة الحمل (يوم)', 'ty_gest', t ? t.gest : 150, 'number', 'min="0" inputmode="numeric"')}
+    ${fInput('سن البلوغ (شهر) — اختياري', 'ty_puberty', t ? t.puberty : '', 'number', 'min="0" inputmode="numeric"')}
+    ${fInput('سن الفطام (شهر) — اختياري', 'ty_weaning', t ? t.weaning : '', 'number', 'min="0" inputmode="numeric"')}
     <button class="btn" id="ty_save" style="margin-top:6px">حفظ</button>`, () => {
     document.getElementById('ty_save').addEventListener('click', async () => {
       const ar = val('ty_ar').trim(); const gest = num('ty_gest') || 150;
+      const puberty = optNum('ty_puberty'), weaning = optNum('ty_weaning');
       if (!ar) { toast('أدخل الاسم'); return; }
       const ok = await guard(async () => {
-        if (t) { const { error } = await sb.from('mrahi_types').update({ ar, gest }).eq('id', t.id); if (error) throw error; }
+        if (t) { const { error } = await sb.from('mrahi_types').update({ ar, gest, puberty, weaning }).eq('id', t.id); if (error) throw error; }
         else {
           const key = 't_' + Date.now().toString(36);
           const sort = (C.types || []).reduce((m, x) => Math.max(m, x.sort || 0), 0) + 10;
-          const { error } = await sb.from('mrahi_types').insert({ key, ar, gest, sort }); if (error) throw error;
+          const { error } = await sb.from('mrahi_types').insert({ key, ar, gest, puberty, weaning, sort }); if (error) throw error;
         }
       });
       if (ok) { closeModal(); toast('تم الحفظ'); await loadAll(); screenTypes(); }
