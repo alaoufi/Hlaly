@@ -915,11 +915,13 @@ function screenMore() {
   const ver = window.MRAH_VERSION ? ` • نسخة ${window.MRAH_VERSION}` : '';
   const footer = (window.MRAH_LOCAL ? 'مراح — تطبيق محلّي • بياناتك محفوظة على جهازك فقط' : 'مراح — مزرعة مشتركة • بياناتك على Supabase') + ver;
   const switchCard = window.MRAH_APK ? `<div class="card click" data-switch><div class="li-title">🔧 وضع قاعدة البيانات (${window.MRAH_LOCAL ? 'محلي' : 'مشترك'}) — تغيير</div></div>` : '';
+  const updateCard = window.MRAH_APK ? `<div class="card click" data-checkupdate><div class="li-title">🔄 تحقق من وجود تحديث</div></div>` : '';
   view().innerHTML = (items.length ? items.map(([l, h]) => `<div class="card click" data-go="${h}"><div class="li-title">${l}</div></div>`).join('') : '<div class="center-empty">لا توجد عناصر متاحة بصلاحياتك.</div>')
-    + switchCard
+    + switchCard + updateCard
     + `<div class="muted" style="text-align:center;margin-top:18px;font-size:.85rem">${footer}</div>`;
   view().querySelectorAll('[data-go]').forEach(c => c.addEventListener('click', () => setHash(c.dataset.go)));
   { const sw = view().querySelector('[data-switch]'); if (sw) sw.addEventListener('click', switchBackend); }
+  { const uc = view().querySelector('[data-checkupdate]'); if (uc) uc.addEventListener('click', () => { if (typeof window.mrahiCheckUpdate === 'function') window.mrahiCheckUpdate(); else toast('التحديث متاح في تطبيق الجوال'); }); }
 }
 
 /* ===== دليل الاستخدام (كتاب ثلاثي الأبعاد) ===== */
