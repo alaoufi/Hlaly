@@ -323,6 +323,7 @@ const ROUTES = {
   backup: { t: 'النسخ الاحتياطي', back: true, fn: screenBackup },
   members: { t: 'المستخدمون والصلاحيات', back: true, fn: screenMembers },
   types: { t: 'أنواع الحلال', back: true, fn: screenTypes },
+  inspect: { t: 'تفقد الحلال', back: true, fn: screenInspect },
   trash: { t: 'سلة المحذوفات', back: true, fn: screenTrash },
   tips: { t: 'النصائح والمعلومات', back: true, fn: screenTips },
   guide: { t: 'دليل الاستخدام', back: true, fn: screenGuide },
@@ -1097,6 +1098,7 @@ function screenMore() {
   if (can('vaccines', 'edit')) items.push(['💉 إعطاء تطعيم', '#/vaccinate/0']);
   if (can('treatments', 'view')) items.push(['💊 أنواع العلاج', '#/treatment-types']);
   if (can('treatments', 'edit')) items.push(['💊 إضافة علاج', '#/treat/0']);
+  if (can('animals', 'view')) items.push(['🔍 تفقد الحلال وإحصائيات', '#/inspect']);
   if (can('animals', 'add')) items.push(['📋 إضافة جماعية (دفعة)', '#/bulk/buy']);
   if (can('animals', 'add') || can('animals', 'edit') || can('vaccines', 'edit') || can('treatments', 'edit') || can('breeding', 'edit')) items.push(['⚙️ عمليات جماعية (تطعيم/علاج/بيع…)', '#/bulk']);
   if (can('backup', 'view')) items.push(['💾 النسخ الاحتياطي', '#/backup']);
@@ -1530,6 +1532,83 @@ function adminAddUser() {
       if (ok) { closeModal(); toast('تم إنشاء الحساب — فعّله وامنحه الصلاحيات'); await loadAll(); screenMembers(); }
     });
   });
+}
+
+/* ===== تفقد الحلال وإحصائيات ===== */
+let inspectTab = 'stats';
+const codeNumOf = (a) => { const m = String(a.code || '').match(/(\d+)/); return m ? parseInt(m[1], 10) : null; };
+const aMini = (a) => `<div class="card click" data-aid="${a.id}" style="margin:6px 0"><div class="li-title">${display(a)} <span class="muted" style="font-weight:400">${internalNo(a)}</span></div><div class="li-sub">${arOf(TYPES, a.type)} • ${arOf(SEX, a.sex)}${a.pen ? ' • ' + esc(a.pen) : ''}${a.status !== 'present' ? ' • ' + arOf(STATUS, a.status) : ''}</div></div>`;
+function screenInspect() {
+  if (!can('animals', 'view')) { view().innerHTML = noPerm(); return; }
+  const tabs = [
+    { k: 'stats', ar: '📊 إحصائيات' }, { k: 'index', ar: '🔢 فهرس' }, { k: 'dups', ar: '♻ تكرار الأرقام' },
+    { k: 'offspring', ar: '👶 الإنتاج' }, { k: 'twins', ar: '👯 التوائم' }, { k: 'gaps', ar: '⚠️ نواقص' },
+  ];
+  view().innerHTML = `<div class="chips">${tabs.map(t => `<span class="chip ${inspectTab === t.k ? 'active' : ''}" data-it="${t.k}">${t.ar}</span>`).join('')}</div><div id="inspBody"></div>`;
+  view().querySelectorAll('[data-it]').forEach(c => c.addEventListener('click', () => { inspectTab = c.dataset.it; screenInspect(); }));
+  renderInspect();
+}
+function renderInspect() {
+  const body = document.getElementById('inspBody');
+  const A = C.animals;
+  const present = A.filter(a => a.status === 'present');
+  if (inspectTab === 'stats') {
+    const byType = TYPES.map(t => ({ ar: t.ar, n: present.filter(a => a.type === t.k).length })).filter(x => x.n);
+    const f = present.filter(a => a.sex === 'female').length, m = present.filter(a => a.sex === 'male').length;
+    const sold = A.filter(a => a.status === 'sold').length, dead = A.filter(a => a.status === 'dead').length;
+    const born = present.filter(a => a.source === 'born').length, bought = present.length - born;
+    const pens = {}; present.forEach(a => { const p = a.pen || '— بلا مراح'; pens[p] = (pens[p] || 0) + 1; });
+    const penList = Object.entries(pens).sort((x, y) => y[1] - x[1]);
+    body.innerHTML = `
+      <div class="stats">
+        <div class="stat green"><div class="n">${present.length}</div><div class="l">في المراح</div></div>
+        <div class="stat blue"><div class="n">${f}</div><div class="l">إناث</div></div>
+        <div class="stat amber"><div class="n">${m}</div><div class="l">ذكور</div></div>
+      </div>
+      <div class="card"><h3>حسب النوع</h3>${byType.length ? byType.map(x => row(x.ar, x.n)).join('') : noItem()}</div>
+      <div class="card"><h3>الحالة (الكل)</h3>${row('في المراح', present.length)}${row('مباعة', sold)}${row('نافقة', dead)}${row('الإجمالي', A.length)}</div>
+      <div class="card"><h3>المصدر (في المراح)</h3>${row('مواليد', born)}${row('مشترى', bought)}</div>
+      <div class="card"><h3>حسب المراح</h3>${penList.length ? penList.map(([p, n]) => row(p, n)).join('') : noItem()}</div>`;
+    return;
+  }
+  if (inspectTab === 'index') {
+    const arr = present.slice().sort((a, b) => { const x = codeNumOf(a), y = codeNumOf(b); if (x == null && y == null) return a.id - b.id; if (x == null) return 1; if (y == null) return -1; return x - y; });
+    body.innerHTML = `<div class="muted" style="margin:4px 0 8px">فهرس تسلسلي — ${arr.length} رأس في المراح</div>`
+      + (arr.length ? arr.map((a, i) => `<div class="card click" data-aid="${a.id}"><div class="li-title">${i + 1}. ${display(a)} <span class="muted" style="font-weight:400">${internalNo(a)}</span></div><div class="li-sub">${arOf(TYPES, a.type)} • ${arOf(SEX, a.sex)}${a.pen ? ' • ' + esc(a.pen) : ''}</div></div>`).join('') : noItem());
+    bindCards(body); return;
+  }
+  if (inspectTab === 'dups') {
+    const map = {}; present.filter(a => a.code).forEach(a => { (map[a.code] = map[a.code] || []).push(a); });
+    const dups = Object.entries(map).filter(([, arr]) => arr.length > 1).sort((x, y) => y[1].length - x[1].length);
+    body.innerHTML = dups.length
+      ? `<div class="muted" style="margin:4px 0 8px">أرقام يتشاركها أكثر من رأس في المراح — راجِعها.</div>` + dups.map(([code, arr]) => `<div class="card"><div class="li-title">⚠️ الرقم «${esc(code)}» مكرّر (${arr.length})</div>${arr.map(aMini).join('')}</div>`).join('')
+      : '<div class="center-empty">لا يوجد تكرار في الأرقام ✅</div>';
+    bindCards(body); return;
+  }
+  if (inspectTab === 'offspring') {
+    const cnt = {}; A.forEach(a => { if (a.mother_id) cnt[a.mother_id] = (cnt[a.mother_id] || 0) + 1; });
+    const moms = Object.entries(cnt).map(([id, n]) => ({ a: animalById(parseInt(id, 10)), n })).filter(x => x.a).sort((x, y) => y.n - x.n);
+    body.innerHTML = `<div class="muted" style="margin:4px 0 8px">الأمهات حسب عدد المواليد المسجّلة (${moms.length} أم منتِجة)</div>`
+      + (moms.length ? moms.map(({ a, n }) => `<div class="card click" data-aid="${a.id}"><div class="li-title">${display(a)} <span class="muted" style="font-weight:400">${internalNo(a)}</span></div><div class="li-sub">👶 ${n} مولود • ${arOf(TYPES, a.type)}${a.pen ? ' • ' + esc(a.pen) : ''}</div></div>`).join('') : noItem());
+    bindCards(body); return;
+  }
+  if (inspectTab === 'twins') {
+    const groups = {}; A.forEach(a => { if (a.mother_id && a.birth) { const k = a.mother_id + '|' + a.birth; (groups[k] = groups[k] || []).push(a); } });
+    const multi = Object.values(groups).filter(g => g.length >= 2).sort((x, y) => y.length - x.length || (y[0].birth || '').localeCompare(x[0].birth || ''));
+    const label = (n) => n === 2 ? 'توأم' : n === 3 ? 'ثلاثة توائم' : n === 4 ? 'أربعة توائم' : `${n} توائم`;
+    body.innerHTML = multi.length
+      ? `<div class="muted" style="margin:4px 0 8px">مواليد مشتركة في الأم وتاريخ الميلاد (${multi.length} حالة)</div>` + multi.map(g => { const mom = animalById(g[0].mother_id); return `<div class="card"><div class="li-title">👯 ${label(g.length)} — ${mom ? display(mom) : 'أم'}</div><div class="li-sub">ميلاد ${fmtDate(g[0].birth)}</div>${g.map(aMini).join('')}</div>`; }).join('')
+      : '<div class="center-empty">لا توجد توائم مسجّلة (تحتاج تاريخ ميلاد وأمّاً للمواليد).</div>';
+    bindCards(body); return;
+  }
+  if (inspectTab === 'gaps') {
+    const noNum = present.filter(a => !a.code);
+    const noBirth = present.filter(a => !a.birth);
+    const noMother = present.filter(a => a.source === 'born' && !a.mother_id);
+    const sec = (title, arr) => `<div class="card"><h3>${title} (${arr.length})</h3>${arr.length ? arr.slice(0, 60).map(aMini).join('') + (arr.length > 60 ? '<div class="muted">…والمزيد</div>' : '') : '<div class="muted">لا شيء ✅</div>'}</div>`;
+    body.innerHTML = sec('🐑 بلا رقم خارجي', noNum) + sec('📅 بلا تاريخ ميلاد', noBirth) + sec('👩 مواليد بلا أم', noMother);
+    bindCards(body); return;
+  }
 }
 
 /* ===== أنواع الحلال (للمدير) ===== */
