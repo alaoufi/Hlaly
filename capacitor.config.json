@@ -1,12 +1,5 @@
 {
   "appId": "me.alaoufi.mrahi",
   "appName": "مراح",
-  "webDir": "www",
-  "plugins": {
-    "CapacitorUpdater": {
-      "autoUpdate": false,
-      "appReadyTimeout": 20000,
-      "directUpdate": false
-    }
-  }
+  "webDir": "www"
 }

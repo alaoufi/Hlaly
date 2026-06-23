@@ -1,97 +1,72 @@
-/* مراح — تحديث محتوى التطبيق (OTA) عبر @capgo/capacitor-updater — تصميم مستقرّ.
-   المبدأ الحاكم: لا شيء يغيّر التطبيق الجاري إلا بضغطة صريحة من المستخدم.
-   • عند الفتح: notifyAppReady() فوراً وبإصرار — يثبّت النسخة الحالية ويمنع
-     التراجع التلقائي (rollback) الذي يسبّب «القفز» بين النسخ.
-   • فحص خلفيّ خفيف بعد الخمول: يكتشف وجود نسخة أحدث ويُظهر بانراً فقط —
-     لا ينزّل ولا يغيّر أي حزمة تلقائياً.
-   • التنزيل والتطبيق يحدثان فقط عند ضغط «تحديث الآن» (في البانر) أو زر
-     «🔄 تحقق من وجود تحديث»، وبـ next() — فيُطبَّق عند إعادة الفتح بهدوء
-     دون إعادة تحميل مفاجئة. البيانات المحلية لا تتأثّر.
-   يعمل داخل تطبيق الجوال وعند توفّر الإنترنت فقط. */
+/* مراح — التحقق من وجود تحديث (بسيط ومستقرّ، بلا OTA ولا تبديل حِزَم).
+   لا يوجد أي تبديل للحزمة داخل التطبيق (سبب عدم الاستقرار سابقاً) — لذا لا
+   إعادة تحميل مفاجئة ولا «قفز» بين النسخ إطلاقاً.
+   • فحص خلفيّ خفيف يقرأ رقم أحدث نسخة فقط، فإن وُجد أحدث أطلق إشارة
+     (نقطة على «المزيد» وإبراز الزر) — دون تنزيل أو تغيير شيء.
+   • زر «🔄 تحقق من وجود تحديث» يفتح صفحة تنزيل APK الجديد في المتصفّح.
+     وبما أن APK موقّع بمفتاح ثابت، يُثبَّت فوق القديم دون حذف ومع حفظ البيانات.
+   يعمل داخل تطبيق الجوال وعند توفّر الإنترنت. */
 (function () {
   'use strict';
   var VERSION_JSON = 'https://github.com/alaoufi/marahi/releases/download/apk-latest/version.json';
-  var pendingMeta = null;   // معلومات تحديث مكتشَف بانتظار ضغط المستخدم
+  var APK_URL = 'https://github.com/alaoufi/marahi/releases/download/apk-latest/mrah.apk';
 
   function buildNum(v) { var m = String(v || '').match(/(\d+)\s*$/); return m ? parseInt(m[1], 10) : 0; }
   function say(msg) { try { if (typeof toast === 'function') toast(msg); } catch (e) {} }
-  function plugins() { var Cap = window.Capacitor; return (Cap && Cap.Plugins) || null; }
-
-  // تثبيت النسخة الحالية فوراً ومنع التراجع التلقائي — يُستدعى مبكراً وبإصرار
-  function notifyReady() {
-    var P = plugins(); if (!P || !P.CapacitorUpdater) return;
-    try { var r = P.CapacitorUpdater.notifyAppReady(); if (r && r.catch) r.catch(function () {}); } catch (e) {}
-  }
-
-  function currentVersion() {
-    var applied = null; try { applied = localStorage.getItem('mrahi_applied_version'); } catch (e) {}
-    return applied || window.MRAH_VERSION || '0';
-  }
+  function currentVersion() { return window.MRAH_VERSION || '0'; }
   function isNewer(meta) { return !!(meta && meta.version) && buildNum(meta.version) > buildNum(currentVersion()); }
 
-  // جلب معلومات أحدث نسخة فقط (طلب خفيف، لا ينزّل حزمة)
+  // قراءة رقم أحدث نسخة فقط (لا تنزيل حزمة). CapacitorHttp إن توفّر لتفادي CORS، وإلا fetch.
   async function fetchLatest() {
-    var P = plugins(); if (!P || !P.CapacitorHttp) return null;
-    var resp = await P.CapacitorHttp.get({ url: VERSION_JSON, headers: { 'Cache-Control': 'no-cache' } });
-    var meta = typeof resp.data === 'string' ? JSON.parse(resp.data) : resp.data;
-    return (meta && meta.version && meta.url) ? meta : null;
+    var P = window.Capacitor && window.Capacitor.Plugins;
+    if (P && P.CapacitorHttp) {
+      var r = await P.CapacitorHttp.get({ url: VERSION_JSON, headers: { 'Cache-Control': 'no-cache' } });
+      var m = typeof r.data === 'string' ? JSON.parse(r.data) : r.data;
+      return (m && m.version) ? m : null;
+    }
+    var resp = await fetch(VERSION_JSON, { cache: 'no-store' });
+    var j = await resp.json();
+    return (j && j.version) ? j : null;
   }
 
-  // التنزيل والتطبيق — بفعل المستخدم فقط. next() لا set() (لا إعادة تحميل فورية).
-  async function applyUpdate() {
-    var P = plugins();
-    if (!P || !P.CapacitorUpdater) { say('التحديث يعمل داخل تطبيق الجوال فقط'); return; }
-    if (navigator.onLine === false) { say('لا يوجد اتصال بالإنترنت'); return; }
-    var U = P.CapacitorUpdater;
-    try {
-      var meta = pendingMeta || await fetchLatest();
-      if (!meta || !isNewer(meta)) { say('أنت على آخر نسخة ✅ (' + currentVersion() + ')'); return; }
-      say('يُنزَّل التحديث (' + meta.version + ')…');
-      var bundle = await U.download({ url: meta.url, version: meta.version });
-      if (U.next) await U.next(bundle); else await U.set(bundle);
-      try { localStorage.setItem('mrahi_applied_version', meta.version); } catch (e) {}
-      pendingMeta = null;
-      window.mrahiUpdateInfo = null;                                  // انتهت الإشارة
-      try { window.dispatchEvent(new Event('mrahi-update-applied')); } catch (e) {}
-      say('تحديث جاهز — سيُطبَّق عند إعادة فتح التطبيق');
-    } catch (e) { say('تعذّر التحديث — حاول لاحقاً'); }
+  // فتح صفحة تنزيل APK في متصفّح النظام (يُثبَّت فوق الحالي ويحفظ البيانات)
+  function openDownload() {
+    try { window.open(APK_URL, '_system'); }
+    catch (e) { try { window.open(APK_URL, '_blank'); } catch (_) {} }
   }
+  window.mrahiOpenDownload = openDownload;
 
-  // الفحص اليدوي من الزر: يتحقق ويعطي رسالة واضحة، ويبدأ التطبيق إن وُجد جديد
+  // زر «تحقق من وجود تحديث»
   async function manualCheck() {
-    var P = plugins();
-    if (!P || !P.CapacitorUpdater) { say('التحديث يعمل داخل تطبيق الجوال فقط'); return; }
+    if (!window.MRAH_APK) { say('التحديث متاح في تطبيق الجوال'); return; }
     if (navigator.onLine === false) { say('لا يوجد اتصال بالإنترنت'); return; }
     say('جارٍ البحث عن تحديث…');
     try {
       var meta = await fetchLatest();
       if (!meta) { say('تعذّر قراءة معلومات التحديث'); return; }
       if (!isNewer(meta)) { say('أنت على آخر نسخة ✅ (' + currentVersion() + ')'); return; }
-      pendingMeta = meta;
-      await applyUpdate();
+      window.mrahiUpdateInfo = { version: meta.version };
+      try { window.dispatchEvent(new Event('mrahi-update-available')); } catch (e) {}
+      say('يوجد تحديث (' + meta.version + ') — يُفتح التنزيل لتثبيته');
+      openDownload();
     } catch (e) { say('تعذّر الفحص — حاول لاحقاً'); }
   }
   window.mrahiCheckUpdate = manualCheck;
 
-  // فحص خلفيّ: يكتشف فقط ويُطلق إشارة (دون أي بانر/تنزيل/تغيير حزمة).
-  // يلتقط التطبيق الإشارة فيُظهر نقطة على «المزيد» ويُبرز زر التحديث.
+  // فحص خلفيّ خفيف: إشارة فقط (لا تنزيل ولا تغيير)
   async function bgDetect() {
-    if (navigator.onLine === false) return;
+    if (!window.MRAH_APK || navigator.onLine === false) return;
     try {
       var meta = await fetchLatest();
       if (isNewer(meta)) {
-        pendingMeta = meta;
         window.mrahiUpdateInfo = { version: meta.version };
         try { window.dispatchEvent(new Event('mrahi-update-available')); } catch (e) {}
       }
     } catch (e) {}
   }
   function idle(cb) { if (window.requestIdleCallback) window.requestIdleCallback(cb, { timeout: 5000 }); else setTimeout(cb, 600); }
-
-  // إقلاع: تثبيت النسخة فوراً وبإصرار، ثم اكتشاف خلفيّ خفيف بعد الخمول
-  notifyReady();
-  setTimeout(notifyReady, 1500);   // إصرار إضافي تحسّباً لتأخّر تحميل الإضافة
   function scheduleBg() { setTimeout(function () { idle(bgDetect); }, 4000); }
+
   if (document.readyState === 'complete') scheduleBg();
   else window.addEventListener('load', scheduleBg);
 })();
