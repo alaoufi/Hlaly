@@ -717,19 +717,20 @@ function pregTable(monitoring) {
   if (!monitoring.length) return '';
   const rows = monitoring.map(p => {
     const a = animalById(p.animal_id);
+    const age = p.mating_date ? Math.max(0, -daysUntil(p.mating_date)) : null;   // عمر الحمل الحالي
     const left = daysUntil(p.expected);
     const leftTxt = left == null ? '—' : (left >= 0 ? left + ' يوم' : 'متأخّر ' + (-left));
     return `<tr data-aid="${a ? a.id : ''}" style="cursor:pointer">
       <td>${a ? display(a) : '—'}${p.confirmed ? ' 🔊' : ''}</td>
-      <td style="text-align:center">${p.gest}</td>
+      <td style="text-align:center">${age != null ? age : p.gest}</td>
       <td style="text-align:center">${fmtDate(p.expected)}</td>
       <td style="text-align:center">${leftTxt}</td></tr>`;
   }).join('');
   return `<div class="card"><h3>📋 جدول الحوامل (${monitoring.length})</h3>
     <div style="overflow-x:auto"><table class="ptable">
-      <thead><tr><th>البهيمة</th><th>مدة الحمل (يوم)</th><th>الولادة التقريبية</th><th>المتبقّي</th></tr></thead>
+      <thead><tr><th>البهيمة</th><th>عمر الحمل (يوم)</th><th>الولادة التقريبية</th><th>المتبقّي</th></tr></thead>
       <tbody>${rows}</tbody></table></div>
-    <div class="muted" style="font-size:.8rem;margin-top:6px">🔊 = مؤكّد بالسونار • الولادة تقريبية = تاريخ التلقيح + مدة حمل النوع</div></div>`;
+    <div class="muted" style="font-size:.8rem;margin-top:6px">🔊 = مؤكّد بالسونار • عمر الحمل يتحدّث يومياً • الولادة = التلقيح/السونار + مدة النوع</div></div>`;
 }
 function screenPregnancies() {
   if (!can('breeding', 'view')) { view().innerHTML = noPerm(); return; }
@@ -743,7 +744,8 @@ function screenPregnancies() {
         <button class="btn sm" data-birth="${p.id}">تسجيل ولادة</button>
         <button class="btn sm outline" data-sonar="${p.id}">🔊 فحص بالسونار</button>
         <button class="btn sm outline" data-nope="${p.id}">لم يثبت</button></div>` : '';
-    return `<div class="card"><h3>${display(a)}</h3>${row('تاريخ التلقيح', fmtDate(p.mating_date))}${row('مدة الحمل', p.gest + ' يوم')}${row('الولادة التقريبية', fmtDate(p.expected))}${row('الحالة', arOf(PREG, p.status))}${sonarRow}${actions}</div>`;
+    const age = p.mating_date ? Math.max(0, -daysUntil(p.mating_date)) : null;
+    return `<div class="card"><h3>${display(a)}</h3>${row('عمر الحمل الحالي', (age != null ? age : '—') + ' يوم')}${row('مدة حمل النوع', p.gest + ' يوم')}${row('الولادة التقريبية', fmtDate(p.expected))}${row('الحالة', arOf(PREG, p.status))}${sonarRow}${actions}</div>`;
   }).join('');
   const startBtn = can('breeding', 'edit') ? '<button class="btn" id="startPreg" style="margin:0 0 8px">➕ بدء متابعة حمل (اختيار جماعي)</button>' : '';
   const bulkBtn = (monitoring.length && can('breeding', 'edit')) ? '<button class="btn outline" id="bulkSonar" style="margin:0 0 10px">🔊 فحص جماعي بالسونار</button>' : '';
@@ -759,36 +761,39 @@ function screenPregnancies() {
   view().querySelectorAll('[data-sonar]').forEach(b => b.addEventListener('click', () => sonarModal(C.pregnancies.find(x => x.id === parseInt(b.dataset.sonar, 10)))));
   view().querySelectorAll('[data-birth]').forEach(b => b.addEventListener('click', () => openBirthModal(C.pregnancies.find(x => x.id === parseInt(b.dataset.birth, 10)))));
 }
-// بدء متابعة حمل: لكل بهيمة محدّدة مدّة حمل بالأيام خاصّة بها (افتراضها حسب النوع) ⇒ تُحسب ولادتها
+// بدء متابعة حمل بعد السونار: تاريخ سونار واحد + «عمر الحمل» لكل بهيمة ⇒ الولادة = السونار + (مدة النوع − عمر الحمل)
 function startPregBulkModal() {
   const cands = C.animals.filter(a => a.status === 'present' && a.sex === 'female')
     .filter(a => !C.pregnancies.some(p => p.animal_id === a.id && p.status === 'monitoring'))
     .sort((a, b) => b.id - a.id);
   if (!cands.length) { toast('لا توجد إناث متاحة (إمّا غير موجودة أو تحت متابعة بالفعل)'); return; }
   const rows = cands.map(a => `<div class="bulk-row" style="gap:8px">
-      <input type="checkbox" data-pp="${a.id}">
       <span style="flex:1">${display(a)} <span class="muted">${arOf(TYPES, a.type)}${a.pen ? ' • ' + esc(a.pen) : ''}</span></span>
-      <input data-days="${a.id}" type="number" inputmode="numeric" min="1" value="${gestOf(a.type)}" title="مدة الحمل بالأيام" style="width:62px;padding:6px;border:1px solid #ddd;border-radius:8px;text-align:center">
+      <input data-age="${a.id}" data-type="${a.type}" type="number" inputmode="numeric" min="1" placeholder="عمر الحمل" style="width:96px;padding:6px;border:1px solid #ddd;border-radius:8px;text-align:center">
       <span class="muted" style="font-size:.78rem">يوم</span></div>`).join('');
-  openModal('➕ بدء متابعة حمل', `
-    ${fInput('تاريخ الإدخال / الفحص', 'pp_date', todayStr(), 'date')}
-    <div class="muted" style="font-size:.82rem;margin:6px 0">علّم البهيمة واضبط «مدة الحمل بالأيام» لكلٍّ على حدة (الافتراضي حسب النوع). الولادة التقريبية = التاريخ + أيام تلك البهيمة.</div>
+  openModal('➕ بدء متابعة حمل (بعد السونار)', `
+    ${fInput('تاريخ السونار', 'pp_date', todayStr(), 'date')}
+    <div class="muted" style="font-size:.82rem;margin:6px 0">اكتب «عمر الحمل بالأيام» أمام كل بهيمة فُحصت (اترك الفارغة). الولادة = تاريخ السونار + (مدة حمل النوع − عمر الحمل).</div>
     ${fInput('🔍 بحث (رقم/مراح)', 'pp_search', '')}
     <div style="max-height:42vh;overflow:auto" id="pp_list">${rows}</div>
-    <div class="muted" id="pp_count" style="margin-top:6px">المحدد: 0</div>
-    <button class="btn" id="pp_save" style="margin-top:8px">حفظ المتابعة للمحدد</button>`, () => {
-    const sel = new Set();
-    const upd = () => { document.getElementById('pp_count').textContent = 'المحدد: ' + sel.size; };
-    document.querySelectorAll('[data-pp]').forEach(cb => cb.addEventListener('change', () => { const id = parseInt(cb.dataset.pp, 10); cb.checked ? sel.add(id) : sel.delete(id); upd(); }));
+    <div class="muted" id="pp_count" style="margin-top:6px">المُدخَل: 0</div>
+    <button class="btn" id="pp_save" style="margin-top:8px">حفظ المتابعة</button>`, () => {
+    const recount = () => { const n = [...document.querySelectorAll('[data-age]')].filter(el => (parseInt(el.value, 10) || 0) > 0).length; document.getElementById('pp_count').textContent = 'المُدخَل: ' + n; };
+    document.querySelectorAll('[data-age]').forEach(el => el.addEventListener('input', recount));
     { const se = document.getElementById('pp_search'); se.addEventListener('input', () => { const t = se.value.trim().toLowerCase(); document.querySelectorAll('#pp_list .bulk-row').forEach(r => { r.style.display = (!t || r.textContent.toLowerCase().includes(t)) ? '' : 'none'; }); }); }
     document.getElementById('pp_save').addEventListener('click', async () => {
-      if (!sel.size) { toast('اختر بهيمة واحدة على الأقل'); return; }
       const date = val('pp_date') || todayStr();
-      const items = [...sel].map(id => { const el = document.querySelector(`[data-days="${id}"]`); return { id, days: el ? (parseInt(el.value, 10) || 0) : 0 }; });
-      if (items.some(it => it.days <= 0)) { toast('أدخل مدة حمل صحيحة (أيام) لكل بهيمة محدّدة'); return; }
-      if (!await confirm2(`بدء متابعة حمل لـ${items.length} بهيمة (لكلٍّ مدّتها)؟`)) return;
+      const items = [...document.querySelectorAll('[data-age]')].map(el => ({ id: parseInt(el.dataset.age, 10), type: el.dataset.type, age: parseInt(el.value, 10) || 0 })).filter(it => it.age > 0);
+      if (!items.length) { toast('اكتب عمر الحمل لبهيمة واحدة على الأقل'); return; }
+      const over = items.filter(it => it.age >= gestOf(it.type));
+      if (over.length && !await confirm2(`${over.length} بهيمة عمر حملها يبلغ/يتجاوز مدة النوع — ستظهر ولادتها قريبة جداً. متابعة؟`)) return;
+      if (!await confirm2(`بدء متابعة حمل لـ${items.length} بهيمة؟`)) return;
       const ok = await guard(async () => {
-        for (const it of items) await dbInsert('pregnancies', { animal_id: it.id, mating_date: date, gest: it.days, expected: addDays(date, it.days), status: 'monitoring', confirmed: true, sonar_date: date, notes: 'فحص سونار' });
+        for (const it of items) {
+          const g = gestOf(it.type);
+          const conception = addDays(date, -it.age);     // تاريخ التلقيح التقديري = السونار − عمر الحمل
+          await dbInsert('pregnancies', { animal_id: it.id, mating_date: conception, gest: g, expected: addDays(conception, g), status: 'monitoring', confirmed: true, sonar_date: date, notes: 'سونار — عمر الحمل ' + it.age + ' يوم' });
+        }
       });
       if (ok) { closeModal(); toast(`بدأت متابعة ${items.length} حمل`); await loadAll(); screenPregnancies(); }
     });
