@@ -913,9 +913,12 @@ function screenMore() {
   if (!window.MRAH_LOCAL && isAdmin()) items.push(['👥 المستخدمون والصلاحيات', '#/members']);
   if (isSys()) items.push(['💡 النصائح والمعلومات', '#/tips']);
   const footer = window.MRAH_LOCAL ? 'مراح — تطبيق محلّي • بياناتك محفوظة على جهازك فقط' : 'مراح — مزرعة مشتركة • بياناتك على Supabase';
+  const switchCard = window.MRAH_APK ? `<div class="card click" data-switch><div class="li-title">🔧 وضع قاعدة البيانات (${window.MRAH_LOCAL ? 'محلي' : 'مشترك'}) — تغيير</div></div>` : '';
   view().innerHTML = (items.length ? items.map(([l, h]) => `<div class="card click" data-go="${h}"><div class="li-title">${l}</div></div>`).join('') : '<div class="center-empty">لا توجد عناصر متاحة بصلاحياتك.</div>')
+    + switchCard
     + `<div class="muted" style="text-align:center;margin-top:18px;font-size:.85rem">${footer}</div>`;
   view().querySelectorAll('[data-go]').forEach(c => c.addEventListener('click', () => setHash(c.dataset.go)));
+  { const sw = view().querySelector('[data-switch]'); if (sw) sw.addEventListener('click', switchBackend); }
 }
 
 /* ===== دليل الاستخدام (كتاب ثلاثي الأبعاد) ===== */
@@ -1991,7 +1994,9 @@ function renderAuth() {
         : fInput('الجوال أو اسم المستخدم', 'a_id', '') +
           pinField('الرقم السري (٤ أرقام)', 'a_pin')}
       <button class="btn" id="a_submit">${mode === 'signin' ? 'تسجيل الدخول' : 'إنشاء حساب'}</button>
-      <div class="auth-msg" id="a_msg"></div></div>`;
+      <div class="auth-msg" id="a_msg"></div>
+      ${window.MRAH_APK ? '<button class="btn outline" id="a_switch" style="margin-top:12px">🔧 تغيير وضع قاعدة البيانات</button>' : ''}</div>`;
+    { const sw = document.getElementById('a_switch'); if (sw) sw.addEventListener('click', switchBackend); }
     document.getElementById('t_in').addEventListener('click', () => { mode = 'signin'; draw(); });
     { const up = document.getElementById('t_up'); if (up) up.addEventListener('click', () => { mode = 'signup'; draw(); }); }
     { const o = document.getElementById('ty_owner'); if (o) o.addEventListener('click', () => { acctType = 'owner'; draw(); }); }
@@ -2093,40 +2098,111 @@ function showSetup() {
     <p class="muted" style="font-size:.85rem">ونفّذ ملف <b>schema.sql</b> في Supabase → SQL Editor لإنشاء الجداول والصلاحيات.</p></div>`;
 }
 
+// ===== اختيار قاعدة البيانات (في تطبيق الأندرويد) =====
+// يحفظ الاختيار محلياً: 'local' (هذا الجهاز فقط) أو 'cloud' (Supabase مشترك + عنوانه ومفتاحه).
+const BK = {
+  get: () => { try { return localStorage.getItem('mrahi_backend'); } catch (e) { return null; } },
+  set: (v) => { try { localStorage.setItem('mrahi_backend', v); } catch (e) {} },
+  cloud: () => { try { return { url: localStorage.getItem('mrahi_cloud_url') || '', key: localStorage.getItem('mrahi_cloud_key') || '' }; } catch (e) { return { url: '', key: '' }; } },
+  saveCloud: (url, key) => { try { localStorage.setItem('mrahi_cloud_url', url); localStorage.setItem('mrahi_cloud_key', key); } catch (e) {} },
+  reset: () => { try { ['mrahi_backend', 'mrahi_cloud_url', 'mrahi_cloud_key'].forEach(k => localStorage.removeItem(k)); } catch (e) {} },
+};
+
+// شاشة الإعداد أول مرة: محلي أو مشترك
+function renderBackendChooser() {
+  showLoading(false);
+  document.getElementById('app').classList.add('hidden');
+  const box = document.getElementById('auth'); box.classList.remove('hidden');
+  box.innerHTML = `<div class="auth-box">
+    <div class="logo">🐪</div><h2>مراح</h2><div class="sub">اختر مكان حفظ بياناتك</div>
+    <button class="btn" id="bk_local">📵 محلي على هذا الجهاز<br><span style="font-weight:400;font-size:.8rem;opacity:.85">يعمل بلا إنترنت • بياناتك على جوالك فقط • بلا تسجيل دخول</span></button>
+    <button class="btn outline" id="bk_cloud" style="margin-top:10px">☁️ مشترك (عدّة مستخدمين)<br><span style="font-weight:400;font-size:.8rem;opacity:.85">قاعدة Supabase واحدة • تسجيل دخول وصلاحيات • يحدّدها المدير</span></button>
+    <div id="bk_cloud_form" class="hidden" style="margin-top:14px;text-align:right">
+      <div class="muted" style="font-size:.82rem;margin-bottom:8px">أدخل بيانات مشروع Supabase (من المدير). تُحفظ على هذا الجهاز.</div>
+      ${fInput('عنوان المشروع (Project URL)', 'bk_url', '', 'url', 'placeholder="https://xxxx.supabase.co" inputmode="url" autocomplete="off"')}
+      ${fInput('المفتاح العام (anon key)', 'bk_key', '', 'text', 'placeholder="eyJ..." autocomplete="off"')}
+      <button class="btn" id="bk_connect">اتصال</button>
+      <div class="auth-msg" id="bk_msg"></div>
+    </div>
+  </div>`;
+  document.getElementById('bk_local').addEventListener('click', () => { BK.set('local'); startLocalMode(); });
+  document.getElementById('bk_cloud').addEventListener('click', () => {
+    document.getElementById('bk_cloud_form').classList.remove('hidden');
+    document.getElementById('bk_url').focus();
+  });
+  document.getElementById('bk_connect').addEventListener('click', () => {
+    const msg = document.getElementById('bk_msg'); msg.className = 'auth-msg';
+    const url = val('bk_url').trim().replace(/\/+$/, '');
+    const key = val('bk_key').trim();
+    if (!/^https:\/\/.+\.supabase\.co$/i.test(url)) { msg.classList.add('err'); msg.textContent = 'عنوان المشروع غير صحيح (مثال: https://xxxx.supabase.co)'; return; }
+    if (key.length < 20) { msg.classList.add('err'); msg.textContent = 'المفتاح العام غير صحيح'; return; }
+    BK.saveCloud(url, key); BK.set('cloud');
+    window.MRAH_CONFIG = { SUPABASE_URL: url, SUPABASE_ANON_KEY: key };
+    startCloudMode();
+  });
+}
+
+// الوضع المحلي: قاعدة بيانات محلية، مستخدم واحد، بلا تسجيل دخول
+async function startLocalMode() {
+  window.MRAH_LOCAL = true;
+  document.getElementById('auth').classList.add('hidden');
+  sb = window.createMrahLocalClient();
+  document.getElementById('signoutBtn').classList.add('hidden');
+  me = { user_id: 'local', full_name: '', role: 'admin', is_active: true, is_sysadmin: true, perms: {}, account_type: 'owner' };
+  forumEnabled = false; signupOpen = false;
+  document.getElementById('app').classList.remove('hidden');
+  showLoading(true);
+  try { await loadAll(); } catch (e) { toast('خطأ تحميل: ' + e.message); }
+  buildNav();
+  showLoading(false);
+  if (!location.hash) location.hash = '#/home';
+  render();
+}
+
+// الوضع السحابي: Supabase + مصادقة الفريق (الويب، أو التطبيق المشترك)
+async function startCloudMode() {
+  window.MRAH_LOCAL = false;
+  sb = window.supabase.createClient(window.MRAH_CONFIG.SUPABASE_URL, window.MRAH_CONFIG.SUPABASE_ANON_KEY);
+  document.getElementById('signoutBtn').classList.remove('hidden');
+  document.getElementById('signoutBtn').addEventListener('click', async () => { await sb.auth.signOut(); });
+  sb.auth.onAuthStateChange((event, session) => {
+    if (session && session.user) { enterApp(session); }
+    else { me = null; renderAuth(); }
+  });
+  await loadSignupOpen();
+  const { data: { session } } = await sb.auth.getSession();
+  if (session && session.user) await enterApp(session); else { showLoading(false); renderAuth(); }
+}
+
+// تبديل وضع القاعدة لاحقاً (من شاشة «المزيد» في التطبيق)
+async function switchBackend() {
+  if (!await confirm2('تغيير وضع قاعدة البيانات؟ سيُعاد تشغيل التطبيق لتختار من جديد. (لن تُحذف بياناتك المحلية أو السحابية)')) return;
+  if (window.MRAH_LOCAL === false && sb && sb.auth) { try { await sb.auth.signOut(); } catch (e) {} }
+  BK.reset();
+  location.hash = '';
+  location.reload();
+}
+
 async function init() {
   document.getElementById('backBtn').addEventListener('click', goBack);
   document.getElementById('guideBtn').addEventListener('click', () => setHash('#/guide'));
   window.addEventListener('hashchange', () => { if (me && me.is_active) render(); });
 
-  // الوضع المحلي (تطبيق أندرويد/بلا إنترنت): قاعدة بيانات محلية، مستخدم واحد، بلا تسجيل دخول
-  if (window.MRAH_LOCAL) {
-    sb = window.createMrahLocalClient();
-    document.getElementById('signoutBtn').classList.add('hidden');
-    me = { user_id: 'local', full_name: '', role: 'admin', is_active: true, is_sysadmin: true, perms: {}, account_type: 'owner' };
-    forumEnabled = false; signupOpen = false;
-    document.getElementById('app').classList.remove('hidden');
-    showLoading(true);
-    try { await loadAll(); } catch (e) { toast('خطأ تحميل: ' + e.message); }
-    buildNav();
-    showLoading(false);
-    if (!location.hash) location.hash = '#/home';
-    render();
+  // تطبيق الأندرويد (APK): يختار المستخدم بين محلي ومشترك (يُحفظ الاختيار)
+  if (window.MRAH_APK) {
+    const choice = BK.get();
+    if (choice === 'local') { startLocalMode(); return; }
+    if (choice === 'cloud') {
+      const c = BK.cloud();
+      if (c.url && c.key) { window.MRAH_CONFIG = { SUPABASE_URL: c.url, SUPABASE_ANON_KEY: c.key }; startCloudMode(); return; }
+    }
+    renderBackendChooser();   // أول تشغيل أو إعداد ناقص
     return;
   }
 
-  // الوضع السحابي (الويب): Supabase + مصادقة الفريق
+  // الويب: Supabase عبر config.js
   if (configMissing()) { showSetup(); return; }
-  sb = window.supabase.createClient(window.MRAH_CONFIG.SUPABASE_URL, window.MRAH_CONFIG.SUPABASE_ANON_KEY);
-  document.getElementById('signoutBtn').addEventListener('click', async () => { await sb.auth.signOut(); });
-
-  sb.auth.onAuthStateChange((event, session) => {
-    if (session && session.user) { enterApp(session); }
-    else { me = null; renderAuth(); }
-  });
-
-  await loadSignupOpen();
-  const { data: { session } } = await sb.auth.getSession();
-  if (session && session.user) await enterApp(session); else { showLoading(false); renderAuth(); }
+  startCloudMode();
 }
 
 init();

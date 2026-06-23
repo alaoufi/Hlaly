@@ -10,4 +10,6 @@ copyFileSync('index.local.html', `${WWW}/index.html`);
 for (const f of ['app.js', 'app.css', 'guide.js', 'local-db.js', 'icon.svg']) {
   copyFileSync(f, `${WWW}/${f}`);
 }
+// مكتبة Supabase مُضمّنة محلياً حتى يعمل «الوضع المشترك» دون تحميلها من الإنترنت
+copyFileSync('node_modules/@supabase/supabase-js/dist/umd/supabase.js', `${WWW}/supabase.js`);
 console.log('✓ www/ جاهز للتغليف بـ Capacitor');

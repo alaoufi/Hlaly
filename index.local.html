@@ -28,8 +28,10 @@
   <div id="modalRoot"></div>
   <div id="confirmRoot"></div>
 
-  <!-- قاعدة بيانات محلية (IndexedDB) بدل Supabase — يعمل بلا إنترنت -->
+  <!-- مكتبة Supabase مُضمّنة (للوضع المشترك) + قاعدة بيانات محلية (للوضع المحلي) -->
+  <script src="supabase.js"></script>
   <script src="local-db.js"></script>
+  <script>window.MRAH_APK = true;</script>
   <script src="guide.js"></script>
   <script src="app.js"></script>
 </body>

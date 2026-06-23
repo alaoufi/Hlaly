@@ -4,7 +4,8 @@
    فيستبدل init() عميل Supabase بعميل محلي بنفس الواجهة (from/rpc/auth...). */
 (function () {
   'use strict';
-  window.MRAH_LOCAL = true;
+  // ملاحظة: لا نفرض الوضع المحلي هنا — يقرّره app.js حسب اختيار المستخدم
+  // (محلي أو مشترك). هذا الملف يكتفي بإتاحة عميل محلي عبر createMrahLocalClient.
 
   const DB_NAME = 'mrahi_local';
   const DB_VERSION = 1;
