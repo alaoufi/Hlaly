@@ -912,7 +912,8 @@ function screenMore() {
   if (isAdmin()) items.push(['🗑️ سلة المحذوفات', '#/trash']);
   if (!window.MRAH_LOCAL && isAdmin()) items.push(['👥 المستخدمون والصلاحيات', '#/members']);
   if (isSys()) items.push(['💡 النصائح والمعلومات', '#/tips']);
-  const footer = window.MRAH_LOCAL ? 'مراح — تطبيق محلّي • بياناتك محفوظة على جهازك فقط' : 'مراح — مزرعة مشتركة • بياناتك على Supabase';
+  const ver = window.MRAH_VERSION ? ` • نسخة ${window.MRAH_VERSION}` : '';
+  const footer = (window.MRAH_LOCAL ? 'مراح — تطبيق محلّي • بياناتك محفوظة على جهازك فقط' : 'مراح — مزرعة مشتركة • بياناتك على Supabase') + ver;
   const switchCard = window.MRAH_APK ? `<div class="card click" data-switch><div class="li-title">🔧 وضع قاعدة البيانات (${window.MRAH_LOCAL ? 'محلي' : 'مشترك'}) — تغيير</div></div>` : '';
   view().innerHTML = (items.length ? items.map(([l, h]) => `<div class="card click" data-go="${h}"><div class="li-title">${l}</div></div>`).join('') : '<div class="center-empty">لا توجد عناصر متاحة بصلاحياتك.</div>')
     + switchCard

@@ -12,3 +12,8 @@ www/
 android/
 .gradle/
 package-lock.json
+assets/
+bundle.zip
+version.json
+*.apk
+app-aligned.apk
