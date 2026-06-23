@@ -922,7 +922,10 @@ function screenMore() {
   const ver = window.MRAH_VERSION ? ` • نسخة ${window.MRAH_VERSION}` : '';
   const footer = (window.MRAH_LOCAL ? 'مراح — تطبيق محلّي • بياناتك محفوظة على جهازك فقط' : 'مراح — مزرعة مشتركة • بياناتك على Supabase') + ver;
   const switchCard = window.MRAH_APK ? `<div class="card click" data-switch><div class="li-title">🔧 وضع قاعدة البيانات (${window.MRAH_LOCAL ? 'محلي' : 'مشترك'}) — تغيير</div></div>` : '';
-  const updateCard = window.MRAH_APK ? `<div class="card click" data-checkupdate><div class="li-title">🔄 تحقق من وجود تحديث</div></div>` : '';
+  const upd = window.mrahiUpdateInfo;
+  const updateCard = window.MRAH_APK
+    ? `<div class="card click ${upd ? 'hl' : ''}" data-checkupdate><div class="li-title">${upd ? `🔄 يوجد تحديث جديد (${esc(upd.version)}) — حدّث الآن` : '🔄 تحقق من وجود تحديث'}</div>${upd ? '<div class="li-sub">يُطبَّق عند إعادة فتح التطبيق</div>' : ''}</div>`
+    : '';
   view().innerHTML = (items.length ? items.map(([l, h]) => `<div class="card click" data-go="${h}"><div class="li-title">${l}</div></div>`).join('') : '<div class="center-empty">لا توجد عناصر متاحة بصلاحياتك.</div>')
     + switchCard + updateCard
     + `<div class="muted" style="text-align:center;margin-top:18px;font-size:.85rem">${footer}</div>`;
@@ -1967,7 +1970,10 @@ function buildNav() {
   tabs.push(['#/more', '☰', 'المزيد']);
   const nav = document.getElementById('bottomnav');
   nav.style.gridTemplateColumns = `repeat(${tabs.length},1fr)`;
-  nav.innerHTML = tabs.map(([r, i, l]) => `<button class="nav-item" data-route="${r}"><span>${i}</span>${l}</button>`).join('');
+  nav.innerHTML = tabs.map(([r, i, l]) => {
+    const badge = (r === '#/more' && window.mrahiUpdateInfo) ? '<span class="nav-badge"></span>' : '';
+    return `<button class="nav-item" data-route="${r}"><span class="nav-ic">${i}${badge}</span>${l}</button>`;
+  }).join('');
   nav.querySelectorAll('.nav-item').forEach(b => b.addEventListener('click', () => setHash(b.dataset.route)));
 }
 // الدخول بالجوال أو اسم المستخدم — نبني بريداً داخلياً خفياً لكل حساب.
@@ -2204,6 +2210,10 @@ async function init() {
   document.getElementById('backBtn').addEventListener('click', goBack);
   document.getElementById('guideBtn').addEventListener('click', () => setHash('#/guide'));
   window.addEventListener('hashchange', () => { if (me && me.is_active) render(); });
+  // إشارة توفّر تحديث (يطلقها updater.js): نقطة على «المزيد» وإبراز الزر
+  const onUpdSignal = () => { if (!me || !me.is_active) return; buildNav(); if (parseHash().name === 'more') render(); };
+  window.addEventListener('mrahi-update-available', onUpdSignal);
+  window.addEventListener('mrahi-update-applied', onUpdSignal);
 
   // تطبيق الأندرويد (APK): يختار المستخدم بين محلي ومشترك (يُحفظ الاختيار)
   if (window.MRAH_APK) {

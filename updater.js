@@ -51,7 +51,8 @@
       if (U.next) await U.next(bundle); else await U.set(bundle);
       try { localStorage.setItem('mrahi_applied_version', meta.version); } catch (e) {}
       pendingMeta = null;
-      var b = document.getElementById('mrahi-upd-banner'); if (b) b.remove();
+      window.mrahiUpdateInfo = null;                                  // انتهت الإشارة
+      try { window.dispatchEvent(new Event('mrahi-update-applied')); } catch (e) {}
       say('تحديث جاهز — سيُطبَّق عند إعادة فتح التطبيق');
     } catch (e) { say('تعذّر التحديث — حاول لاحقاً'); }
   }
@@ -72,34 +73,18 @@
   }
   window.mrahiCheckUpdate = manualCheck;
 
-  // بانر لطيف بزرّ «تحديث الآن» — لا يغيّر شيئاً حتى تضغطه
-  function showUpdateBanner(version) {
-    if (document.getElementById('mrahi-upd-banner')) return;
-    if (!document.getElementById('mrahi-upd-style')) {
-      var st = document.createElement('style'); st.id = 'mrahi-upd-style';
-      st.textContent = '@keyframes mrahiUpdIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}';
-      document.head.appendChild(st);
-    }
-    var bar = document.createElement('div');
-    bar.id = 'mrahi-upd-banner'; bar.setAttribute('role', 'status');
-    bar.style.cssText = 'position:fixed;left:12px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom));z-index:9999;'
-      + 'display:flex;align-items:center;gap:10px;padding:12px 14px;border-radius:14px;'
-      + 'background:linear-gradient(135deg,#2e7d32,#1b5e20);color:#fff;font-size:.92rem;font-weight:700;'
-      + 'box-shadow:0 8px 26px rgba(0,0,0,.32);animation:mrahiUpdIn .3s ease;direction:rtl;';
-    bar.innerHTML = '<span style="flex:1;line-height:1.5">✨ يوجد تحديث جديد (' + version + ')</span>'
-      + '<button id="mrahi-upd-go" style="flex:none;background:#fff;color:#1b5e20;border:none;'
-      + 'padding:8px 14px;border-radius:10px;font-weight:800;cursor:pointer">تحديث الآن</button>'
-      + '<button id="mrahi-upd-x" aria-label="لاحقاً" style="flex:none;background:rgba(255,255,255,.2);color:#fff;border:none;'
-      + 'width:30px;height:30px;border-radius:50%;font-size:1rem;cursor:pointer;line-height:1">✕</button>';
-    document.body.appendChild(bar);
-    var go = document.getElementById('mrahi-upd-go'); if (go) go.addEventListener('click', applyUpdate);
-    var x = document.getElementById('mrahi-upd-x'); if (x) x.addEventListener('click', function () { bar.remove(); });
-  }
-
-  // فحص خلفيّ: يكتشف فقط ويُظهر البانر — لا ينزّل ولا يغيّر أي حزمة
+  // فحص خلفيّ: يكتشف فقط ويُطلق إشارة (دون أي بانر/تنزيل/تغيير حزمة).
+  // يلتقط التطبيق الإشارة فيُظهر نقطة على «المزيد» ويُبرز زر التحديث.
   async function bgDetect() {
     if (navigator.onLine === false) return;
-    try { var meta = await fetchLatest(); if (isNewer(meta)) { pendingMeta = meta; showUpdateBanner(meta.version); } } catch (e) {}
+    try {
+      var meta = await fetchLatest();
+      if (isNewer(meta)) {
+        pendingMeta = meta;
+        window.mrahiUpdateInfo = { version: meta.version };
+        try { window.dispatchEvent(new Event('mrahi-update-available')); } catch (e) {}
+      }
+    } catch (e) {}
   }
   function idle(cb) { if (window.requestIdleCallback) window.requestIdleCallback(cb, { timeout: 5000 }); else setTimeout(cb, 600); }
 
