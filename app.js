@@ -935,6 +935,9 @@ function renderBulkBody() {
       <button class="btn outline" id="bk_addrows" style="margin-top:8px">➕ أضِف للقائمة</button></div>
      <div class="card"><h3>القائمة (<span id="bk_rowcount">0</span>)</h3>
       <div id="bk_rows"></div>
+      <div id="bk_renumbar" style="display:none;gap:8px;align-items:center;margin-top:8px">
+        ${fInput('رقّم الكل من', 'bk_renum', '', 'number', 'inputmode="numeric"')}
+        <button class="btn sm outline" id="bk_renumbtn" style="white-space:nowrap;margin-top:22px">♻ رقّم الكل</button></div>
       <button class="btn" id="bk_save" style="margin-top:8px">💾 حفظ الكل</button></div>`;
     let bmode = 'none';   // الافتراضي: بدون ترقيم — لا نفرض أرقاماً
     const setHint = () => {
@@ -964,7 +967,18 @@ function renderBulkBody() {
       // تعديل رقم أي سطر مباشرةً (بلا إعادة رسم كي لا يفقد التركيز)
       box.querySelectorAll('[data-rowcode]').forEach(el => el.addEventListener('input', () => { const i = parseInt(el.dataset.rowcode, 10); if (bulkRows[i]) bulkRows[i].code = el.value.trim(); }));
       box.querySelectorAll('[data-rmrow]').forEach(b => b.addEventListener('click', () => { bulkRows.splice(parseInt(b.dataset.rmrow, 10), 1); renderRows(); }));
+      const bar = document.getElementById('bk_renumbar'); if (bar) bar.style.display = bulkRows.length ? 'flex' : 'none';
     };
+    // ♻ رقّم الكل من رقم واحد بضغطة (يغيّر أرقام جميع الرؤوس دفعة واحدة)
+    document.getElementById('bk_renumbtn').addEventListener('click', () => {
+      if (!bulkRows.length) return;
+      const startRaw = val('bk_renum').trim();
+      if (startRaw === '') { toast('اكتب رقم البداية'); return; }
+      const codes = genSeq(val('bk_prefix'), startRaw, bulkRows.length);
+      bulkRows.forEach((r, i) => { r.code = codes[i]; });
+      renderRows();
+      toast('أُعيد ترقيم الكل');
+    });
     document.getElementById('bk_addrows').addEventListener('click', () => {
       const sex = val('bk_sex');
       const n = parseInt(val('bk_count'), 10) || 0; if (n <= 0) { toast('أدخل العدد'); return; }
