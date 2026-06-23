@@ -762,28 +762,61 @@ function screenPregnancies() {
   view().querySelectorAll('[data-birth]').forEach(b => b.addEventListener('click', () => openBirthModal(C.pregnancies.find(x => x.id === parseInt(b.dataset.birth, 10)))));
 }
 // بدء متابعة حمل بعد السونار: تاريخ سونار واحد + «عمر الحمل» لكل بهيمة ⇒ الولادة = السونار + (مدة النوع − عمر الحمل)
+// طرق إدخال ذكية: ترتيب (الرقم/المراح/النوع)، تصفية بالمراح، عمر موحّد للمجموعة، Enter للحقل التالي.
 function startPregBulkModal() {
   const cands = C.animals.filter(a => a.status === 'present' && a.sex === 'female')
-    .filter(a => !C.pregnancies.some(p => p.animal_id === a.id && p.status === 'monitoring'))
-    .sort((a, b) => b.id - a.id);
+    .filter(a => !C.pregnancies.some(p => p.animal_id === a.id && p.status === 'monitoring'));
   if (!cands.length) { toast('لا توجد إناث متاحة (إمّا غير موجودة أو تحت متابعة بالفعل)'); return; }
-  const rows = cands.map(a => `<div class="bulk-row" style="gap:8px">
+  const pens = [...new Set(cands.map(a => a.pen || '').filter(Boolean))].sort();
+  const ageMap = {};
+  let sortKey = 'number', penF = '';
+  const cnum = (a) => { const n = codeNumOf(a); return n == null ? 1e15 : n; };
+  const sortFns = {
+    number: (a, b) => cnum(a) - cnum(b) || a.id - b.id,
+    pen: (a, b) => (a.pen || '').localeCompare(b.pen || '') || cnum(a) - cnum(b),
+    type: (a, b) => (a.type || '').localeCompare(b.type || '') || cnum(a) - cnum(b),
+  };
+  const rowHtml = (a) => `<div class="bulk-row" data-pen="${esc(a.pen || '')}" style="gap:8px">
       <span style="flex:1">${display(a)} <span class="muted">${arOf(TYPES, a.type)}${a.pen ? ' • ' + esc(a.pen) : ''}</span></span>
-      <input data-age="${a.id}" data-type="${a.type}" type="number" inputmode="numeric" min="1" placeholder="عمر الحمل" style="width:96px;padding:6px;border:1px solid #ddd;border-radius:8px;text-align:center">
-      <span class="muted" style="font-size:.78rem">يوم</span></div>`).join('');
+      <input data-age="${a.id}" data-type="${a.type}" type="number" inputmode="numeric" min="1" placeholder="عمر الحمل" style="width:92px;padding:6px;border:1px solid #ddd;border-radius:8px;text-align:center">
+      <span class="muted" style="font-size:.78rem">يوم</span></div>`;
+  const recount = () => { const n = Object.values(ageMap).filter(v => (parseInt(v, 10) || 0) > 0).length; const el = document.getElementById('pp_count'); if (el) el.textContent = 'المُدخَل: ' + n; };
+  const applyFilter = () => { const t = (document.getElementById('pp_search').value || '').trim().toLowerCase(); document.querySelectorAll('#pp_list .bulk-row').forEach(r => { const okP = !penF || r.dataset.pen === penF; const okS = !t || r.textContent.toLowerCase().includes(t); r.style.display = (okP && okS) ? '' : 'none'; }); };
+  const renderList = () => {
+    const list = document.getElementById('pp_list'); if (!list) return;
+    list.innerHTML = cands.slice().sort(sortFns[sortKey]).map(rowHtml).join('');
+    list.querySelectorAll('[data-age]').forEach(el => {
+      const id = el.dataset.age; if (ageMap[id]) el.value = ageMap[id];
+      el.addEventListener('input', () => { ageMap[id] = el.value; recount(); });
+      el.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); const vis = [...list.querySelectorAll('[data-age]')].filter(x => x.offsetParent !== null); const i = vis.indexOf(el); if (vis[i + 1]) vis[i + 1].focus(); } });
+    });
+    applyFilter(); recount();
+  };
+  const sortChips = `ترتيب: <div class="chips"><span class="chip active" data-sort="number">الرقم</span><span class="chip" data-sort="pen">المراح</span><span class="chip" data-sort="type">النوع</span></div>`;
+  const penChips = pens.length > 1 ? `المراح: <div class="chips"><span class="chip active" data-penf="">الكل</span>${pens.map(p => `<span class="chip" data-penf="${esc(p)}">${esc(p)}</span>`).join('')}</div>` : '';
   openModal('➕ بدء متابعة حمل (بعد السونار)', `
     ${fInput('تاريخ السونار', 'pp_date', todayStr(), 'date')}
-    <div class="muted" style="font-size:.82rem;margin:6px 0">اكتب «عمر الحمل بالأيام» أمام كل بهيمة فُحصت (اترك الفارغة). الولادة = تاريخ السونار + (مدة حمل النوع − عمر الحمل).</div>
+    ${sortChips}
+    ${penChips}
+    <div style="display:flex;gap:8px;align-items:center;margin:6px 0">
+      <input id="pp_uniform" type="number" inputmode="numeric" placeholder="عمر موحّد" style="flex:1;padding:8px;border:1px solid #ddd;border-radius:8px;text-align:center">
+      <button class="btn sm outline" id="pp_apply" style="white-space:nowrap">طبّق على الظاهر</button></div>
     ${fInput('🔍 بحث (رقم/مراح)', 'pp_search', '')}
-    <div style="max-height:42vh;overflow:auto" id="pp_list">${rows}</div>
+    <div class="muted" style="font-size:.78rem;margin:2px 0">اكتب «عمر الحمل» أمام كل بهيمة فُحصت (اترك الفارغة). الولادة = السونار + (مدة النوع − عمر الحمل).</div>
+    <div style="max-height:36vh;overflow:auto" id="pp_list"></div>
     <div class="muted" id="pp_count" style="margin-top:6px">المُدخَل: 0</div>
     <button class="btn" id="pp_save" style="margin-top:8px">حفظ المتابعة</button>`, () => {
-    const recount = () => { const n = [...document.querySelectorAll('[data-age]')].filter(el => (parseInt(el.value, 10) || 0) > 0).length; document.getElementById('pp_count').textContent = 'المُدخَل: ' + n; };
-    document.querySelectorAll('[data-age]').forEach(el => el.addEventListener('input', recount));
-    { const se = document.getElementById('pp_search'); se.addEventListener('input', () => { const t = se.value.trim().toLowerCase(); document.querySelectorAll('#pp_list .bulk-row').forEach(r => { r.style.display = (!t || r.textContent.toLowerCase().includes(t)) ? '' : 'none'; }); }); }
+    document.querySelectorAll('[data-sort]').forEach(c => c.addEventListener('click', () => { sortKey = c.dataset.sort; document.querySelectorAll('[data-sort]').forEach(x => x.classList.toggle('active', x.dataset.sort === sortKey)); renderList(); }));
+    document.querySelectorAll('[data-penf]').forEach(c => c.addEventListener('click', () => { penF = c.dataset.penf; document.querySelectorAll('[data-penf]').forEach(x => x.classList.toggle('active', x.dataset.penf === penF)); applyFilter(); }));
+    document.getElementById('pp_search').addEventListener('input', applyFilter);
+    document.getElementById('pp_apply').addEventListener('click', () => {
+      const v = document.getElementById('pp_uniform').value.trim(); if (!v) { toast('اكتب العمر الموحّد'); return; }
+      let c = 0; document.querySelectorAll('#pp_list .bulk-row').forEach(r => { if (r.style.display !== 'none') { const el = r.querySelector('[data-age]'); if (el) { el.value = v; ageMap[el.dataset.age] = v; c++; } } });
+      recount(); toast(`طُبّق على ${c} ظاهرة`);
+    });
     document.getElementById('pp_save').addEventListener('click', async () => {
       const date = val('pp_date') || todayStr();
-      const items = [...document.querySelectorAll('[data-age]')].map(el => ({ id: parseInt(el.dataset.age, 10), type: el.dataset.type, age: parseInt(el.value, 10) || 0 })).filter(it => it.age > 0);
+      const items = cands.map(a => ({ id: a.id, type: a.type, age: parseInt(ageMap[a.id], 10) || 0 })).filter(it => it.age > 0);
       if (!items.length) { toast('اكتب عمر الحمل لبهيمة واحدة على الأقل'); return; }
       const over = items.filter(it => it.age >= gestOf(it.type));
       if (over.length && !await confirm2(`${over.length} بهيمة عمر حملها يبلغ/يتجاوز مدة النوع — ستظهر ولادتها قريبة جداً. متابعة؟`)) return;
@@ -797,6 +830,7 @@ function startPregBulkModal() {
       });
       if (ok) { closeModal(); toast(`بدأت متابعة ${items.length} حمل`); await loadAll(); screenPregnancies(); }
     });
+    renderList();
   });
 }
 // فحص حمل بالسونار من سجل البهيمة: يبدأ حملاً جديداً (مؤكّداً) أو يؤكّد/ينفي القائم
