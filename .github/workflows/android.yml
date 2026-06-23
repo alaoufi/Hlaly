@@ -1,7 +1,7 @@
 name: بناء تطبيق أندرويد (APK)
 
 # يبني نسخة APK موقّعة (مفتاح ثابت) بأيقونة واسم مراح، وينشرها برابط تنزيل مباشر،
-# مع حزمة تحديث (bundle.zip) و version.json للتحديث التلقائي للمحتوى (OTA).
+# مع version.json لتمكين «التحقق من وجود تحديث» داخل التطبيق (يفتح تنزيل APK).
 on:
   workflow_dispatch:
   push:
@@ -48,10 +48,9 @@ jobs:
       - name: تجميع ملفات الويب (www) + حقن رقم النسخة
         run: npm run build:www
 
-      - name: حزمة التحديث (bundle.zip) + version.json
+      - name: ملف رقم النسخة (version.json) للتحقق من التحديث
         run: |
-          (cd www && zip -qr ../bundle.zip .)
-          printf '{"version":"%s","url":"https://github.com/${{ github.repository }}/releases/download/apk-latest/bundle.zip"}\n' "$APP_VERSION" > version.json
+          printf '{"version":"%s","url":"https://github.com/${{ github.repository }}/releases/download/apk-latest/mrah.apk"}\n' "$APP_VERSION" > version.json
           cat version.json
 
       - name: إضافة منصّة أندرويد
@@ -106,10 +105,9 @@ jobs:
           body: |
             تطبيق مراح لأندرويد (النسخة ${{ env.APP_VERSION }}).
             نزّل **mrah.apk** مباشرة وثبّته. عند أول فتح تختار: محلي (بلا إنترنت) أو مشترك (Supabase).
-            يتحدّث محتوى التطبيق تلقائياً عند توفّر الإنترنت دون إعادة تثبيت.
+            للتحديث لاحقاً: من «المزيد ← تحقق من وجود تحديث»، يفتح تنزيل النسخة الجديدة وتُثبَّت فوق الحالية مع حفظ بياناتك.
           files: |
             mrah.apk
-            bundle.zip
             version.json
 
       - name: حذف ملف mrahi.apk القديم إن وُجد
