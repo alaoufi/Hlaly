@@ -19,6 +19,11 @@
   }
   const ul = (items) => '<ul class="gd-ul">' + items.map(i => `<li>${i}</li>`).join('') + '</ul>';
 
+  // أدوات البحث في الفهرس: تجريد الوسوم وتطبيع الحروف العربية للمطابقة المتساهلة
+  const stripTags = (html) => String(html).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+  const norm = (s) => String(s == null ? '' : s).toLowerCase()
+    .replace(/[أإآ]/g, 'ا').replace(/ى/g, 'ي').replace(/ة/g, 'ه').replace(/[ًٌٍَُِّْـ]/g, '');
+
   /* ============ محتوى الكتيّبات ============ */
   const BOOKS = {
     visitor: {
@@ -260,6 +265,7 @@
         <div class="gd-topbar">
           <button class="gd-btn ghost ${multi ? '' : 'gd-hidden'}" id="gdBack">‹ الكتب</button>
           <div class="gd-rtitle">${b.emoji} ${b.title}</div>
+          <button class="gd-btn ghost" id="gdToc" aria-label="الفهرس والبحث">☰ فهرس</button>
           <div class="gd-prog" id="gdProg"></div>
         </div>
         <div class="gd-stage">
@@ -273,12 +279,66 @@
           <div class="gd-dots" id="gdDots"></div>
           <button class="gd-btn" id="gdNext">التالي ›</button>
         </div>
+        <div class="gd-toc" id="gdTocPanel" hidden>
+          <div class="gd-toc-head">
+            <div class="gd-toc-title">📑 فهرس ${b.title}</div>
+            <button class="gd-btn ghost" id="gdTocClose" aria-label="إغلاق">✕</button>
+          </div>
+          <div class="gd-toc-search-wrap">
+            <input id="gdTocSearch" class="gd-toc-search" type="search" placeholder="🔍 ابحث في مواضيع الدليل…" autocomplete="off">
+          </div>
+          <div class="gd-toc-list" id="gdTocList"></div>
+        </div>
       </div>`;
     if (multi) document.getElementById('gdBack').addEventListener('click', renderShelf);
     document.getElementById('gdPrev').addEventListener('click', () => turn(-1));
     document.getElementById('gdNext').addEventListener('click', () => turn(1));
+    document.getElementById('gdToc').addEventListener('click', () => toggleToc(true));
+    document.getElementById('gdTocClose').addEventListener('click', () => toggleToc(false));
+    document.getElementById('gdTocSearch').addEventListener('input', (e) => renderToc(e.target.value));
     // إيماءات السحب على المسرح
     addSwipe(document.getElementById('gdStageEl') || document.querySelector('.gd-stage'));
+    paint();
+  }
+
+  /* ====== الفهرس والبحث ====== */
+  // نصّ صفحة قابل للبحث: العنوان + محتواها مجرّداً من الوسوم
+  function pageRaw(i) { const p = state.book.pages[i]; return p.h + ' — ' + stripTags(p.html); }
+
+  function snippet(raw, term) {
+    if (term) { const idx = norm(raw).indexOf(norm(term)); if (idx >= 0) { const s = Math.max(0, idx - 28); return (s > 0 ? '…' : '') + raw.slice(s, idx + term.length + 56) + (raw.length > idx + term.length + 56 ? '…' : ''); } }
+    return raw.slice(0, 95) + (raw.length > 95 ? '…' : '');
+  }
+
+  function toggleToc(show) {
+    const panel = document.getElementById('gdTocPanel');
+    if (!panel) return;
+    panel.hidden = !show;
+    if (show) { renderToc(''); const s = document.getElementById('gdTocSearch'); if (s) { s.value = ''; setTimeout(() => s.focus(), 30); } }
+  }
+
+  function renderToc(term) {
+    const list = document.getElementById('gdTocList');
+    if (!list) return;
+    const t = (term || '').trim();
+    const nt = norm(t);
+    const rows = state.book.pages.map((p, i) => ({ i, h: p.h, raw: pageRaw(i) }))
+      .filter(r => !nt || norm(r.h).includes(nt) || norm(r.raw).includes(nt));
+    if (!rows.length) { list.innerHTML = `<div class="gd-toc-empty">لا توجد مواضيع مطابقة لـ «${esc(t)}»</div>`; return; }
+    list.innerHTML = rows.map(r =>
+      `<button class="gd-toc-item ${r.i === state.idx ? 'cur' : ''}" data-i="${r.i}">
+          <span class="gd-toc-num">${r.i + 1}</span>
+          <span class="gd-toc-meta"><span class="gd-toc-h">${esc(r.h)}</span>
+            <span class="gd-toc-snip">${esc(snippet(r.raw, t))}</span></span>
+        </button>`).join('');
+    list.querySelectorAll('.gd-toc-item').forEach(el =>
+      el.addEventListener('click', () => { goTo(parseInt(el.dataset.i, 10)); toggleToc(false); }));
+  }
+
+  // انتقال مباشر لصفحة من الفهرس (دون حركة تقليب طويلة)
+  function goTo(i) {
+    if (i == null || i < 0 || i >= state.book.pages.length) return;
+    state.idx = i;
     paint();
   }
 
