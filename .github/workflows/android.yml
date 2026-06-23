@@ -66,8 +66,8 @@ jobs:
         run: |
           sed -i "s/versionName \"[^\"]*\"/versionName \"$APP_VERSION\"/" android/app/build.gradle || true
           sed -i "s/versionCode [0-9]*/versionCode ${{ github.run_number }}/" android/app/build.gradle || true
-          # رفع compileSdk/targetSdk إلى 35 (تتطلّبه اعتمادية androidx.work عبر إضافة التحديث)
-          sed -i -E 's/(compileSdkVersion =) *[0-9]+/\1 35/; s/(targetSdkVersion =) *[0-9]+/\1 35/' android/variables.gradle
+          # رفع مستويات SDK: compile/target=35 (androidx.work) و min=23 (play-services عبر إضافة التحديث)
+          sed -i -E 's/(compileSdkVersion =) *[0-9]+/\1 35/; s/(targetSdkVersion =) *[0-9]+/\1 35/; s/(minSdkVersion =) *[0-9]+/\1 23/' android/variables.gradle
           cat android/variables.gradle
 
       - name: مزامنة Capacitor
