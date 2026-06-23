@@ -1,7 +1,7 @@
 /* Service Worker — يجعل مراح يعمل بدون إنترنت بعد أول فتح.
    ملفات التطبيق تُخدَم من الكاش (محدّثة في الخلفية)، أما طلبات Supabase
    (المصادقة/البيانات) فتمرّ للشبكة دائماً ولا تُخزَّن. */
-const CACHE = 'mrah-v19';
+const CACHE = 'mrah-v20';
 const ASSETS = [
   './',
   './index.html',
@@ -10,7 +10,9 @@ const ASSETS = [
   './guide.js',
   './config.js',
   './manifest.webmanifest',
-  './icon.svg',
+  './icon-192.png',
+  './icon-512.png',
+  './icon-180.png',
 ];
 
 self.addEventListener('install', (e) => {

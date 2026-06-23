@@ -1,0 +1,118 @@
+name: بناء تطبيق أندرويد (APK)
+
+# يبني نسخة APK موقّعة (مفتاح ثابت) بأيقونة واسم مراح، وينشرها برابط تنزيل مباشر،
+# مع حزمة تحديث (bundle.zip) و version.json للتحديث التلقائي للمحتوى (OTA).
+on:
+  workflow_dispatch:
+  push:
+    branches: [ "main" ]
+    paths:
+      - "app.js"
+      - "app.css"
+      - "guide.js"
+      - "local-db.js"
+      - "updater.js"
+      - "index.local.html"
+      - "capacitor.config.json"
+      - "package.json"
+      - "scripts/**"
+      - ".github/workflows/android.yml"
+
+permissions:
+  contents: write   # لإنشاء الإصدار (Release) ورفع الملفات
+
+env:
+  APP_VERSION: 1.0.${{ github.run_number }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: سحب الكود
+        uses: actions/checkout@v4
+
+      - name: تهيئة Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: تهيئة Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: تثبيت الاعتماديات
+        run: npm install
+
+      - name: تجميع ملفات الويب (www) + حقن رقم النسخة
+        run: npm run build:www
+
+      - name: حزمة التحديث (bundle.zip) + version.json
+        run: |
+          (cd www && zip -qr ../bundle.zip .)
+          printf '{"version":"%s","url":"https://github.com/${{ github.repository }}/releases/download/apk-latest/bundle.zip"}\n' "$APP_VERSION" > version.json
+          cat version.json
+
+      - name: إضافة منصّة أندرويد
+        run: npx cap add android
+
+      - name: توليد الأيقونات وشاشة البداية
+        run: |
+          node scripts/make-icons.mjs
+          npx @capacitor/assets generate --android
+
+      - name: ضبط اسم/رقم النسخة ومستوى SDK
+        run: |
+          sed -i "s/versionName \"[^\"]*\"/versionName \"$APP_VERSION\"/" android/app/build.gradle || true
+          sed -i "s/versionCode [0-9]*/versionCode ${{ github.run_number }}/" android/app/build.gradle || true
+          # رفع مستويات SDK: compile/target=35 (androidx.work) و min=23 (play-services عبر إضافة التحديث)
+          sed -i -E 's/(compileSdkVersion =) *[0-9]+/\1 35/; s/(targetSdkVersion =) *[0-9]+/\1 35/; s/(minSdkVersion =) *[0-9]+/\1 23/' android/variables.gradle
+          cat android/variables.gradle
+
+      - name: مزامنة Capacitor
+        run: npx cap sync android
+
+      - name: بناء APK (release غير موقّع)
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon
+
+      - name: توقيع APK بمفتاح ثابت
+        run: |
+          BT="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)"
+          UNSIGNED=android/app/build/outputs/apk/release/app-release-unsigned.apk
+          "$BT/zipalign" -p -f 4 "$UNSIGNED" app-aligned.apk
+          "$BT/apksigner" sign \
+            --ks release.keystore --ks-pass pass:MrahiRelease2026 --key-pass pass:MrahiRelease2026 \
+            --out mrah.apk app-aligned.apk
+          "$BT/apksigner" verify --print-certs mrah.apk
+
+      - name: رفع ملف APK (أثر داخلي)
+        uses: actions/upload-artifact@v4
+        with:
+          name: mrah-app
+          path: mrah.apk
+          if-no-files-found: error
+
+      - name: نشر إصدار برابط تنزيل مباشر + حزمة تحديث
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: apk-latest
+          name: مراح — تطبيق أندرويد (أحدث نسخة)
+          body: |
+            تطبيق مراح لأندرويد (النسخة ${{ env.APP_VERSION }}).
+            نزّل **mrah.apk** مباشرة وثبّته. عند أول فتح تختار: محلي (بلا إنترنت) أو مشترك (Supabase).
+            يتحدّث محتوى التطبيق تلقائياً عند توفّر الإنترنت دون إعادة تثبيت.
+          files: |
+            mrah.apk
+            bundle.zip
+            version.json
+
+      - name: حذف ملف mrahi.apk القديم إن وُجد
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          id=$(gh api repos/${{ github.repository }}/releases/tags/apk-latest --jq '.assets[] | select(.name=="mrahi.apk") | .id' || true)
+          if [ -n "$id" ]; then gh api -X DELETE repos/${{ github.repository }}/releases/assets/$id && echo "حُذف mrahi.apk القديم"; else echo "لا يوجد ملف قديم"; fi
