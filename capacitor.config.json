@@ -4,7 +4,9 @@
   "webDir": "www",
   "plugins": {
     "CapacitorUpdater": {
-      "autoUpdate": false
+      "autoUpdate": false,
+      "appReadyTimeout": 20000,
+      "directUpdate": false
     }
   }
 }
