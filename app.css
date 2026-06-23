@@ -39,7 +39,7 @@ main { padding: 14px; max-width: 760px; margin: 0 auto; }
 
 /* Stats */
 .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 12px 0; }
-.stat { border-radius: var(--radius); padding: 16px; box-shadow: var(--shadow); }
+.stat { border-radius: var(--radius); padding: 16px; box-shadow: var(--shadow); background: var(--card, #fff); }
 .stat .n { font-size: 1.8rem; font-weight: 800; } .stat .l { font-size: .9rem; }
 .stat.green { background: var(--green-l); } .stat.amber { background: #FFE0B2; }
 .stat.blue { background: #B3E5FC; } .stat.red { background: #FFCDD2; }
