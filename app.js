@@ -939,9 +939,10 @@ function renderBulkBody() {
     let bmode = 'none';   // الافتراضي: بدون ترقيم — لا نفرض أرقاماً
     const setHint = () => {
       const h = document.getElementById('bk_hint'); if (!h) return;
-      const s = suggestStart('');   // اقتراح اختياري فقط (لا يُفرض)
-      h.innerHTML = s !== '' ? `آخر رقم مستخدم: ${s - 1} — <button class="btn sm outline" id="bk_usehint" style="padding:4px 10px">ابدأ من ${s}</button>` : 'اكتب البداية التي تريدها.';
-      const u = document.getElementById('bk_usehint'); if (u) u.addEventListener('click', () => { const el = document.getElementById('bk_start'); if (el) el.value = String(s); });
+      const s = suggestStart('');
+      const startEl = document.getElementById('bk_start');
+      if (startEl && startEl.value.trim() === '' && s !== '') startEl.value = String(s);   // اقتراح أوّلي قابل للتعديل
+      h.innerHTML = s !== '' ? `اقتراح يبدأ من ${s} — عدّله، أو عدّل رقم أي سطر في القائمة.` : 'اكتب البداية التي تريدها، ويمكنك تعديل رقم أي سطر لاحقاً.';
     };
     body.querySelectorAll('[data-bm]').forEach(c => c.addEventListener('click', () => {
       bmode = c.dataset.bm;
@@ -955,8 +956,13 @@ function renderBulkBody() {
       document.getElementById('bk_save').textContent = `💾 حفظ الكل (${bulkRows.length})`;
       const box = document.getElementById('bk_rows');
       box.innerHTML = bulkRows.length
-        ? bulkRows.map((r, i) => `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 2px;border-bottom:1px solid #eee"><span>${arOf(SEX, r.sex)} — ${r.code ? esc(r.code) : 'غير مرقّمة'}</span><button class="btn sm danger" data-rmrow="${i}">✕</button></div>`).join('')
+        ? bulkRows.map((r, i) => `<div style="display:flex;align-items:center;gap:8px;padding:6px 2px;border-bottom:1px solid #eee">
+            <span class="muted" style="min-width:42px">${arOf(SEX, r.sex)}</span>
+            <input data-rowcode="${i}" value="${esc(r.code)}" placeholder="بدون رقم — اكتبه إن شئت" inputmode="text" style="flex:1;padding:8px;border:1px solid #ddd;border-radius:8px;font:inherit">
+            <button class="btn sm danger" data-rmrow="${i}">✕</button></div>`).join('')
         : '<div class="muted">لم تُضف رؤوس بعد. اختر الجنس والعدد ثم «أضِف للقائمة».</div>';
+      // تعديل رقم أي سطر مباشرةً (بلا إعادة رسم كي لا يفقد التركيز)
+      box.querySelectorAll('[data-rowcode]').forEach(el => el.addEventListener('input', () => { const i = parseInt(el.dataset.rowcode, 10); if (bulkRows[i]) bulkRows[i].code = el.value.trim(); }));
       box.querySelectorAll('[data-rmrow]').forEach(b => b.addEventListener('click', () => { bulkRows.splice(parseInt(b.dataset.rmrow, 10), 1); renderRows(); }));
     };
     document.getElementById('bk_addrows').addEventListener('click', () => {
@@ -975,6 +981,7 @@ function renderBulkBody() {
     });
     document.getElementById('bk_save').addEventListener('click', async () => {
       if (!bulkRows.length) { toast('أضِف رؤوساً للقائمة أولاً'); return; }
+      document.querySelectorAll('[data-rowcode]').forEach(el => { const i = parseInt(el.dataset.rowcode, 10); if (bulkRows[i]) bulkRows[i].code = el.value.trim(); });   // التقط أي تعديل
       const existing = new Set(C.animals.map(a => a.code || ''));
       const dups = bulkRows.filter(r => r.code && existing.has(r.code)).map(r => r.code);
       if (dups.length && !await confirm2(`${dups.length} معرّف مكرّر (${dups.slice(0, 4).join('، ')}${dups.length > 4 ? '…' : ''}). متابعة؟`)) return;
