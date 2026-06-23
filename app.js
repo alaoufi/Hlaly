@@ -1236,6 +1236,7 @@ function memberCard(m) {
       <button class="btn sm outline" data-role="${m.user_id}" ${m.user_id === me.user_id ? 'disabled' : ''}>${m.role === 'admin' ? 'إنزال لمستخدم' : 'ترقية لمدير'}</button>
       ${isSys() ? `<button class="btn sm outline" data-sys="${m.user_id}">${m.is_sysadmin ? 'سحب إدارة النظام' : 'منح إدارة النظام'}</button>` : ''}
       <button class="btn sm" data-edit="${m.user_id}">✎ تعديل البيانات والصلاحيات</button>
+      ${m.user_id === me.user_id ? '' : `<button class="btn sm danger" data-del="${m.user_id}">🗑 حذف المستخدم</button>`}
     </div></div>`;
 }
 function bindMemberCard(m) {
@@ -1251,6 +1252,12 @@ function bindMemberCard(m) {
     const ok = await guard(async () => { await dbUpdateMember(m.user_id, { is_sysadmin: !m.is_sysadmin }); }); if (ok) { await loadAll(); screenMembers(); }
   });
   const ed = q(`[data-edit="${m.user_id}"]`); if (ed) ed.addEventListener('click', () => adminEditUser(m));
+  const dl = q(`[data-del="${m.user_id}"]`); if (dl) dl.addEventListener('click', async () => {
+    if (m.user_id === me.user_id) { toast('لا يمكنك حذف حسابك أنت'); return; }
+    if (!await confirm2(`حذف المستخدم «${m.full_name || '—'}» نهائياً؟ لن يظهر في القائمة ولن يتمكّن من الدخول. (بيانات الحلال الخاصة به تبقى محفوظة)`, { danger: true })) return;
+    const ok = await guard(async () => { const { error } = await sb.from('mrahi_members').delete().eq('user_id', m.user_id); if (error) throw error; });
+    if (ok) { toast('تم حذف المستخدم'); await loadAll(); screenMembers(); }
+  });
 }
 async function dbUpdateMember(uid, obj) { const { error } = await sb.from('mrahi_members').update(obj).eq('user_id', uid); if (error) throw error; }
 

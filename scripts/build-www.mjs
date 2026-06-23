@@ -7,7 +7,7 @@ rmSync(WWW, { recursive: true, force: true });
 mkdirSync(WWW, { recursive: true });
 
 copyFileSync('index.local.html', `${WWW}/index.html`);
-for (const f of ['app.js', 'app.css', 'guide.js', 'local-db.js', 'updater.js', 'icon.svg']) {
+for (const f of ['app.js', 'app.css', 'guide.js', 'local-db.js', 'updater.js', 'icon.svg', 'icon-192.png', 'icon-512.png', 'icon-180.png']) {
   copyFileSync(f, `${WWW}/${f}`);
 }
 // مكتبة Supabase مُضمّنة محلياً حتى يعمل «الوضع المشترك» دون تحميلها من الإنترنت
