@@ -611,6 +611,7 @@ function screenAnimalDetail(arg) {
       ${offspring.length ? offspring.map(o => `<div class="card click" data-aid="${o.id}" style="margin:6px 0"><div class="li-title">${display(o)}</div><div class="li-sub">${arOf(SEX, o.sex)} • ${fmtDate(o.birth)}</div></div>`).join('') : noItem()}</div>
     ${can('breeding', 'view') ? `<div class="card"><h3>التلقيح والحمل</h3>
       ${can('breeding', 'edit') ? `<button class="btn outline" id="addMating">إضافة تلقيح / متابعة حمل</button>` : ''}
+      ${can('breeding', 'edit') && a.sex === 'female' && a.status === 'present' ? `<button class="btn outline" id="addSonar" style="margin-top:6px">🔊 فحص حمل بالسونار</button>` : ''}
       ${matings.map(m => row('تلقيح ' + fmtDate(m.date), 'الفحل: ' + (esc(m.sire_name) || esc(m.sire_code) || '—'))).join('')}
       ${pregs.map(p => row('حمل (' + arOf(PREG, p.status) + ')' + (p.confirmed ? ' 🔊' : ''), 'الولادة التقريبية ' + fmtDate(p.expected) + ' • مدة الحمل ' + p.gest + ' يوم')).join('')}</div>` : ''}
     ${can('vaccines', 'view') ? `<div class="card"><h3>التطعيمات (${vaccs.length})</h3>
@@ -626,6 +627,7 @@ function screenAnimalDetail(arg) {
   const qb = document.getElementById('qBack'); if (qb) qb.addEventListener('click', () => quickRevert(a));
   const ao = document.getElementById('addOffspring'); if (ao) ao.addEventListener('click', () => addOffspringModal(a));
   const am = document.getElementById('addMating'); if (am) am.addEventListener('click', () => setHash('#/mating/' + id));
+  const aso = document.getElementById('addSonar'); if (aso) aso.addEventListener('click', () => animalSonarModal(a));
   const av = document.getElementById('addVacc'); if (av) av.addEventListener('click', () => setHash('#/vaccinate/' + id));
   const at = document.getElementById('addTreat'); if (at) at.addEventListener('click', () => setHash('#/treat/' + id));
   if (can('animals', 'edit')) addFab('✎ تعديل', () => setHash('#/animal-edit/' + id));
@@ -753,6 +755,30 @@ function screenPregnancies() {
   }));
   view().querySelectorAll('[data-sonar]').forEach(b => b.addEventListener('click', () => sonarModal(C.pregnancies.find(x => x.id === parseInt(b.dataset.sonar, 10)))));
   view().querySelectorAll('[data-birth]').forEach(b => b.addEventListener('click', () => openBirthModal(C.pregnancies.find(x => x.id === parseInt(b.dataset.birth, 10)))));
+}
+// فحص حمل بالسونار من سجل البهيمة: يبدأ حملاً جديداً (مؤكّداً) أو يؤكّد/ينفي القائم
+function animalSonarModal(a) {
+  const existing = C.pregnancies.find(p => p.animal_id === a.id && p.status === 'monitoring');
+  const g = gestOf(a.type);
+  const defExp = existing && existing.expected ? existing.expected : addDays(todayStr(), g);
+  openModal('🔊 فحص حمل بالسونار — ' + display(a), `
+    ${fSelect('النتيجة', 'as_res', [{ k: 'pregnant', ar: 'حامل ✅' }, { k: 'empty', ar: 'فارغة' }], 'pregnant')}
+    ${fInput('تاريخ الفحص', 'as_date', todayStr(), 'date')}
+    ${fInput('الولادة المتوقّعة (تقريبية — عدّلها حسب السونار)', 'as_exp', defExp, 'date')}
+    <button class="btn" id="as_save" style="margin-top:6px">حفظ الفحص</button>`, () => {
+    document.getElementById('as_save').addEventListener('click', async () => {
+      const res = val('as_res'), date = val('as_date') || todayStr(), exp = val('as_exp') || null;
+      const ok = await guard(async () => {
+        if (res === 'pregnant') {
+          if (existing) await dbUpdate('pregnancies', existing.id, { confirmed: true, sonar_date: date, expected: exp || existing.expected, status: 'monitoring' });
+          else await dbInsert('pregnancies', { animal_id: a.id, mating_date: null, gest: g, expected: exp || addDays(date, g), status: 'monitoring', confirmed: true, sonar_date: date, notes: 'فحص سونار' });
+        } else if (existing) {
+          await dbUpdate('pregnancies', existing.id, { confirmed: false, sonar_date: date, status: 'not_confirmed' });
+        }
+      });
+      if (ok) { closeModal(); toast(res === 'pregnant' ? 'تم تأكيد الحمل بالسونار ✅' : 'سُجّل: فارغة'); await loadAll(); screenAnimalDetail(String(a.id)); }
+    });
+  });
 }
 // فحص الحمل بالسونار: حامل ⇒ تأكيد ومتابعة، فارغة ⇒ لم يثبت
 function sonarModal(preg) {
