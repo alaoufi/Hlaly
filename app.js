@@ -463,10 +463,14 @@ let animalSexFilter = '';      // '' | 'male' | 'female'
 let lastPen = (() => { try { return localStorage.getItem('mrahi_last_pen') || ''; } catch (e) { return ''; } })();
 function animalCard(a) {
   const st = a.status === 'sold' ? 'sold' : a.status === 'dead' ? 'dead' : '';
+  const off = C.animals.filter(x => x.mother_id === a.id || x.father_id === a.id).length;   // عدد مواليدها
+  const mother = a.mother_id ? animalById(a.mother_id) : null;
   return `<div class="card click" data-aid="${a.id}">
     <div class="li-title">${display(a)}</div>
     <div class="li-sub">${arOf(TYPES, a.type)} • ${arOf(SEX, a.sex)} • <span class="badge ${st}">${arOf(STATUS, a.status)}</span></div>
-    ${a.pen ? `<div class="li-sub">المراح: ${esc(a.pen)}</div>` : ''}</div>`;
+    ${a.pen ? `<div class="li-sub">المراح: ${esc(a.pen)}</div>` : ''}
+    ${off ? `<div class="li-sub">👶 المواليد: ${off}</div>` : ''}
+    ${mother ? `<div class="li-sub">🤱 الأم: ${display(mother)}</div>` : ''}</div>`;
 }
 function bindCards(root) { root.querySelectorAll('[data-aid]').forEach(c => c.addEventListener('click', () => setHash('#/animal/' + c.dataset.aid))); }
 function screenAnimals() {
