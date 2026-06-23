@@ -561,53 +561,44 @@ function screenAnimalDetail(arg) {
 
 /* ===== إضافة نتاج (مواليد) للأم — إدخال جماعي بترقيم تلقائي وربط بالأم ===== */
 function addOffspringModal(mother) {
-  let ofAuto = suggestStart('');   // اقتراح أوّلي قابل للتعديل
   openModal('مواليد ' + display(mother), `
     ${fSelect('الجنس', 'of_sex', SEX, 'female')}
+    ${fInput('العدد', 'of_count', '', 'number', 'min="1" inputmode="numeric"')}
     ${fInput('تاريخ الميلاد', 'of_birth', todayStr(), 'date')}
     ${fInput('رقم المراح', 'of_pen', mother.pen || lastPen)}
-    <div class="chips"><span class="chip active" data-om="num">🔢 مرقّمة</span><span class="chip" data-om="none">⭕ غير مرقّمة</span></div>
-    <div id="ofNum">
-      ${fInput('العدد', 'of_count', '', 'number', 'min="1" inputmode="numeric"')}
-      ${fInput('بداية الترقيم (مقترحة — عدّلها إن شئت)', 'of_start', ofAuto, 'number', 'inputmode="numeric"')}
+    <div class="chips"><span class="chip active" data-om="none">⭕ بدون ترقيم</span><span class="chip" data-om="num">🔢 بترقيم</span></div>
+    <div id="ofNone" class="muted" style="font-size:.82rem">تُضاف بلا رقم — لكلٍّ رقم داخلي ثابت. رقّمها لاحقاً عند الكبر.</div>
+    <div id="ofNum" class="hidden">
+      ${fInput('بداية الترقيم', 'of_start', '', 'number', 'inputmode="numeric"')}
       ${fInput('بادئة قبل الرقم (اختياري)', 'of_prefix', '')}
-      <div class="muted" id="of_prev" style="margin:6px 0"></div></div>
-    <div id="ofNone" class="hidden">
-      ${fInput('عدد المواليد غير المرقّمة', 'of_ncount', '', 'number', 'min="1" inputmode="numeric"')}
-      <div class="muted" style="font-size:.82rem">تُحفظ بلا رقم (تُرقَّم لاحقاً عند الكبر).</div></div>
+      <div id="of_hint" class="muted" style="font-size:.82rem;margin-top:4px"></div></div>
     <button class="btn" id="of_save">➕ إضافة المواليد</button>`, () => {
-    let omode = 'num';
+    let omode = 'none';   // الافتراضي بدون ترقيم — لا نفرض أرقاماً
+    const setHint = () => {
+      const h = document.getElementById('of_hint'); if (!h) return;
+      const s = suggestStart('');
+      h.innerHTML = s !== '' ? `آخر رقم مستخدم: ${s - 1} — <button class="btn sm outline" id="of_usehint" style="padding:4px 10px">ابدأ من ${s}</button>` : 'اكتب البداية التي تريدها.';
+      const u = document.getElementById('of_usehint'); if (u) u.addEventListener('click', () => { const el = document.getElementById('of_start'); if (el) el.value = String(s); });
+    };
     document.querySelectorAll('[data-om]').forEach(c => c.addEventListener('click', () => {
       omode = c.dataset.om;
       document.querySelectorAll('[data-om]').forEach(x => x.classList.toggle('active', x.dataset.om === omode));
       document.getElementById('ofNum').classList.toggle('hidden', omode !== 'num');
       document.getElementById('ofNone').classList.toggle('hidden', omode !== 'none');
+      if (omode === 'num') setHint();
     }));
-    const updPrev = () => {
-      const p = document.getElementById('of_prev'); if (!p) return;
-      const n = parseInt(val('of_count'), 10) || 0;
-      const codes = genSeq(val('of_prefix'), val('of_start'), Math.min(n, 60));
-      p.textContent = n > 0 ? `مثال: ${codes.slice(0, 6).join('، ')}${n > 6 ? ' …' : ''} (المجموع ${n})` : 'أدخل العدد';
-    };
-    const reSuggest = () => {
-      const el = document.getElementById('of_start'); if (!el) return;
-      const cur = el.value.trim();
-      if (cur === '' || cur === String(ofAuto)) { const s = suggestStart(val('of_prefix')); el.value = s === '' ? '' : String(s); ofAuto = s; }
-    };
-    { const pf = document.getElementById('of_prefix'); if (pf) pf.addEventListener('input', () => { reSuggest(); updPrev(); }); }
-    ['of_count', 'of_start'].forEach(idf => { const el = document.getElementById(idf); if (el) el.addEventListener('input', updPrev); });
-    updPrev();
     document.getElementById('of_save').addEventListener('click', async () => {
       let codes;
+      const n = parseInt(val('of_count'), 10) || 0; if (n <= 0) { toast('أدخل عدد المواليد'); return; }
       if (omode === 'num') {
-        const n = parseInt(val('of_count'), 10) || 0; if (n <= 0) { toast('أدخل عدد المواليد'); return; }
-        codes = genSeq(val('of_prefix'), val('of_start'), n);
+        const startRaw = val('of_start').trim();
+        if (startRaw === '') { toast('اكتب بداية الترقيم، أو اختر «بدون ترقيم»'); return; }
+        codes = genSeq(val('of_prefix'), startRaw, n);
         const existing = new Set(C.animals.map(a => a.code || ''));
         const dups = codes.filter(c => existing.has(c));
         if (dups.length && !await confirm2(`${dups.length} معرّف موجود مسبقاً. أضيفها أيضاً؟`)) return;
       } else {
-        const n = parseInt(val('of_ncount'), 10) || 0; if (n <= 0) { toast('أدخل عدد المواليد'); return; }
-        codes = new Array(n).fill('');   // بلا ترقيم
+        codes = new Array(n).fill('');   // بدون ترقيم
       }
       if (!await confirm2(`إضافة ${codes.length} مولوداً وربطها بـ${display(mother)}؟`)) return;
       const pen = val('of_pen').trim();
@@ -934,24 +925,30 @@ function renderBulkBody() {
       ${fInput('سعر الرأس (اختياري)', 'bk_price', '', 'number', 'min="0" step="any" inputmode="decimal"')}</div>
      <div class="card"><h3>أضِف دفعة</h3>
       ${fSelect('الجنس', 'bk_sex', SEX, 'female')}
-      <div class="chips"><span class="chip active" data-bm="num">🔢 مرقّمة</span><span class="chip" data-bm="none">⭕ غير مرقّمة</span></div>
-      <div id="bmNum">
-        ${fInput('العدد', 'bk_count', '', 'number', 'min="1" inputmode="numeric"')}
-        ${fInput('بداية الترقيم (مقترحة — عدّلها إن شئت)', 'bk_start', suggestStart(''), 'number', 'inputmode="numeric"')}
-        ${fInput('بادئة قبل الرقم (اختياري)', 'bk_prefix', '')}</div>
-      <div id="bmNone" class="hidden">
-        ${fInput('عدد الرؤوس غير المرقّمة', 'bk_ncount', '', 'number', 'min="1" inputmode="numeric"')}
-        <div class="muted" style="font-size:.82rem">تُحفظ بلا رقم (تُرقَّم لاحقاً عند الكبر). الذكور غالباً لا تُرقَّم.</div></div>
+      ${fInput('العدد', 'bk_count', '', 'number', 'min="1" inputmode="numeric"')}
+      <div class="chips"><span class="chip active" data-bm="none">⭕ بدون ترقيم</span><span class="chip" data-bm="num">🔢 بترقيم</span></div>
+      <div id="bmNone" class="muted" style="font-size:.82rem">تُضاف بلا رقم — لكلٍّ رقم داخلي ثابت. رقّمها لاحقاً متى شئت (الصغار/الذكور غالباً لا تُرقَّم).</div>
+      <div id="bmNum" class="hidden">
+        ${fInput('بداية الترقيم', 'bk_start', '', 'number', 'inputmode="numeric"')}
+        ${fInput('بادئة قبل الرقم (اختياري)', 'bk_prefix', '')}
+        <div id="bk_hint" class="muted" style="font-size:.82rem;margin-top:4px"></div></div>
       <button class="btn outline" id="bk_addrows" style="margin-top:8px">➕ أضِف للقائمة</button></div>
      <div class="card"><h3>القائمة (<span id="bk_rowcount">0</span>)</h3>
       <div id="bk_rows"></div>
       <button class="btn" id="bk_save" style="margin-top:8px">💾 حفظ الكل</button></div>`;
-    let bmode = 'num';
+    let bmode = 'none';   // الافتراضي: بدون ترقيم — لا نفرض أرقاماً
+    const setHint = () => {
+      const h = document.getElementById('bk_hint'); if (!h) return;
+      const s = suggestStart('');   // اقتراح اختياري فقط (لا يُفرض)
+      h.innerHTML = s !== '' ? `آخر رقم مستخدم: ${s - 1} — <button class="btn sm outline" id="bk_usehint" style="padding:4px 10px">ابدأ من ${s}</button>` : 'اكتب البداية التي تريدها.';
+      const u = document.getElementById('bk_usehint'); if (u) u.addEventListener('click', () => { const el = document.getElementById('bk_start'); if (el) el.value = String(s); });
+    };
     body.querySelectorAll('[data-bm]').forEach(c => c.addEventListener('click', () => {
       bmode = c.dataset.bm;
       body.querySelectorAll('[data-bm]').forEach(x => x.classList.toggle('active', x.dataset.bm === bmode));
       document.getElementById('bmNum').classList.toggle('hidden', bmode !== 'num');
       document.getElementById('bmNone').classList.toggle('hidden', bmode !== 'none');
+      if (bmode === 'num') setHint();
     }));
     const renderRows = () => {
       document.getElementById('bk_rowcount').textContent = bulkRows.length;
@@ -964,15 +961,16 @@ function renderBulkBody() {
     };
     document.getElementById('bk_addrows').addEventListener('click', () => {
       const sex = val('bk_sex');
+      const n = parseInt(val('bk_count'), 10) || 0; if (n <= 0) { toast('أدخل العدد'); return; }
       if (bmode === 'num') {
-        const n = parseInt(val('bk_count'), 10) || 0; if (n <= 0) { toast('أدخل العدد'); return; }
-        genSeq(val('bk_prefix'), val('bk_start'), n).forEach(code => bulkRows.push({ sex, code }));
-        const last = parseInt(val('bk_start'), 10); if (!isNaN(last)) { const el = document.getElementById('bk_start'); if (el) el.value = String(last + n); }  // قدّم البداية للدفعة التالية
+        const startRaw = val('bk_start').trim();
+        if (startRaw === '') { toast('اكتب بداية الترقيم، أو اختر «بدون ترقيم»'); return; }   // لا نفرض رقماً
+        genSeq(val('bk_prefix'), startRaw, n).forEach(code => bulkRows.push({ sex, code }));
+        const last = parseInt(startRaw, 10); if (!isNaN(last)) { const el = document.getElementById('bk_start'); if (el) el.value = String(last + n); }  // قدّم البداية للدفعة التالية
       } else {
-        const n = parseInt(val('bk_ncount'), 10) || 0; if (n <= 0) { toast('أدخل العدد'); return; }
-        for (let i = 0; i < n; i++) bulkRows.push({ sex, code: '' });
-        document.getElementById('bk_ncount').value = '';
+        for (let i = 0; i < n; i++) bulkRows.push({ sex, code: '' });   // بدون ترقيم
       }
+      document.getElementById('bk_count').value = '';
       renderRows();
     });
     document.getElementById('bk_save').addEventListener('click', async () => {
