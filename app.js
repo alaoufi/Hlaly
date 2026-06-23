@@ -10,7 +10,7 @@ const SEX = [{ k: 'female', ar: 'أنثى' }, { k: 'male', ar: 'ذكر' }];
 const STATUS = [{ k: 'present', ar: 'موجودة' }, { k: 'sold', ar: 'مباعة' }, { k: 'dead', ar: 'نافقة' }];
 const SOURCE = [{ k: 'purchased', ar: 'مشترى' }, { k: 'born', ar: 'ولادة' }];
 const TREAT_FORM = [{ k: 'injection', ar: 'إبر' }, { k: 'oral', ar: 'تجريع' }, { k: 'spray', ar: 'رش' }, { k: 'topical', ar: 'دهن' }];
-const IDKIND = [{ k: 'number', ar: 'رقم' }, { k: 'tag', ar: 'وسم' }, { k: 'chip', ar: 'شريحة إلكترونية' }, { k: 'name', ar: 'اسم / مسمى' }];
+const IDKIND = [{ k: 'number', ar: 'رقم' }, { k: 'tag', ar: 'وسم' }, { k: 'chip', ar: 'شريحة إلكترونية' }, { k: 'name', ar: 'اسم / مسمى' }, { k: 'color', ar: 'لون / علامة' }];
 const PREG = [{ k: 'monitoring', ar: 'تحت المتابعة' }, { k: 'born', ar: 'ولدت' }, { k: 'not_confirmed', ar: 'لم يثبت الحمل' }];
 const MODULES = [
   { k: 'animals', ar: 'الحلال' }, { k: 'breeding', ar: 'التلقيح/الولادات' },
@@ -72,7 +72,9 @@ const isSys = () => !!(me && me.is_active && me.is_sysadmin);
 // صف حلال يخصّني؟ (التطبيق يعرض حلالي فقط؛ المدير يرى الكل؛ الحلال المُشارَك يُعرض في شاشة مستقلة)
 function mineHerdRow(r) { return !!(me && (me.role === 'admin' || r.owner_id === me.user_id)); }
 const animalById = (id) => C.animals.find(a => a.id === id);
-function display(a) { if (!a) return '—'; if (a.code) return esc(a.code) + (a.name ? ' • ' + esc(a.name) : ''); if (a.name) return esc(a.name); return 'غير مرقّمة'; }
+// المعرّف الخارجي (الوسم) إن وُجد، وإلا الاسم، وإلا الرقم الداخلي الثابت #id
+function display(a) { if (!a) return '—'; if (a.code) return esc(a.code) + (a.name ? ' • ' + esc(a.name) : ''); if (a.name) return esc(a.name); return a.id != null ? '#' + a.id : 'غير مرقّمة'; }
+const internalNo = (a) => (a && a.id != null) ? '#' + a.id : '—';
 
 /* ===== طبقة البيانات ===== */
 async function loadAll() {
@@ -444,10 +446,11 @@ function screenAnimalEdit(arg) {
   document.getElementById('screenTitle').textContent = id ? 'تعديل بهيمة' : 'إضافة بهيمة';
   view().innerHTML = `
     <div class="card"><h3>البيانات الأساسية</h3>
+      ${a ? `<div class="muted" style="margin-bottom:8px">🔒 الرقم الداخلي ${internalNo(a)} — ثابت لا يتغيّر (هوية النظام).</div>` : '<div class="muted" style="margin-bottom:8px">🔒 سيُمنح رقم داخلي ثابت تلقائياً (لا يتغيّر مهما تغيّر الوسم).</div>'}
       ${fSelect('نوع الحلال', 'f_type', TYPES, a ? a.type : 'sheep')}
       ${fInput('رقم المراح (الحظيرة)', 'f_pen', a ? a.pen : lastPen)}
-      ${fSelect('نوع المعرّف', 'f_kind', IDKIND, a ? a.idkind : 'number')}
-      ${fInput('المعرّف (رقم/وسم/شريحة/اسم)', 'f_code', a && a.code)}
+      ${fSelect('نوع المعرّف الخارجي', 'f_kind', IDKIND, a ? a.idkind : 'number')}
+      ${fInput('المعرّف الخارجي / الوسم (اختياري — قد يتغيّر أو يسقط)', 'f_code', a && a.code)}
       ${fInput('الاسم/المسمى (اختياري)', 'f_name', a && a.name)}
       ${fSelect('الجنس', 'f_sex', SEX, a ? a.sex : 'female')}
       ${fSelect('المصدر', 'f_source', SOURCE, a ? (a.source || 'purchased') : 'purchased')}
@@ -470,9 +473,9 @@ function screenAnimalEdit(arg) {
   document.getElementById('f_status').addEventListener('change', syncExit); syncExit();
   document.getElementById('saveBtn').addEventListener('click', async () => {
     const code = val('f_code').trim(), name = val('f_name').trim();
-    if (!code && !name) { toast('أدخل المعرّف أو الاسم'); return; }
+    // المعرّف الخارجي اختياري — الرقم الداخلي الثابت يميّز البهيمة دائماً
     const status = val('f_status');
-    const obj = { type: val('f_type'), pen: val('f_pen').trim(), idkind: val('f_kind'), code: code || name, name, sex: val('f_sex'), source: val('f_source'), birth: val('f_birth') || null, color: val('f_color').trim(), status, mother_id: parseInt(val('f_mother'), 10) || null, father_name: val('f_father').trim(), notes: val('f_notes').trim(),
+    const obj = { type: val('f_type'), pen: val('f_pen').trim(), idkind: val('f_kind'), code, name, sex: val('f_sex'), source: val('f_source'), birth: val('f_birth') || null, color: val('f_color').trim(), status, mother_id: parseInt(val('f_mother'), 10) || null, father_name: val('f_father').trim(), notes: val('f_notes').trim(),
       sale_date: status === 'sold' ? (val('f_saledate') || null) : null,
       sale_price: status === 'sold' && val('f_saleprice') !== '' ? parseFloat(val('f_saleprice')) : null,
       dead_date: status === 'dead' ? (val('f_deaddate') || null) : null };
@@ -507,7 +510,8 @@ function screenAnimalDetail(arg) {
   view().innerHTML = `
     <div class="card"><h3>البيانات الأساسية</h3>
       ${row('النوع', arOf(TYPES, a.type))}
-      ${row('المعرّف', esc(a.code) + ' (' + arOf(IDKIND, a.idkind) + ')')}
+      ${row('🔒 الرقم الداخلي', internalNo(a) + ' (ثابت لا يتغيّر)')}
+      ${row('المعرّف الخارجي (الوسم)', a.code ? esc(a.code) + ' • ' + arOf(IDKIND, a.idkind) : '— غير مرقّمة —')}
       ${a.name ? row('الاسم', esc(a.name)) : ''}
       ${row('الجنس', arOf(SEX, a.sex))}
       ${row('المراح', esc(a.pen) || '—')}
