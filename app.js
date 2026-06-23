@@ -1668,8 +1668,10 @@ function screenTypes() {
   view().querySelector('#addType').addEventListener('click', () => typeModal(null));
   view().querySelectorAll('[data-edit]').forEach(b => b.addEventListener('click', () => typeModal((C.types || []).find(t => String(t.id) === b.dataset.edit))));
   view().querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', async () => {
+    const t = (C.types || []).find(x => String(x.id) === b.dataset.del);   // المعرّف الحقيقي (رقم في المحلي)
+    if (!t) { toast('النوع غير موجود'); return; }
     if (!await confirm2('حذف هذا النوع؟ (البهائم المسجّلة مسبقاً لا تتأثر)')) return;
-    const ok = await guard(async () => { const { error } = await sb.from('mrahi_types').delete().eq('id', b.dataset.del); if (error) throw error; });
+    const ok = await guard(async () => { const { error } = await sb.from('mrahi_types').delete().eq('id', t.id); if (error) throw error; });
     if (ok) { toast('تم الحذف'); await loadAll(); screenTypes(); }
   }));
 }
@@ -1721,7 +1723,7 @@ function screenTips() {
   view().querySelectorAll('[data-edit]').forEach(b => b.addEventListener('click', () => tipModal((C.tips || []).find(t => String(t.id) === b.dataset.edit))));
   view().querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', async () => {
     if (!await confirm2('حذف هذا العنصر نهائياً؟')) return;
-    const ok = await guard(async () => { const { error } = await sb.from('mrahi_tips').delete().eq('id', b.dataset.del); if (error) throw error; });
+    const ok = await guard(async () => { const { error } = await sb.from('mrahi_tips').delete().eq('id', parseInt(b.dataset.del, 10)); if (error) throw error; });
     if (ok) { toast('تم الحذف'); await loadAll(); screenTips(); }
   }));
 }
@@ -1773,7 +1775,7 @@ async function screenTrash() {
   view().querySelectorAll('[data-rest]').forEach(b => b.addEventListener('click', () => restoreTrash(list.find(x => String(x.id) === b.dataset.rest))));
   view().querySelectorAll('[data-perm]').forEach(b => b.addEventListener('click', async () => {
     if (!await confirm2('حذف نهائي لا يمكن التراجع عنه إطلاقاً. متأكّد؟')) return;
-    const ok = await guard(async () => { const { error } = await sb.from('mrahi_trash').delete().eq('id', b.dataset.perm); if (error) throw error; });
+    const ok = await guard(async () => { const { error } = await sb.from('mrahi_trash').delete().eq('id', parseInt(b.dataset.perm, 10)); if (error) throw error; });
     if (ok) { toast('تم الحذف النهائي'); screenTrash(); }
   }));
 }
