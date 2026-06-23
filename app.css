@@ -88,6 +88,10 @@ main { padding: 14px; max-width: 760px; margin: 0 auto; }
 .li-title { font-weight: 700; font-size: 1.05rem; }
 .li-sub { color: var(--muted); font-size: .9rem; }
 .li-sub.link { color: var(--green); text-decoration: underline; cursor: pointer; font-weight: 600; }
+.ptable { width: 100%; border-collapse: collapse; font-size: .9rem; }
+.ptable th, .ptable td { padding: 8px 6px; border-bottom: 1px solid #eee; text-align: start; }
+.ptable th { color: var(--muted); font-weight: 700; font-size: .82rem; }
+.ptable tbody tr:active { background: var(--sand, #FFF8E1); }
 .badge { display:inline-block; font-size:.75rem; padding:2px 8px; border-radius:999px; background:var(--green-l); color:var(--green-d); }
 .badge.sold { background:#FFE0B2; color:#8a5a00; } .badge.dead { background:#FFCDD2; color:#8a1c1c; }
 .badge.role { background:#E1BEE7; color:#6a1b9a; } .badge.off { background:#eee; color:#777; }

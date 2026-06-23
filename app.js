@@ -612,7 +612,7 @@ function screenAnimalDetail(arg) {
     ${can('breeding', 'view') ? `<div class="card"><h3>التلقيح والحمل</h3>
       ${can('breeding', 'edit') ? `<button class="btn outline" id="addMating">إضافة تلقيح / متابعة حمل</button>` : ''}
       ${matings.map(m => row('تلقيح ' + fmtDate(m.date), 'الفحل: ' + (esc(m.sire_name) || esc(m.sire_code) || '—'))).join('')}
-      ${pregs.map(p => row('حمل (' + arOf(PREG, p.status) + ')', 'متوقع ' + fmtDate(p.expected))).join('')}</div>` : ''}
+      ${pregs.map(p => row('حمل (' + arOf(PREG, p.status) + ')' + (p.confirmed ? ' 🔊' : ''), 'الولادة التقريبية ' + fmtDate(p.expected) + ' • مدة الحمل ' + p.gest + ' يوم')).join('')}</div>` : ''}
     ${can('vaccines', 'view') ? `<div class="card"><h3>التطعيمات (${vaccs.length})</h3>
       ${can('vaccines', 'edit') ? `<button class="btn outline" id="addVacc">إعطاء تطعيم</button>` : ''}
       ${vaccs.map(v => row(fmtDate(v.date) + ' — ' + vtName(v.type_id), 'تحريم حتى ' + fmtDate(v.withdrawal_end))).join('')}</div>` : ''}
@@ -710,19 +710,63 @@ function screenMating(arg) {
     if (ok) { toast('تم الحفظ'); await loadAll(); goBack(); }
   });
 }
+// جدول الحوامل: الرقم • مدة الحمل (يوم) • الولادة التقريبية • المتبقّي
+function pregTable(monitoring) {
+  if (!monitoring.length) return '';
+  const rows = monitoring.map(p => {
+    const a = animalById(p.animal_id);
+    const left = daysUntil(p.expected);
+    const leftTxt = left == null ? '—' : (left >= 0 ? left + ' يوم' : 'متأخّر ' + (-left));
+    return `<tr data-aid="${a ? a.id : ''}" style="cursor:pointer">
+      <td>${a ? display(a) : '—'}${p.confirmed ? ' 🔊' : ''}</td>
+      <td style="text-align:center">${p.gest}</td>
+      <td style="text-align:center">${fmtDate(p.expected)}</td>
+      <td style="text-align:center">${leftTxt}</td></tr>`;
+  }).join('');
+  return `<div class="card"><h3>📋 جدول الحوامل (${monitoring.length})</h3>
+    <div style="overflow-x:auto"><table class="ptable">
+      <thead><tr><th>البهيمة</th><th>مدة الحمل (يوم)</th><th>الولادة التقريبية</th><th>المتبقّي</th></tr></thead>
+      <tbody>${rows}</tbody></table></div>
+    <div class="muted" style="font-size:.8rem;margin-top:6px">🔊 = مؤكّد بالسونار • الولادة تقريبية = تاريخ التلقيح + مدة حمل النوع</div></div>`;
+}
 function screenPregnancies() {
   if (!can('breeding', 'view')) { view().innerHTML = noPerm(); return; }
   const list = C.pregnancies.slice().sort((a, b) => (a.expected || '').localeCompare(b.expected || ''));
-  view().innerHTML = list.length ? list.map(p => {
+  const monitoring = list.filter(p => p.status === 'monitoring');
+  const cards = list.map(p => {
     const a = animalById(p.animal_id);
-    const actions = (p.status === 'monitoring' && can('breeding', 'edit')) ? `<div class="btn-row" style="margin-top:8px"><button class="btn sm" data-birth="${p.id}">تسجيل ولادة</button><button class="btn sm outline" data-nope="${p.id}">لم يثبت</button></div>` : '';
-    return `<div class="card"><h3>${display(a)}</h3>${row('تاريخ التلقيح', fmtDate(p.mating_date))}${row('مدة الحمل', p.gest + ' يوم')}${row('الولادة المتوقعة', fmtDate(p.expected))}${row('الحالة', arOf(PREG, p.status))}${actions}</div>`;
-  }).join('') : '<div class="center-empty">لا توجد حالات حمل مسجّلة.</div>';
+    const sonarRow = p.confirmed ? row('🔊 فحص السونار', '✅ حامل — ' + fmtDate(p.sonar_date))
+      : (p.sonar_date && p.status === 'not_confirmed' ? row('🔊 فحص السونار', 'فارغة — ' + fmtDate(p.sonar_date)) : '');
+    const actions = (p.status === 'monitoring' && can('breeding', 'edit')) ? `<div class="btn-row" style="margin-top:8px">
+        <button class="btn sm" data-birth="${p.id}">تسجيل ولادة</button>
+        <button class="btn sm outline" data-sonar="${p.id}">🔊 فحص بالسونار</button>
+        <button class="btn sm outline" data-nope="${p.id}">لم يثبت</button></div>` : '';
+    return `<div class="card"><h3>${display(a)}</h3>${row('تاريخ التلقيح', fmtDate(p.mating_date))}${row('مدة الحمل', p.gest + ' يوم')}${row('الولادة التقريبية', fmtDate(p.expected))}${row('الحالة', arOf(PREG, p.status))}${sonarRow}${actions}</div>`;
+  }).join('');
+  view().innerHTML = list.length ? (pregTable(monitoring) + cards) : '<div class="center-empty">لا توجد حالات حمل مسجّلة.</div>';
+  view().querySelectorAll('.ptable tr[data-aid]').forEach(tr => { if (tr.dataset.aid) tr.addEventListener('click', () => setHash('#/animal/' + tr.dataset.aid)); });
   view().querySelectorAll('[data-nope]').forEach(b => b.addEventListener('click', async () => {
     const ok = await guard(async () => { await dbUpdate('pregnancies', parseInt(b.dataset.nope, 10), { status: 'not_confirmed' }); });
     if (ok) { await loadAll(); screenPregnancies(); }
   }));
+  view().querySelectorAll('[data-sonar]').forEach(b => b.addEventListener('click', () => sonarModal(C.pregnancies.find(x => x.id === parseInt(b.dataset.sonar, 10)))));
   view().querySelectorAll('[data-birth]').forEach(b => b.addEventListener('click', () => openBirthModal(C.pregnancies.find(x => x.id === parseInt(b.dataset.birth, 10)))));
+}
+// فحص الحمل بالسونار: حامل ⇒ تأكيد ومتابعة، فارغة ⇒ لم يثبت
+function sonarModal(preg) {
+  if (!preg) return;
+  const mother = animalById(preg.animal_id);
+  openModal('🔊 فحص الحمل بالسونار — ' + display(mother), `
+    ${fInput('تاريخ الفحص', 's_date', todayStr(), 'date')}
+    ${fSelect('النتيجة', 's_res', [{ k: 'pregnant', ar: 'حامل ✅' }, { k: 'empty', ar: 'فارغة (لم يثبت)' }], 'pregnant')}
+    <button class="btn" id="s_save" style="margin-top:6px">حفظ الفحص</button>`, () => {
+    document.getElementById('s_save').addEventListener('click', async () => {
+      const date = val('s_date') || todayStr(), res = val('s_res');
+      const patch = res === 'pregnant' ? { confirmed: true, sonar_date: date, status: 'monitoring' } : { confirmed: false, sonar_date: date, status: 'not_confirmed' };
+      const ok = await guard(async () => { await dbUpdate('pregnancies', preg.id, patch); });
+      if (ok) { closeModal(); toast(res === 'pregnant' ? 'تم تأكيد الحمل بالسونار ✅' : 'سُجّل: لم يثبت الحمل'); await loadAll(); screenPregnancies(); }
+    });
+  });
 }
 function openBirthModal(preg) {
   const mother = animalById(preg.animal_id);
