@@ -743,7 +743,9 @@ function screenPregnancies() {
         <button class="btn sm outline" data-nope="${p.id}">لم يثبت</button></div>` : '';
     return `<div class="card"><h3>${display(a)}</h3>${row('تاريخ التلقيح', fmtDate(p.mating_date))}${row('مدة الحمل', p.gest + ' يوم')}${row('الولادة التقريبية', fmtDate(p.expected))}${row('الحالة', arOf(PREG, p.status))}${sonarRow}${actions}</div>`;
   }).join('');
-  view().innerHTML = list.length ? (pregTable(monitoring) + cards) : '<div class="center-empty">لا توجد حالات حمل مسجّلة.</div>';
+  const bulkBtn = (monitoring.length && can('breeding', 'edit')) ? '<button class="btn" id="bulkSonar" style="margin:4px 0 10px">🔊 فحص جماعي بالسونار</button>' : '';
+  view().innerHTML = list.length ? (pregTable(monitoring) + bulkBtn + cards) : '<div class="center-empty">لا توجد حالات حمل مسجّلة.</div>';
+  { const bs = document.getElementById('bulkSonar'); if (bs) bs.addEventListener('click', bulkSonarModal); }
   view().querySelectorAll('.ptable tr[data-aid]').forEach(tr => { if (tr.dataset.aid) tr.addEventListener('click', () => setHash('#/animal/' + tr.dataset.aid)); });
   view().querySelectorAll('[data-nope]').forEach(b => b.addEventListener('click', async () => {
     const ok = await guard(async () => { await dbUpdate('pregnancies', parseInt(b.dataset.nope, 10), { status: 'not_confirmed' }); });
@@ -768,28 +770,68 @@ function sonarModal(preg) {
     });
   });
 }
+// فحص سونار جماعي: علّم «الفارغة» فقط، والبقية حامل مؤكّد — بتاريخ واحد
+function bulkSonarModal() {
+  const mon = C.pregnancies.filter(p => p.status === 'monitoring');
+  if (!mon.length) { toast('لا توجد حالات تحت المتابعة'); return; }
+  const rows = mon.map(p => { const a = animalById(p.animal_id); return `<label class="bulk-row"><input type="checkbox" data-empty="${p.id}"><span>${a ? display(a) : '—'} <span class="muted">${p.expected ? 'متوقّع ' + fmtDate(p.expected) : ''}</span></span></label>`; }).join('');
+  openModal('🔊 فحص جماعي بالسونار', `
+    ${fInput('تاريخ الفحص', 'bs_date', todayStr(), 'date')}
+    <div class="muted" style="font-size:.85rem;margin:6px 0">علّم «الفارغة» فقط — والبقية تُعتبر حاملاً مؤكّداً.</div>
+    <div style="max-height:46vh;overflow:auto">${rows}</div>
+    <button class="btn" id="bs_save" style="margin-top:8px">حفظ الفحص للكل</button>`, () => {
+    document.getElementById('bs_save').addEventListener('click', async () => {
+      const date = val('bs_date') || todayStr();
+      const empties = new Set([...document.querySelectorAll('[data-empty]:checked')].map(c => parseInt(c.dataset.empty, 10)));
+      if (!await confirm2(`تأكيد فحص ${mon.length} حالة؟ (${empties.size} فارغة، ${mon.length - empties.size} حامل)`)) return;
+      const ok = await guard(async () => {
+        for (const p of mon) {
+          if (empties.has(p.id)) await dbUpdate('pregnancies', p.id, { confirmed: false, sonar_date: date, status: 'not_confirmed' });
+          else await dbUpdate('pregnancies', p.id, { confirmed: true, sonar_date: date, status: 'monitoring' });
+        }
+      });
+      if (ok) { closeModal(); toast('تم حفظ الفحص الجماعي'); await loadAll(); screenPregnancies(); }
+    });
+  });
+}
+// تسجيل ولادة أسرع: عدّة مواليد (توائم) بترقيم اختياري، مربوطة بالأم
 function openBirthModal(preg) {
   const mother = animalById(preg.animal_id);
   openModal('تسجيل ولادة — ' + display(mother), `
-    ${fInput('رقم المولود', 'b_code', '')}
-    ${fInput('تاريخ الولادة', 'b_date', todayStr(), 'date')}
+    ${fInput('عدد المواليد', 'b_count', '1', 'number', 'min="1" inputmode="numeric"')}
     ${fSelect('الجنس', 'b_sex', SEX, 'female')}
+    ${fInput('تاريخ الولادة', 'b_date', todayStr(), 'date')}
     ${fInput('الأب / الفحل', 'b_father', '')}
+    <div class="chips"><span class="chip active" data-bom="none">⭕ بدون ترقيم</span><span class="chip" data-bom="num">🔢 بترقيم</span></div>
+    <div id="bomNum" class="hidden">
+      ${fInput('بداية الترقيم', 'b_start', '', 'number', 'inputmode="numeric"')}
+      ${fInput('بادئة (اختياري)', 'b_prefix', '')}
+      <div id="b_hint" class="muted" style="font-size:.82rem"></div></div>
+    <div class="check"><input type="checkbox" id="b_create" checked><label for="b_create" style="margin:0">إضافة المواليد كبهائم جديدة (مربوطة بالأم)</label></div>
     ${fTextarea('ملاحظات', 'b_notes', '')}
-    <div class="check"><input type="checkbox" id="b_create" checked><label for="b_create" style="margin:0">إضافة المولود كبهيمة جديدة</label></div>
-    <button class="btn" id="b_save">حفظ</button>`, () => {
+    <button class="btn" id="b_save">حفظ الولادة</button>`, () => {
+    let bom = 'none';
+    document.querySelectorAll('[data-bom]').forEach(c => c.addEventListener('click', () => {
+      bom = c.dataset.bom;
+      document.querySelectorAll('[data-bom]').forEach(x => x.classList.toggle('active', x.dataset.bom === bom));
+      document.getElementById('bomNum').classList.toggle('hidden', bom !== 'num');
+      if (bom === 'num') { const s = suggestStart(''); const el = document.getElementById('b_start'); if (el && el.value.trim() === '' && s !== '') el.value = String(s); const h = document.getElementById('b_hint'); if (h) h.textContent = s !== '' ? `اقتراح يبدأ من ${s} (قابل للتعديل)` : 'اكتب البداية التي تريدها'; }
+    }));
     document.getElementById('b_save').addEventListener('click', async () => {
-      const code = val('b_code').trim(), date = val('b_date') || todayStr(), sex = val('b_sex'), father = val('b_father').trim(), notes = val('b_notes').trim();
+      const n = parseInt(val('b_count'), 10) || 0; if (n <= 0) { toast('أدخل عدد المواليد'); return; }
+      const sex = val('b_sex'), date = val('b_date') || todayStr(), father = val('b_father').trim(), notes = val('b_notes').trim(), create = document.getElementById('b_create').checked;
+      let codes;
+      if (bom === 'num') { const sr = val('b_start').trim(); if (sr === '') { toast('اكتب بداية الترقيم أو اختر «بدون ترقيم»'); return; } codes = genSeq(val('b_prefix'), sr, n); }
+      else codes = new Array(n).fill('');
       const ok = await guard(async () => {
-        let offId = null;
-        if (document.getElementById('b_create').checked && code) {
-          const created = await dbInsert('animals', { type: mother.type, pen: mother.pen || '', idkind: 'number', code, name: '', sex, source: 'born', birth: date, color: '', status: 'present', mother_id: mother.id, father_name: father, notes });
-          offId = created.id;
+        for (const code of codes) {
+          let offId = null;
+          if (create) { const created = await dbInsert('animals', { type: mother.type, pen: mother.pen || '', idkind: idkindFor(code), code, name: '', sex, source: 'born', birth: date, color: '', status: 'present', mother_id: mother.id, father_name: father, notes }); offId = created.id; }
+          await dbInsert('births', { mother_id: mother.id, offspring_id: offId, offspring_code: code, date, sex, father_name: father, notes });
         }
-        await dbInsert('births', { mother_id: mother.id, offspring_id: offId, offspring_code: code, date, sex, father_name: father, notes });
         await dbUpdate('pregnancies', preg.id, { status: 'born' });
       });
-      if (ok) { closeModal(); toast('تم تسجيل الولادة'); await loadAll(); screenPregnancies(); }
+      if (ok) { closeModal(); toast(`تم تسجيل الولادة (${n})`); await loadAll(); screenPregnancies(); }
     });
   });
 }
@@ -1145,9 +1187,11 @@ function renderBulkBody() {
   const listHtml = cands.length ? cands.map(a => `<label class="bulk-row"><input type="checkbox" data-sel="${a.id}" ${bulkSel.has(a.id) ? 'checked' : ''}><span>${display(a)} <span class="muted">${arOf(TYPES, a.type)}${a.pen ? ' • ' + esc(a.pen) : ''}</span></span></label>`).join('') : '<div class="muted">لا توجد بهائم مطابقة.</div>';
   body.innerHTML = `<div class="card"><h3>بيانات العملية</h3>${form}</div>
     <div class="card"><div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin:0">اختر البهائم</h3>${cands.length ? '<button class="btn sm outline" id="bk_all">تحديد/إلغاء الكل</button>' : ''}</div>
-      <div class="muted" id="bk_count" style="margin:4px 0">المحدد: ${bulkSel.size}</div>${listHtml}</div>
+      ${cands.length ? `${fInput('🔍 بحث (رقم/مراح)', 'bk_search', '')}` : ''}
+      <div class="muted" id="bk_count" style="margin:4px 0">المحدد: ${bulkSel.size}</div><div id="bk_list">${listHtml}</div></div>
     <button class="btn" id="bk_apply">تطبيق على المحدد (${bulkSel.size})</button>`;
   const refresh = () => { document.getElementById('bk_count').textContent = 'المحدد: ' + bulkSel.size; document.getElementById('bk_apply').textContent = 'تطبيق على المحدد (' + bulkSel.size + ')'; };
+  { const se = document.getElementById('bk_search'); if (se) se.addEventListener('input', () => { const t = se.value.trim().toLowerCase(); body.querySelectorAll('#bk_list .bulk-row').forEach(r => { r.style.display = (!t || r.textContent.toLowerCase().includes(t)) ? '' : 'none'; }); }); }
   body.querySelectorAll('[data-sel]').forEach(cb => cb.addEventListener('change', () => { const id = parseInt(cb.dataset.sel, 10); cb.checked ? bulkSel.add(id) : bulkSel.delete(id); refresh(); }));
   const allBtn = document.getElementById('bk_all'); if (allBtn) allBtn.addEventListener('click', () => { const all = cands.every(a => bulkSel.has(a.id)); cands.forEach(a => all ? bulkSel.delete(a.id) : bulkSel.add(a.id)); renderBulkBody(); });
   document.getElementById('bk_apply').addEventListener('click', bulkApply);
