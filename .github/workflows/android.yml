@@ -86,14 +86,14 @@ jobs:
           "$BT/zipalign" -p -f 4 "$UNSIGNED" app-aligned.apk
           "$BT/apksigner" sign \
             --ks release.keystore --ks-pass pass:MrahiRelease2026 --key-pass pass:MrahiRelease2026 \
-            --out mrahi.apk app-aligned.apk
-          "$BT/apksigner" verify --print-certs mrahi.apk
+            --out mrah.apk app-aligned.apk
+          "$BT/apksigner" verify --print-certs mrah.apk
 
       - name: رفع ملف APK (أثر داخلي)
         uses: actions/upload-artifact@v4
         with:
-          name: mrahi-app
-          path: mrahi.apk
+          name: mrah-app
+          path: mrah.apk
           if-no-files-found: error
 
       - name: نشر إصدار برابط تنزيل مباشر + حزمة تحديث
@@ -103,9 +103,9 @@ jobs:
           name: مراح — تطبيق أندرويد (أحدث نسخة)
           body: |
             تطبيق مراح لأندرويد (النسخة ${{ env.APP_VERSION }}).
-            نزّل **mrahi.apk** مباشرة وثبّته. عند أول فتح تختار: محلي (بلا إنترنت) أو مشترك (Supabase).
+            نزّل **mrah.apk** مباشرة وثبّته. عند أول فتح تختار: محلي (بلا إنترنت) أو مشترك (Supabase).
             يتحدّث محتوى التطبيق تلقائياً عند توفّر الإنترنت دون إعادة تثبيت.
           files: |
-            mrahi.apk
+            mrah.apk
             bundle.zip
             version.json
