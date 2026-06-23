@@ -358,9 +358,12 @@ const activeTreatments = () => C.treatments.filter(t => t.withdrawal_end && days
 
 /* ===== الرئيسية ===== */
 function screenHome() {
-  const present = C.animals.filter(a => a.status === 'present').length;
+  const pres = C.animals.filter(a => a.status === 'present');
+  const present = pres.length;
   const sold = C.animals.filter(a => a.status === 'sold').length;
   const dead = C.animals.filter(a => a.status === 'dead').length;
+  const born = pres.filter(a => a.source === 'born');
+  const bornM = born.filter(a => a.sex === 'male').length, bornF = born.filter(a => a.sex === 'female').length;
   const births = upcomingBirths(), vaccs = upcomingVacc(), treats = activeTreatments();
   const hasHerd = can('animals', 'view');
   const roleLabel = isAdmin() ? 'مدير' : (me.account_type === 'visitor' ? 'زائر' : 'صاحب حلال');
@@ -375,7 +378,12 @@ function screenHome() {
       <div class="stat blue" data-go="#/alerts" style="cursor:pointer"><div class="n">${vaccs.length}</div><div class="l">تطعيمات قادمة</div></div>
       <div class="stat red" data-go="#/alerts" style="cursor:pointer"><div class="n">${treats.length}</div><div class="l">علاجات حالية</div></div>
     </div>
-    <div class="stats">
+    <div class="stats" style="grid-template-columns:1fr 1fr 1fr">
+      <div class="stat" data-born="male" style="cursor:pointer"><div class="n">${bornM}</div><div class="l">👦 مواليد ذكور</div></div>
+      <div class="stat" data-born="female" style="cursor:pointer"><div class="n">${bornF}</div><div class="l">👧 مواليد إناث</div></div>
+      <div class="stat" data-born="all" style="cursor:pointer"><div class="n">${bornM + bornF}</div><div class="l">📦 مجموع المواليد</div></div>
+    </div>
+    <div class="stats" style="grid-template-columns:1fr 1fr 1fr">
       <div class="stat" data-sfilter="sold" style="cursor:pointer"><div class="n">${sold}</div><div class="l">مباعة</div></div>
       <div class="stat" data-sfilter="dead" style="cursor:pointer"><div class="n">${dead}</div><div class="l">نافقة</div></div>
       <div class="stat" data-go="#/inspect" style="cursor:pointer"><div class="n">📊</div><div class="l">إحصائيات</div></div>
@@ -391,7 +399,9 @@ function screenHome() {
   { const gf = view().querySelector('[data-go-forum]'); if (gf) gf.addEventListener('click', () => setHash('#/forum')); }
   view().querySelectorAll('[data-go]').forEach(c => c.addEventListener('click', () => setHash(c.dataset.go)));
   // بطاقات الحالة: تفتح قائمة الحلال مُرشَّحة (في المراح/مباعة/نافقة)
-  view().querySelectorAll('[data-sfilter]').forEach(c => c.addEventListener('click', () => { animalFilter = ''; animalStatusFilter = c.dataset.sfilter; setHash('#/animals'); }));
+  view().querySelectorAll('[data-sfilter]').forEach(c => c.addEventListener('click', () => { animalFilter = ''; animalSourceFilter = ''; animalSexFilter = ''; animalStatusFilter = c.dataset.sfilter; setHash('#/animals'); }));
+  // بطاقات المواليد: تفتح المواليد (مصدر=ولادة) مُرشَّحة بالجنس
+  view().querySelectorAll('[data-born]').forEach(c => c.addEventListener('click', () => { animalFilter = ''; animalStatusFilter = 'present'; animalSourceFilter = 'born'; animalSexFilter = c.dataset.born === 'all' ? '' : c.dataset.born; setHash('#/animals'); }));
   const q = document.getElementById('q');
   if (q) q.addEventListener('input', () => {
     const term = q.value.trim().toLowerCase(); const box = document.getElementById('qr');
@@ -447,6 +457,8 @@ function screenAlerts() {
 /* ===== الحلال ===== */
 let animalFilter = '';
 let animalStatusFilter = 'present';
+let animalSourceFilter = '';   // '' | 'born' | 'purchased'
+let animalSexFilter = '';      // '' | 'male' | 'female'
 // آخر «رقم مراح» مُدخَل — يُثبَّت تلقائياً في إضافة البهيمة التالية حتى يُغيَّر (إدخال أسرع للدفعات)
 let lastPen = (() => { try { return localStorage.getItem('mrahi_last_pen') || ''; } catch (e) { return ''; } })();
 function animalCard(a) {
@@ -461,7 +473,9 @@ function screenAnimals() {
   if (!can('animals', 'view')) { view().innerHTML = noPerm(); return; }
   const chips = `<div class="chips"><span class="chip ${!animalFilter ? 'active' : ''}" data-f="">الكل</span>${TYPES.map(t => `<span class="chip ${animalFilter === t.k ? 'active' : ''}" data-f="${t.k}">${t.ar}</span>`).join('')}</div>`;
   const stChips = `<div class="chips"><span class="chip ${animalStatusFilter === 'present' ? 'active' : ''}" data-s="present">في المراح</span><span class="chip ${animalStatusFilter === 'sold' ? 'active' : ''}" data-s="sold">مباعة</span><span class="chip ${animalStatusFilter === 'dead' ? 'active' : ''}" data-s="dead">نافقة</span><span class="chip ${!animalStatusFilter ? 'active' : ''}" data-s="">الكل</span></div>`;
-  const list = C.animals.filter(a => (!animalFilter || a.type === animalFilter) && (!animalStatusFilter || a.status === animalStatusFilter)).sort((a, b) => b.id - a.id);
+  const srcChips = `<div class="chips"><span class="chip ${!animalSourceFilter ? 'active' : ''}" data-src="">كل المصادر</span><span class="chip ${animalSourceFilter === 'born' ? 'active' : ''}" data-src="born">👶 مواليد</span><span class="chip ${animalSourceFilter === 'purchased' ? 'active' : ''}" data-src="purchased">🛒 مشترى</span></div>`;
+  const sexBanner = animalSexFilter ? `<div class="card hl" style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px"><span>الجنس: ${arOf(SEX, animalSexFilter)}</span><button class="btn sm outline" id="clrSex">✕ إلغاء</button></div>` : '';
+  const list = C.animals.filter(a => (!animalFilter || a.type === animalFilter) && (!animalStatusFilter || a.status === animalStatusFilter) && (!animalSourceFilter || (a.source || 'purchased') === animalSourceFilter) && (!animalSexFilter || a.sex === animalSexFilter)).sort((a, b) => b.id - a.id);
   const canEdit = can('animals', 'edit');
   // عند خلو الحلال كلياً: حالة ترحيبية بزرّ إضافة واضح. وعند خلو التصنيف فقط: رسالة عادية.
   const empty = C.animals.length === 0
@@ -470,9 +484,11 @@ function screenAnimals() {
   const countRow = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
       <span class="muted">العدد: ${list.length}</span>
       ${canEdit ? '<button class="btn sm outline" id="bulkAddBtn">📋 إضافة جماعية</button>' : ''}</div>`;
-  view().innerHTML = chips + stChips + countRow + (list.length ? list.map(animalCard).join('') : empty);
+  view().innerHTML = chips + stChips + srcChips + sexBanner + countRow + (list.length ? list.map(animalCard).join('') : empty);
   view().querySelectorAll('[data-f]').forEach(c => c.addEventListener('click', () => { animalFilter = c.dataset.f; screenAnimals(); }));
   view().querySelectorAll('[data-s]').forEach(c => c.addEventListener('click', () => { animalStatusFilter = c.dataset.s; screenAnimals(); }));
+  view().querySelectorAll('[data-src]').forEach(c => c.addEventListener('click', () => { animalSourceFilter = c.dataset.src; screenAnimals(); }));
+  { const cs = document.getElementById('clrSex'); if (cs) cs.addEventListener('click', () => { animalSexFilter = ''; screenAnimals(); }); }
   bindCards(view());
   { const af = document.getElementById('add_first'); if (af) af.addEventListener('click', () => setHash('#/animal-edit/0')); }
   { const bb = document.getElementById('bulkAddBtn'); if (bb) bb.addEventListener('click', () => setHash('#/bulk/buy')); }
@@ -1597,7 +1613,10 @@ function renderInspect() {
     const byType = TYPES.map(t => ({ ar: t.ar, n: present.filter(a => a.type === t.k).length })).filter(x => x.n);
     const f = present.filter(a => a.sex === 'female').length, m = present.filter(a => a.sex === 'male').length;
     const sold = A.filter(a => a.status === 'sold').length, dead = A.filter(a => a.status === 'dead').length;
-    const born = present.filter(a => a.source === 'born').length, bought = present.length - born;
+    const bornAll = present.filter(a => a.source === 'born');
+    const boughtAll = present.filter(a => (a.source || 'purchased') === 'purchased');
+    const bM = bornAll.filter(a => a.sex === 'male').length, bF = bornAll.filter(a => a.sex === 'female').length;
+    const pM = boughtAll.filter(a => a.sex === 'male').length, pF = boughtAll.filter(a => a.sex === 'female').length;
     const pens = {}; present.forEach(a => { const p = a.pen || '— بلا مراح'; pens[p] = (pens[p] || 0) + 1; });
     const penList = Object.entries(pens).sort((x, y) => y[1] - x[1]);
     body.innerHTML = `
@@ -1607,8 +1626,9 @@ function renderInspect() {
         <div class="stat amber"><div class="n">${m}</div><div class="l">ذكور</div></div>
       </div>
       <div class="card"><h3>حسب النوع</h3>${byType.length ? byType.map(x => row(x.ar, x.n)).join('') : noItem()}</div>
+      <div class="card"><h3>👶 الإنتاج (مواليد) — في المراح</h3>${row('ذكور', bM)}${row('إناث', bF)}${row('المجموع', bM + bF)}</div>
+      <div class="card"><h3>🛒 المشترى — في المراح</h3>${row('ذكور', pM)}${row('إناث', pF)}${row('المجموع', pM + pF)}</div>
       <div class="card"><h3>الحالة (الكل)</h3>${row('في المراح', present.length)}${row('مباعة', sold)}${row('نافقة', dead)}${row('الإجمالي', A.length)}</div>
-      <div class="card"><h3>المصدر (في المراح)</h3>${row('مواليد', born)}${row('مشترى', bought)}</div>
       <div class="card"><h3>حسب المراح</h3>${penList.length ? penList.map(([p, n]) => row(p, n)).join('') : noItem()}</div>`;
     return;
   }
