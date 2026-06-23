@@ -321,7 +321,7 @@ function render() {
   window.scrollTo(0, 0);
   r.fn(arg);
 }
-function addFab(label, onClick) { const f = document.createElement('button'); f.className = 'fab'; f.textContent = label; f.addEventListener('click', onClick); document.body.appendChild(f); }
+function addFab(label, onClick) { document.querySelectorAll('.fab').forEach(f => f.remove()); const f = document.createElement('button'); f.className = 'fab'; f.textContent = label; f.addEventListener('click', onClick); document.body.appendChild(f); }
 
 /* ===== التنبيهات (حسابات) ===== */
 const upcomingBirths = () => C.pregnancies.filter(p => p.status === 'monitoring' && p.expected).filter(p => { const d = daysUntil(p.expected); return d !== null && d >= 0 && d <= 7; }).sort((a, b) => (a.expected || '').localeCompare(b.expected || ''));
@@ -429,11 +429,15 @@ function screenAnimals() {
   const empty = C.animals.length === 0
     ? `<div class="center-empty">🐑 لا يوجد حلال بعد.${canEdit ? '<br><button class="btn" id="add_first" style="margin-top:14px">➕ أضف أول بهيمة</button><div class="muted" style="margin-top:8px;font-size:.85rem">تختار النوع (إبل/غنم/ماعز/بقر) داخل النموذج — أضِف ما تشاء من كل نوع.</div>' : ''}</div>`
     : '<div class="center-empty">لا توجد بهائم في هذا التصنيف.</div>';
-  view().innerHTML = chips + stChips + `<div class="muted" style="margin-bottom:6px">العدد: ${list.length}</div>` + (list.length ? list.map(animalCard).join('') : empty);
+  const countRow = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+      <span class="muted">العدد: ${list.length}</span>
+      ${canEdit ? '<button class="btn sm outline" id="bulkAddBtn">📋 إضافة جماعية</button>' : ''}</div>`;
+  view().innerHTML = chips + stChips + countRow + (list.length ? list.map(animalCard).join('') : empty);
   view().querySelectorAll('[data-f]').forEach(c => c.addEventListener('click', () => { animalFilter = c.dataset.f; screenAnimals(); }));
   view().querySelectorAll('[data-s]').forEach(c => c.addEventListener('click', () => { animalStatusFilter = c.dataset.s; screenAnimals(); }));
   bindCards(view());
   { const af = document.getElementById('add_first'); if (af) af.addEventListener('click', () => setHash('#/animal-edit/0')); }
+  { const bb = document.getElementById('bulkAddBtn'); if (bb) bb.addEventListener('click', () => setHash('#/bulk/buy')); }
   if (canEdit) addFab('+ إضافة بهيمة', () => setHash('#/animal-edit/0'));
 }
 
@@ -447,7 +451,7 @@ function screenAnimalEdit(arg) {
   view().innerHTML = `
     <div class="card"><h3>البيانات الأساسية</h3>
       ${a ? `<div class="muted" style="margin-bottom:8px">🔒 الرقم الداخلي ${internalNo(a)} — ثابت لا يتغيّر (هوية النظام).</div>` : '<div class="muted" style="margin-bottom:8px">🔒 سيُمنح رقم داخلي ثابت تلقائياً (لا يتغيّر مهما تغيّر الوسم).</div>'}
-      ${fSelect('نوع الحلال', 'f_type', TYPES, a ? a.type : 'sheep')}
+      ${fSelect('نوع الحلال', 'f_type', TYPES, a ? a.type : (animalFilter || 'sheep'))}
       ${fInput('رقم المراح (الحظيرة)', 'f_pen', a ? a.pen : lastPen)}
       ${fSelect('نوع المعرّف الخارجي', 'f_kind', IDKIND, a ? a.idkind : 'number')}
       ${fInput('المعرّف الخارجي / الوسم (اختياري — قد يتغيّر أو يسقط)', 'f_code', a && a.code)}
@@ -906,13 +910,14 @@ function suggestStart(prefix) {
   }
   return found ? max + 1 : '';
 }
-function screenBulk() {
+function screenBulk(arg) {
   const ops = [
     { k: 'vaccinate', ar: '💉 تطعيم' }, { k: 'mate', ar: '❤ تلقيح' }, { k: 'treat', ar: '💊 علاج' },
     { k: 'sell', ar: '💰 بيع' }, { k: 'buy', ar: '🛒 إضافة' },
   ].filter(o => can(BULK_PERM[o.k][0], BULK_PERM[o.k][1]));
   if (!ops.length) { view().innerHTML = noPerm(); return; }
-  if (!ops.find(o => o.k === bulkOp)) bulkOp = ops[0].k;
+  if (arg && ops.find(o => o.k === arg)) bulkOp = arg;          // فتح مباشر على عملية محدّدة (#/bulk/buy)
+  else if (!ops.find(o => o.k === bulkOp)) bulkOp = ops[0].k;
   view().innerHTML = `<div class="chips">${ops.map(o => `<span class="chip ${bulkOp === o.k ? 'active' : ''}" data-op="${o.k}">${o.ar}</span>`).join('')}</div><div id="bulkBody"></div>`;
   view().querySelectorAll('[data-op]').forEach(c => c.addEventListener('click', () => { bulkOp = c.dataset.op; bulkSel.clear(); bulkRows = []; screenBulk(); }));
   renderBulkBody();
@@ -921,7 +926,7 @@ function renderBulkBody() {
   const body = document.getElementById('bulkBody');
   if (bulkOp === 'buy') {
     body.innerHTML = `<div class="card"><h3>حقول مشتركة لكل الرؤوس</h3>
-      ${fSelect('نوع الحلال', 'bk_type', TYPES, 'sheep')}
+      ${fSelect('نوع الحلال', 'bk_type', TYPES, animalFilter || 'sheep')}
       ${fInput('رقم المراح (الحظيرة)', 'bk_pen', lastPen)}
       ${fSelect('المصدر', 'bk_source', SOURCE, 'born')}
       ${fInput('التاريخ (شراء/ميلاد)', 'bk_date', todayStr(), 'date')}
@@ -1045,7 +1050,8 @@ function screenMore() {
   if (can('vaccines', 'edit')) items.push(['💉 إعطاء تطعيم', '#/vaccinate/0']);
   if (can('treatments', 'view')) items.push(['💊 أنواع العلاج', '#/treatment-types']);
   if (can('treatments', 'edit')) items.push(['💊 إضافة علاج', '#/treat/0']);
-  if (can('animals', 'add') || can('animals', 'edit') || can('vaccines', 'edit') || can('treatments', 'edit') || can('breeding', 'edit')) items.push(['📋 عمليات بالجملة (قائمة)', '#/bulk']);
+  if (can('animals', 'add')) items.push(['📋 إضافة جماعية (دفعة)', '#/bulk/buy']);
+  if (can('animals', 'add') || can('animals', 'edit') || can('vaccines', 'edit') || can('treatments', 'edit') || can('breeding', 'edit')) items.push(['⚙️ عمليات جماعية (تطعيم/علاج/بيع…)', '#/bulk']);
   if (can('backup', 'view')) items.push(['💾 النسخ الاحتياطي', '#/backup']);
   if (isAdmin()) items.push(['🐑 أنواع الحلال', '#/types']);
   if (isAdmin()) items.push(['🗑️ سلة المحذوفات', '#/trash']);
