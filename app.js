@@ -2860,7 +2860,7 @@ function renderLicenseGate() {
     <div class="logo">🔐</div><h2>تفعيل مراح</h2>
     <p class="sub">أرسل «رقم الجهاز» للمالك ليصلك رمز التفعيل، ثم الصقه هنا.</p>
     <div class="field"><label>رقم الجهاز</label>
-      <div id="lic_dev" style="font-size:1.35rem;font-weight:800;letter-spacing:2px;text-align:center;background:#f4f6f4;border:1px solid #d8d8d8;border-radius:12px;padding:14px;direction:ltr;-webkit-user-select:text;user-select:text">${lic.deviceIdPretty()}</div>
+      <div id="lic_dev" style="font-size:1.35rem;font-weight:800;letter-spacing:2px;text-align:center;color:#1b5e20;background:#f4f6f4;border:1px solid #d8d8d8;border-radius:12px;padding:14px;direction:ltr;-webkit-user-select:text;user-select:text">${lic.deviceIdPretty()}</div>
       <button class="btn outline" id="lic_copy" style="width:100%;margin-top:8px">📋 نسخ رقم الجهاز</button></div>
     ${expiredMsg}
     <div class="field"><label>رمز التفعيل</label><textarea id="lic_key" rows="3" placeholder="الصق رمز التفعيل هنا" style="width:100%"></textarea></div>
