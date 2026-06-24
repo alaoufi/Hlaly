@@ -772,12 +772,18 @@ function startPregBulkModal() {
   const cnum = (a) => { const n = codeNumOf(a); return n == null ? 1e15 : n; };
   const monOf = (id) => C.pregnancies.find(p => p.animal_id === id && p.status === 'monitoring');
   const curAge = (p) => (p && p.mating_date) ? Math.max(0, -daysUntil(p.mating_date)) : null;
+  const examinedCount = () => all.filter(a => monOf(a.id)).length;
+  const updCount = () => { const el = document.getElementById('pp_done_count'); if (el) el.textContent = `فُحِص: ${examinedCount()} من ${all.length}`; };
+  const markSaved = (a, exp) => {
+    const row = document.querySelector(`#pp_list .bulk-row[data-id="${a.id}"]`); if (row) { row.style.background = 'color-mix(in srgb, var(--green) 12%, transparent)'; row.style.borderRadius = '8px'; }
+    const e = document.querySelector(`[data-exp="${a.id}"]`); if (e) e.textContent = '✅ 📅 ' + fmtDate(exp);
+  };
   const rowHtml = (a) => {
     const p = monOf(a.id); const age = curAge(p);
-    return `<div class="bulk-row" data-pen="${esc(a.pen || '')}" data-type="${a.type}" style="gap:10px">
+    return `<div class="bulk-row" data-id="${a.id}" data-pen="${esc(a.pen || '')}" data-type="${a.type}" style="gap:10px${p ? ';background:color-mix(in srgb, var(--green) 12%, transparent);border-radius:8px' : ''}">
       <span style="flex:1;font-weight:700">${display(a)}</span>
       <input data-age="${a.id}" type="number" inputmode="numeric" min="1" placeholder="العمر" value="${age != null ? age : ''}" style="width:74px;padding:8px;border:1px solid #ddd;border-radius:8px;text-align:center">
-      <span class="muted" data-exp="${a.id}" style="font-size:.76rem;min-width:78px;text-align:left">${p ? '📅 ' + fmtDate(p.expected) : ''}</span></div>`;
+      <span class="muted" data-exp="${a.id}" style="font-size:.76rem;min-width:88px;text-align:left">${p ? '✅ 📅 ' + fmtDate(p.expected) : ''}</span></div>`;
   };
   const applyFilter = () => { const t = (document.getElementById('pp_search').value || '').trim().toLowerCase(); document.querySelectorAll('#pp_list .bulk-row').forEach(r => { const ok = (!typeF || r.dataset.type === typeF) && (!penF || r.dataset.pen === penF) && (!t || r.textContent.toLowerCase().includes(t)); r.style.display = ok ? '' : 'none'; }); };
   const saveAge = async (a, raw) => {
@@ -789,7 +795,7 @@ function startPregBulkModal() {
       if (p) { await dbUpdate('pregnancies', p.id, { mating_date: conception, gest: g, expected: exp, sonar_date: date, confirmed: true, notes: 'سونار — عمر الحمل ' + age + ' يوم' }); Object.assign(p, { mating_date: conception, gest: g, expected: exp, sonar_date: date, confirmed: true }); }
       else { const rec = await dbInsert('pregnancies', { animal_id: a.id, mating_date: conception, gest: g, expected: exp, status: 'monitoring', confirmed: true, sonar_date: date, notes: 'سونار — عمر الحمل ' + age + ' يوم' }); if (rec) C.pregnancies.push(rec); }
     });
-    if (ok) { const e = document.querySelector(`[data-exp="${a.id}"]`); if (e) e.textContent = '📅 ' + fmtDate(exp); }
+    if (ok) { markSaved(a, exp); updCount(); }
   };
   const renderList = () => {
     const list = document.getElementById('pp_list'); if (!list) return;
@@ -799,7 +805,7 @@ function startPregBulkModal() {
       el.addEventListener('change', () => saveAge(a, el.value));
       el.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); const vis = [...list.querySelectorAll('[data-age]')].filter(x => x.offsetParent !== null); const i = vis.indexOf(el); if (vis[i + 1]) vis[i + 1].focus(); else el.blur(); } });
     });
-    applyFilter();
+    applyFilter(); updCount();
   };
   const typeChips = typesUsed.length > 1 ? `النوع: <div class="chips"><span class="chip active" data-typef="">الكل</span>${typesUsed.map(t => `<span class="chip" data-typef="${t.k}">${t.ar}</span>`).join('')}</div>` : '';
   const penChips = pens.length > 1 ? `المراح: <div class="chips"><span class="chip active" data-penf="">الكل</span>${pens.map(p => `<span class="chip" data-penf="${esc(p)}">${esc(p)}</span>`).join('')}</div>` : '';
@@ -808,7 +814,9 @@ function startPregBulkModal() {
     ${typeChips}
     ${penChips}
     ${fInput('🔍 بحث (رقم)', 'pp_search', '')}
-    <div class="muted" style="font-size:.78rem;margin:2px 0">اكتب «عمر الحمل» أمام الرقم — يُحفظ تلقائياً وتظهر الولادة المتوقّعة. عدّله متى شئت بإعادة الكتابة.</div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin:2px 0">
+      <span class="muted" style="font-size:.78rem">اكتب «عمر الحمل» أمام الرقم — يُحفظ تلقائياً.</span>
+      <span class="badge" id="pp_done_count">فُحِص: 0</span></div>
     <div style="max-height:44vh;overflow:auto" id="pp_list"></div>
     <button class="btn" id="pp_done" style="margin-top:8px">✓ تم — عرض الجدول</button>`, () => {
     document.querySelectorAll('[data-typef]').forEach(c => c.addEventListener('click', () => { typeF = c.dataset.typef; document.querySelectorAll('[data-typef]').forEach(x => x.classList.toggle('active', x.dataset.typef === typeF)); applyFilter(); }));
