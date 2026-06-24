@@ -1794,6 +1794,7 @@ function adminAddUser() {
 
 /* ===== تفقد الحلال وإحصائيات ===== */
 let inspectTab = 'stats';
+let lineageMode = 'flat';   // عرض الأنساب: قائمة (الأم ← مواليدها) أو شجرة متعدّدة الأجيال
 const codeNumOf = (a) => { const m = String(a.code || '').match(/(\d+)/); return m ? parseInt(m[1], 10) : null; };
 const aMini = (a) => `<div class="card click" data-aid="${a.id}" style="margin:6px 0"><div class="li-title">${display(a)} <span class="muted" style="font-weight:400">${internalNo(a)}</span></div><div class="li-sub">${arOf(TYPES, a.type)} • ${arOf(SEX, a.sex)}${a.pen ? ' • ' + esc(a.pen) : ''}${a.status !== 'present' ? ' • ' + arOf(STATUS, a.status) : ''}</div></div>`;
 function screenInspect() {
@@ -1857,16 +1858,32 @@ function renderInspect() {
   if (inspectTab === 'lineage') {
     const cn = (a) => { const n = codeNumOf(a); return n == null ? 1e15 : n; };
     const offBy = {}; A.forEach(a => { if (a.mother_id) (offBy[a.mother_id] = offBy[a.mother_id] || []).push(a); });
-    const mothers = Object.keys(offBy).map(id => animalById(parseInt(id, 10))).filter(Boolean).sort((a, b) => cn(a) - cn(b) || a.id - b.id);
+    const hasKids = (id) => offBy[id] && offBy[id].length;
     const label = (a) => esc(a.code || ('#' + a.id));
+    const clsOf = (a) => a.sex === 'male' ? 'male' : (hasKids(a.id) ? 'mother' : 'female');
     const chip = (a, cls) => `<span class="lin-chip ${cls}" data-aid="${a.id}">${label(a)}</span>`;
-    const legend = `<div style="display:flex;gap:8px;flex-wrap:wrap;margin:4px 0 10px;align-items:center"><span class="muted" style="font-size:.8rem">الألوان:</span><span class="lin-chip mother">أم</span><span class="lin-chip female">أنثى</span><span class="lin-chip male">ذكر</span></div>`;
-    body.innerHTML = legend + (mothers.length ? mothers.map(m => {
-      const offs = offBy[m.id].slice().sort((a, b) => cn(a) - cn(b) || a.id - b.id);
-      return `<div class="card" style="padding:10px;display:flex;flex-wrap:wrap;gap:6px;align-items:center">
-        ${chip(m, 'mother')}<span style="color:var(--muted);font-weight:700">←</span>${offs.map(o => chip(o, o.sex === 'male' ? 'male' : 'female')).join('')}
-        <span class="muted" style="margin-inline-start:auto;font-size:.78rem">${offs.length} مولود</span></div>`;
-    }).join('') : '<div class="center-empty">لا توجد أمهات مرتبطة بمواليد بعد.</div>');
+    const toggle = `<div class="chips" style="margin-bottom:6px"><span class="chip ${lineageMode === 'flat' ? 'active' : ''}" data-lm="flat">📋 قائمة</span><span class="chip ${lineageMode === 'tree' ? 'active' : ''}" data-lm="tree">🌳 شجرة</span></div>`;
+    const legend = `<div style="display:flex;gap:8px;flex-wrap:wrap;margin:0 0 10px;align-items:center"><span class="muted" style="font-size:.8rem">الألوان:</span><span class="lin-chip mother">أم</span><span class="lin-chip female">أنثى</span><span class="lin-chip male">ذكر</span></div>`;
+    let inner;
+    if (lineageMode === 'tree') {
+      const sortKids = (arr) => arr.slice().sort((a, b) => cn(a) - cn(b) || a.id - b.id);
+      const node = (a, depth, seen) => {
+        if (seen.has(a.id)) return ''; seen.add(a.id);
+        const kids = sortKids(offBy[a.id] || []);
+        return `<div style="margin-inline-start:${depth * 18}px;padding:3px 0;display:flex;align-items:center;gap:6px">${depth ? '<span style="color:var(--muted)">↳</span>' : ''}${chip(a, clsOf(a))}${kids.length ? `<span class="muted" style="font-size:.72rem">(${kids.length})</span>` : ''}</div>`
+          + kids.map(k => node(k, depth + 1, seen)).join('');
+      };
+      const roots = A.filter(a => hasKids(a.id) && (!a.mother_id || !animalById(a.mother_id))).sort((a, b) => cn(a) - cn(b) || a.id - b.id);
+      inner = roots.length ? roots.map(r => `<div class="card" style="padding:10px">${node(r, 0, new Set())}</div>`).join('') : '<div class="center-empty">لا توجد أنساب لعرضها بعد.</div>';
+    } else {
+      const mothers = Object.keys(offBy).map(id => animalById(parseInt(id, 10))).filter(Boolean).sort((a, b) => cn(a) - cn(b) || a.id - b.id);
+      inner = mothers.length ? mothers.map(m => {
+        const offs = offBy[m.id].slice().sort((a, b) => cn(a) - cn(b) || a.id - b.id);
+        return `<div class="card" style="padding:10px;display:flex;flex-wrap:wrap;gap:6px;align-items:center">${chip(m, 'mother')}<span style="color:var(--muted);font-weight:700">←</span>${offs.map(o => chip(o, o.sex === 'male' ? 'male' : 'female')).join('')}<span class="muted" style="margin-inline-start:auto;font-size:.78rem">${offs.length} مولود</span></div>`;
+      }).join('') : '<div class="center-empty">لا توجد أمهات مرتبطة بمواليد بعد.</div>';
+    }
+    body.innerHTML = toggle + legend + inner;
+    body.querySelectorAll('[data-lm]').forEach(c => c.addEventListener('click', () => { lineageMode = c.dataset.lm; renderInspect(); }));
     bindCards(body); return;
   }
   if (inspectTab === 'twins') {
