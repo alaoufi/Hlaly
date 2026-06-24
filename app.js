@@ -747,7 +747,7 @@ function screenPregnancies() {
     const age = p.mating_date ? Math.max(0, -daysUntil(p.mating_date)) : null;
     return `<div class="card"><h3>${display(a)}</h3>${row('عمر الحمل الحالي', (age != null ? age : '—') + ' يوم')}${row('مدة حمل النوع', p.gest + ' يوم')}${row('الولادة التقريبية', fmtDate(p.expected))}${row('الحالة', arOf(PREG, p.status))}${sonarRow}${actions}</div>`;
   }).join('');
-  const startBtn = can('breeding', 'edit') ? '<button class="btn" id="startPreg" style="margin:0 0 8px">➕ بدء متابعة حمل (اختيار جماعي)</button>' : '';
+  const startBtn = can('breeding', 'edit') ? '<button class="btn" id="startPreg" style="margin:0 0 8px">🔊 متابعة الحمل بالسونار (إدخال/تعديل)</button>' : '';
   const bulkBtn = (monitoring.length && can('breeding', 'edit')) ? '<button class="btn outline" id="bulkSonar" style="margin:0 0 10px">🔊 فحص جماعي بالسونار</button>' : '';
   const bodyHtml = list.length ? (pregTable(monitoring) + cards) : '<div class="center-empty">لا توجد حالات حمل مسجّلة بعد — ابدأ متابعة حمل بالزر أعلاه.</div>';
   view().innerHTML = startBtn + bulkBtn + bodyHtml;
@@ -761,75 +761,60 @@ function screenPregnancies() {
   view().querySelectorAll('[data-sonar]').forEach(b => b.addEventListener('click', () => sonarModal(C.pregnancies.find(x => x.id === parseInt(b.dataset.sonar, 10)))));
   view().querySelectorAll('[data-birth]').forEach(b => b.addEventListener('click', () => openBirthModal(C.pregnancies.find(x => x.id === parseInt(b.dataset.birth, 10)))));
 }
-// بدء متابعة حمل بعد السونار: تاريخ سونار واحد + «عمر الحمل» لكل بهيمة ⇒ الولادة = السونار + (مدة النوع − عمر الحمل)
-// طرق إدخال ذكية: ترتيب (الرقم/المراح/النوع)، تصفية بالمراح، عمر موحّد للمجموعة، Enter للحقل التالي.
+// بدء/تعديل متابعة حمل بالسونار — حفظ تلقائي فور كتابة عمر الحمل.
+// مرشّحات: النوع والمراح. الأرقام تصاعدياً. كل صف: الرقم + عمر الحمل + الولادة المتوقّعة.
 function startPregBulkModal() {
-  const cands = C.animals.filter(a => a.status === 'present' && a.sex === 'female')
-    .filter(a => !C.pregnancies.some(p => p.animal_id === a.id && p.status === 'monitoring'));
-  if (!cands.length) { toast('لا توجد إناث متاحة (إمّا غير موجودة أو تحت متابعة بالفعل)'); return; }
-  const pens = [...new Set(cands.map(a => a.pen || '').filter(Boolean))].sort();
-  const ageMap = {};
-  let sortKey = 'number', penF = '';
+  const all = C.animals.filter(a => a.status === 'present' && a.sex === 'female');
+  if (!all.length) { toast('لا توجد إناث في المراح'); return; }
+  const pens = [...new Set(all.map(a => a.pen || '').filter(Boolean))].sort();
+  const typesUsed = TYPES.filter(t => all.some(a => a.type === t.k));
+  let typeF = '', penF = '';
   const cnum = (a) => { const n = codeNumOf(a); return n == null ? 1e15 : n; };
-  const sortFns = {
-    number: (a, b) => cnum(a) - cnum(b) || a.id - b.id,
-    pen: (a, b) => (a.pen || '').localeCompare(b.pen || '') || cnum(a) - cnum(b),
-    type: (a, b) => (a.type || '').localeCompare(b.type || '') || cnum(a) - cnum(b),
+  const monOf = (id) => C.pregnancies.find(p => p.animal_id === id && p.status === 'monitoring');
+  const curAge = (p) => (p && p.mating_date) ? Math.max(0, -daysUntil(p.mating_date)) : null;
+  const rowHtml = (a) => {
+    const p = monOf(a.id); const age = curAge(p);
+    return `<div class="bulk-row" data-pen="${esc(a.pen || '')}" data-type="${a.type}" style="gap:10px">
+      <span style="flex:1;font-weight:700">${display(a)}</span>
+      <input data-age="${a.id}" type="number" inputmode="numeric" min="1" placeholder="العمر" value="${age != null ? age : ''}" style="width:74px;padding:8px;border:1px solid #ddd;border-radius:8px;text-align:center">
+      <span class="muted" data-exp="${a.id}" style="font-size:.76rem;min-width:78px;text-align:left">${p ? '📅 ' + fmtDate(p.expected) : ''}</span></div>`;
   };
-  const rowHtml = (a) => `<div class="bulk-row" data-pen="${esc(a.pen || '')}" style="gap:8px">
-      <span style="flex:1">${display(a)} <span class="muted">${arOf(TYPES, a.type)}${a.pen ? ' • ' + esc(a.pen) : ''}</span></span>
-      <input data-age="${a.id}" data-type="${a.type}" type="number" inputmode="numeric" min="1" placeholder="عمر الحمل" style="width:92px;padding:6px;border:1px solid #ddd;border-radius:8px;text-align:center">
-      <span class="muted" style="font-size:.78rem">يوم</span></div>`;
-  const recount = () => { const n = Object.values(ageMap).filter(v => (parseInt(v, 10) || 0) > 0).length; const el = document.getElementById('pp_count'); if (el) el.textContent = 'المُدخَل: ' + n; };
-  const applyFilter = () => { const t = (document.getElementById('pp_search').value || '').trim().toLowerCase(); document.querySelectorAll('#pp_list .bulk-row').forEach(r => { const okP = !penF || r.dataset.pen === penF; const okS = !t || r.textContent.toLowerCase().includes(t); r.style.display = (okP && okS) ? '' : 'none'; }); };
+  const applyFilter = () => { const t = (document.getElementById('pp_search').value || '').trim().toLowerCase(); document.querySelectorAll('#pp_list .bulk-row').forEach(r => { const ok = (!typeF || r.dataset.type === typeF) && (!penF || r.dataset.pen === penF) && (!t || r.textContent.toLowerCase().includes(t)); r.style.display = ok ? '' : 'none'; }); };
+  const saveAge = async (a, raw) => {
+    const age = parseInt(raw, 10) || 0; if (age <= 0) return;     // فارغ ⇒ لا تغيير
+    const date = val('pp_date') || todayStr(); const g = gestOf(a.type);
+    const conception = addDays(date, -age); const exp = addDays(conception, g);
+    const p = monOf(a.id);
+    const ok = await guard(async () => {
+      if (p) { await dbUpdate('pregnancies', p.id, { mating_date: conception, gest: g, expected: exp, sonar_date: date, confirmed: true, notes: 'سونار — عمر الحمل ' + age + ' يوم' }); Object.assign(p, { mating_date: conception, gest: g, expected: exp, sonar_date: date, confirmed: true }); }
+      else { const rec = await dbInsert('pregnancies', { animal_id: a.id, mating_date: conception, gest: g, expected: exp, status: 'monitoring', confirmed: true, sonar_date: date, notes: 'سونار — عمر الحمل ' + age + ' يوم' }); if (rec) C.pregnancies.push(rec); }
+    });
+    if (ok) { const e = document.querySelector(`[data-exp="${a.id}"]`); if (e) e.textContent = '📅 ' + fmtDate(exp); }
+  };
   const renderList = () => {
     const list = document.getElementById('pp_list'); if (!list) return;
-    list.innerHTML = cands.slice().sort(sortFns[sortKey]).map(rowHtml).join('');
+    list.innerHTML = all.slice().sort((a, b) => cnum(a) - cnum(b) || a.id - b.id).map(rowHtml).join('');   // تصاعدي
     list.querySelectorAll('[data-age]').forEach(el => {
-      const id = el.dataset.age; if (ageMap[id]) el.value = ageMap[id];
-      el.addEventListener('input', () => { ageMap[id] = el.value; recount(); });
-      el.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); const vis = [...list.querySelectorAll('[data-age]')].filter(x => x.offsetParent !== null); const i = vis.indexOf(el); if (vis[i + 1]) vis[i + 1].focus(); } });
+      const a = animalById(parseInt(el.dataset.age, 10));
+      el.addEventListener('change', () => saveAge(a, el.value));
+      el.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); const vis = [...list.querySelectorAll('[data-age]')].filter(x => x.offsetParent !== null); const i = vis.indexOf(el); if (vis[i + 1]) vis[i + 1].focus(); else el.blur(); } });
     });
-    applyFilter(); recount();
+    applyFilter();
   };
-  const sortChips = `ترتيب: <div class="chips"><span class="chip active" data-sort="number">الرقم</span><span class="chip" data-sort="pen">المراح</span><span class="chip" data-sort="type">النوع</span></div>`;
+  const typeChips = typesUsed.length > 1 ? `النوع: <div class="chips"><span class="chip active" data-typef="">الكل</span>${typesUsed.map(t => `<span class="chip" data-typef="${t.k}">${t.ar}</span>`).join('')}</div>` : '';
   const penChips = pens.length > 1 ? `المراح: <div class="chips"><span class="chip active" data-penf="">الكل</span>${pens.map(p => `<span class="chip" data-penf="${esc(p)}">${esc(p)}</span>`).join('')}</div>` : '';
-  openModal('➕ بدء متابعة حمل (بعد السونار)', `
+  openModal('🔊 متابعة الحمل بالسونار', `
     ${fInput('تاريخ السونار', 'pp_date', todayStr(), 'date')}
-    ${sortChips}
+    ${typeChips}
     ${penChips}
-    <div style="display:flex;gap:8px;align-items:center;margin:6px 0">
-      <input id="pp_uniform" type="number" inputmode="numeric" placeholder="عمر موحّد" style="flex:1;padding:8px;border:1px solid #ddd;border-radius:8px;text-align:center">
-      <button class="btn sm outline" id="pp_apply" style="white-space:nowrap">طبّق على الظاهر</button></div>
-    ${fInput('🔍 بحث (رقم/مراح)', 'pp_search', '')}
-    <div class="muted" style="font-size:.78rem;margin:2px 0">اكتب «عمر الحمل» أمام كل بهيمة فُحصت (اترك الفارغة). الولادة = السونار + (مدة النوع − عمر الحمل).</div>
-    <div style="max-height:36vh;overflow:auto" id="pp_list"></div>
-    <div class="muted" id="pp_count" style="margin-top:6px">المُدخَل: 0</div>
-    <button class="btn" id="pp_save" style="margin-top:8px">حفظ المتابعة</button>`, () => {
-    document.querySelectorAll('[data-sort]').forEach(c => c.addEventListener('click', () => { sortKey = c.dataset.sort; document.querySelectorAll('[data-sort]').forEach(x => x.classList.toggle('active', x.dataset.sort === sortKey)); renderList(); }));
+    ${fInput('🔍 بحث (رقم)', 'pp_search', '')}
+    <div class="muted" style="font-size:.78rem;margin:2px 0">اكتب «عمر الحمل» أمام الرقم — يُحفظ تلقائياً وتظهر الولادة المتوقّعة. عدّله متى شئت بإعادة الكتابة.</div>
+    <div style="max-height:44vh;overflow:auto" id="pp_list"></div>
+    <button class="btn" id="pp_done" style="margin-top:8px">✓ تم — عرض الجدول</button>`, () => {
+    document.querySelectorAll('[data-typef]').forEach(c => c.addEventListener('click', () => { typeF = c.dataset.typef; document.querySelectorAll('[data-typef]').forEach(x => x.classList.toggle('active', x.dataset.typef === typeF)); applyFilter(); }));
     document.querySelectorAll('[data-penf]').forEach(c => c.addEventListener('click', () => { penF = c.dataset.penf; document.querySelectorAll('[data-penf]').forEach(x => x.classList.toggle('active', x.dataset.penf === penF)); applyFilter(); }));
     document.getElementById('pp_search').addEventListener('input', applyFilter);
-    document.getElementById('pp_apply').addEventListener('click', () => {
-      const v = document.getElementById('pp_uniform').value.trim(); if (!v) { toast('اكتب العمر الموحّد'); return; }
-      let c = 0; document.querySelectorAll('#pp_list .bulk-row').forEach(r => { if (r.style.display !== 'none') { const el = r.querySelector('[data-age]'); if (el) { el.value = v; ageMap[el.dataset.age] = v; c++; } } });
-      recount(); toast(`طُبّق على ${c} ظاهرة`);
-    });
-    document.getElementById('pp_save').addEventListener('click', async () => {
-      const date = val('pp_date') || todayStr();
-      const items = cands.map(a => ({ id: a.id, type: a.type, age: parseInt(ageMap[a.id], 10) || 0 })).filter(it => it.age > 0);
-      if (!items.length) { toast('اكتب عمر الحمل لبهيمة واحدة على الأقل'); return; }
-      const over = items.filter(it => it.age >= gestOf(it.type));
-      if (over.length && !await confirm2(`${over.length} بهيمة عمر حملها يبلغ/يتجاوز مدة النوع — ستظهر ولادتها قريبة جداً. متابعة؟`)) return;
-      if (!await confirm2(`بدء متابعة حمل لـ${items.length} بهيمة؟`)) return;
-      const ok = await guard(async () => {
-        for (const it of items) {
-          const g = gestOf(it.type);
-          const conception = addDays(date, -it.age);     // تاريخ التلقيح التقديري = السونار − عمر الحمل
-          await dbInsert('pregnancies', { animal_id: it.id, mating_date: conception, gest: g, expected: addDays(conception, g), status: 'monitoring', confirmed: true, sonar_date: date, notes: 'سونار — عمر الحمل ' + it.age + ' يوم' });
-        }
-      });
-      if (ok) { closeModal(); toast(`بدأت متابعة ${items.length} حمل`); await loadAll(); screenPregnancies(); }
-    });
+    document.getElementById('pp_done').addEventListener('click', () => { closeModal(); screenPregnancies(); });
     renderList();
   });
 }
