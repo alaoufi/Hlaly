@@ -17,10 +17,16 @@
   function ls(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
   function lss(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
 
-  // معرّف الجهاز: 10 بايت عشوائية ثابتة لهذا التثبيت (16 حرف Base32)
+  // معرّف الجهاز: 10 بايت عشوائية ثابتة لهذا التثبيت (16 حرف Base32) — مع بدائل لئلا يفشل أبداً
+  function genRaw() {
+    var b = new Uint8Array(10);
+    try { var c = window.crypto || (typeof crypto !== 'undefined' ? crypto : null); if (c && c.getRandomValues) c.getRandomValues(b); else throw 0; }
+    catch (e) { for (var i = 0; i < 10; i++) b[i] = Math.floor(Math.random() * 256); }
+    return b32e(b);
+  }
   function deviceId() {
-    var r = ls('mrahi_dev');
-    if (!r) { var b = new Uint8Array(10); (window.crypto || crypto).getRandomValues(b); r = b32e(b); lss('mrahi_dev', r); }
+    var r = null; try { r = ls('mrahi_dev'); } catch (e) {}
+    if (!r || r.length < 16) { r = genRaw(); lss('mrahi_dev', r); }
     return r;
   }
   function deviceIdPretty() { return deviceId().replace(/(.{4})/g, '$1-').replace(/-$/, ''); }
