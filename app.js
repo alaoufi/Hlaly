@@ -29,6 +29,9 @@ const todayStr = () => new Date().toISOString().slice(0, 10);
 function addDays(d, n) { if (!d) return null; const x = new Date(d + 'T00:00:00'); x.setDate(x.getDate() + n); return x.toISOString().slice(0, 10); }
 function addMonths(d, n) { if (!d || n == null) return null; const x = new Date(d + 'T00:00:00'); x.setMonth(x.getMonth() + n); return x.toISOString().slice(0, 10); }
 function daysUntil(d) { if (!d) return null; return Math.round((new Date(d + 'T00:00:00') - new Date(todayStr() + 'T00:00:00')) / 86400000); }
+// عمر تقريبي نصّي من تاريخ الميلاد (سنة/شهر)
+function ageMonths(birth) { if (!birth) return null; const b = new Date(birth + 'T00:00:00'), n = new Date(todayStr() + 'T00:00:00'); let m = (n.getFullYear() - b.getFullYear()) * 12 + (n.getMonth() - b.getMonth()); if (n.getDate() < b.getDate()) m--; return m < 0 ? 0 : m; }
+function ageText(birth) { const m = ageMonths(birth); if (m == null) return null; const y = Math.floor(m / 12), mo = m % 12; if (y && mo) return `${y} سنة و${mo} شهر`; if (y) return `${y} سنة`; return `${mo} شهر`; }
 // أطول مدة تحريم لنوع التطعيم (الحليب أو اللحم، مع توافق عمود withdrawal_days القديم)
 const vtWithdrawDays = (t) => Math.max(t.milk_withdrawal_days || 0, t.meat_withdrawal_days || 0, t.withdrawal_days || 0);
 const fmtDate = (d) => d ? String(d).slice(0, 10).replace(/-/g, '/') : '—';
@@ -582,7 +585,19 @@ function screenAnimalDetail(arg) {
   const treats = C.treatments.filter(t => t.animal_id === id).sort((x, y) => (y.date || '').localeCompare(x.date || ''));
   const mother = a.mother_id ? animalById(a.mother_id) : null;
   const vtName = (tid) => { const v = C.vaccineTypes.find(x => x.id === tid); return v ? esc(v.name) : 'تطعيم'; };
-  view().innerHTML = `
+  // ملخّص فوري: العمر • المواليد • حالة الحمل • تحت التحريم
+  const offCount = C.animals.filter(x => x.mother_id === id || x.father_id === id).length;
+  const monPreg = C.pregnancies.find(p => p.animal_id === id && p.status === 'monitoring');
+  const withItems = [...treats, ...vaccs].filter(r => r.withdrawal_end && daysUntil(r.withdrawal_end) >= 0).sort((x, y) => (y.withdrawal_end || '').localeCompare(x.withdrawal_end || ''));
+  const summary = `<div class="card" style="display:flex;flex-wrap:wrap;gap:6px">
+      ${a.birth ? `<span class="badge">🎂 ${ageText(a.birth)}</span>` : ''}
+      <span class="badge">${arOf(SEX, a.sex)}</span>
+      ${offCount ? `<span class="badge">👶 ${offCount} مولود</span>` : ''}
+      ${monPreg ? `<span class="badge">🤰 حامل • ولادة ${fmtDate(monPreg.expected)}</span>` : ''}
+      ${withItems.length ? `<span class="badge off">⛔ تحت التحريم حتى ${fmtDate(withItems[0].withdrawal_end)}</span>` : ''}
+      ${a.status !== 'present' ? `<span class="badge ${a.status === 'sold' ? 'sold' : 'dead'}">${arOf(STATUS, a.status)}</span>` : ''}
+    </div>`;
+  view().innerHTML = summary + `
     <div class="card"><h3>البيانات الأساسية</h3>
       ${row('النوع', arOf(TYPES, a.type))}
       ${row('🔒 الرقم الداخلي', internalNo(a) + ' (ثابت لا يتغيّر)')}
@@ -592,6 +607,7 @@ function screenAnimalDetail(arg) {
       ${row('المراح', esc(a.pen) || '—')}
       ${row('المصدر', arOf(SOURCE, a.source || 'purchased'))}
       ${row('تاريخ الميلاد', fmtDate(a.birth))}
+      ${a.birth ? row('🎂 العمر', ageText(a.birth)) : ''}
       ${a.birth && pubertyOf(a.type) ? row('🌱 سن البلوغ المتوقّع', fmtDate(addMonths(a.birth, pubertyOf(a.type))) + ' (' + pubertyOf(a.type) + ' شهر)') : ''}
       ${row('اللون', esc(a.color) || '—')}
       ${row('الحالة', arOf(STATUS, a.status))}
@@ -1821,6 +1837,23 @@ function renderInspect() {
     const pM = boughtAll.filter(a => a.sex === 'male').length, pF = boughtAll.filter(a => a.sex === 'female').length;
     const pens = {}; present.forEach(a => { const p = a.pen || '— بلا مراح'; pens[p] = (pens[p] || 0) + 1; });
     const penList = Object.entries(pens).sort((x, y) => y[1] - x[1]);
+    // توزيع الأعمار (في المراح، حسب الميلاد)
+    const withBirth = present.filter(a => a.birth);
+    const noBirth = present.length - withBirth.length;
+    const young = withBirth.filter(a => ageMonths(a.birth) < 6).length;
+    const sub = withBirth.filter(a => { const mo = ageMonths(a.birth); return mo >= 6 && mo < 12; }).length;
+    const adult = withBirth.filter(a => ageMonths(a.birth) >= 12).length;
+    // معدّل التوائم ومتوسط المواليد لكل أم
+    const groups = {}; A.forEach(a => { if (a.mother_id && a.birth) { const k = a.mother_id + '|' + a.birth; groups[k] = (groups[k] || 0) + 1; } });
+    const gv = Object.values(groups); const multiG = gv.filter(n => n >= 2).length;
+    const twinRate = gv.length ? Math.round((multiG / gv.length) * 100) : 0;
+    const dams = {}; A.forEach(a => { if (a.mother_id) dams[a.mother_id] = (dams[a.mother_id] || 0) + 1; });
+    const damCount = Object.keys(dams).length;
+    const avgOff = damCount ? (Object.values(dams).reduce((s, n) => s + n, 0) / damCount).toFixed(1) : '0';
+    // تحت التحريم الآن (بهائم لها علاج/تطعيم تحريمه سارٍ)
+    const underSet = new Set();
+    [...C.treatments, ...C.vaccinations].forEach(r => { if (r.withdrawal_end && daysUntil(r.withdrawal_end) >= 0) underSet.add(r.animal_id); });
+    const underNow = present.filter(a => underSet.has(a.id)).length;
     body.innerHTML = `
       <div class="stats">
         <div class="stat green"><div class="n">${present.length}</div><div class="l">في المراح</div></div>
@@ -1830,6 +1863,9 @@ function renderInspect() {
       <div class="card"><h3>حسب النوع</h3>${byType.length ? byType.map(x => row(x.ar, x.n)).join('') : noItem()}</div>
       <div class="card"><h3>👶 الإنتاج (مواليد) — في المراح</h3>${row('ذكور', bM)}${row('إناث', bF)}${row('المجموع', bM + bF)}</div>
       <div class="card"><h3>🛒 المشترى — في المراح</h3>${row('ذكور', pM)}${row('إناث', pF)}${row('المجموع', pM + pF)}</div>
+      <div class="card"><h3>🎂 توزيع الأعمار (في المراح)</h3>${row('صغار (أقل من ٦ أشهر)', young)}${row('من ٦ لـ ١٢ شهر', sub)}${row('بالغة (سنة فأكثر)', adult)}${noBirth ? row('بلا تاريخ ميلاد', noBirth) : ''}</div>
+      <div class="card"><h3>📈 مؤشّرات الإنتاج</h3>${row('معدّل التوائم', twinRate + '%')}${row('متوسط المواليد لكل أم', avgOff)}${row('عدد الأمهات المنتِجة', damCount)}</div>
+      <div class="card"><h3>⛔ تحت التحريم الآن</h3>${row('عدد البهائم', underNow)}</div>
       <div class="card"><h3>الحالة (الكل)</h3>${row('في المراح', present.length)}${row('مباعة', sold)}${row('نافقة', dead)}${row('الإجمالي', A.length)}</div>
       <div class="card"><h3>حسب المراح</h3>${penList.length ? penList.map(([p, n]) => row(p, n)).join('') : noItem()}</div>`;
     return;
