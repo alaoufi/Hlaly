@@ -1800,7 +1800,7 @@ function screenInspect() {
   if (!can('animals', 'view')) { view().innerHTML = noPerm(); return; }
   const tabs = [
     { k: 'stats', ar: '📊 إحصائيات' }, { k: 'index', ar: '🔢 فهرس' }, { k: 'dups', ar: '♻ تكرار الأرقام' },
-    { k: 'offspring', ar: '👶 الإنتاج' }, { k: 'twins', ar: '👯 التوائم' }, { k: 'gaps', ar: '⚠️ نواقص' },
+    { k: 'offspring', ar: '👶 الإنتاج' }, { k: 'lineage', ar: '👪 الأنساب' }, { k: 'twins', ar: '👯 التوائم' }, { k: 'gaps', ar: '⚠️ نواقص' },
   ];
   view().innerHTML = `<div class="chips">${tabs.map(t => `<span class="chip ${inspectTab === t.k ? 'active' : ''}" data-it="${t.k}">${t.ar}</span>`).join('')}</div><div id="inspBody"></div>`;
   view().querySelectorAll('[data-it]').forEach(c => c.addEventListener('click', () => { inspectTab = c.dataset.it; screenInspect(); }));
@@ -1852,6 +1852,21 @@ function renderInspect() {
     const moms = Object.entries(cnt).map(([id, n]) => ({ a: animalById(parseInt(id, 10)), n })).filter(x => x.a).sort((x, y) => y.n - x.n);
     body.innerHTML = `<div class="muted" style="margin:4px 0 8px">الأمهات حسب عدد المواليد المسجّلة (${moms.length} أم منتِجة)</div>`
       + (moms.length ? moms.map(({ a, n }) => `<div class="card click" data-aid="${a.id}"><div class="li-title">${display(a)} <span class="muted" style="font-weight:400">${internalNo(a)}</span></div><div class="li-sub">👶 ${n} مولود • ${arOf(TYPES, a.type)}${a.pen ? ' • ' + esc(a.pen) : ''}</div></div>`).join('') : noItem());
+    bindCards(body); return;
+  }
+  if (inspectTab === 'lineage') {
+    const cn = (a) => { const n = codeNumOf(a); return n == null ? 1e15 : n; };
+    const offBy = {}; A.forEach(a => { if (a.mother_id) (offBy[a.mother_id] = offBy[a.mother_id] || []).push(a); });
+    const mothers = Object.keys(offBy).map(id => animalById(parseInt(id, 10))).filter(Boolean).sort((a, b) => cn(a) - cn(b) || a.id - b.id);
+    const label = (a) => esc(a.code || ('#' + a.id));
+    const chip = (a, cls) => `<span class="lin-chip ${cls}" data-aid="${a.id}">${label(a)}</span>`;
+    const legend = `<div style="display:flex;gap:8px;flex-wrap:wrap;margin:4px 0 10px;align-items:center"><span class="muted" style="font-size:.8rem">الألوان:</span><span class="lin-chip mother">أم</span><span class="lin-chip female">أنثى</span><span class="lin-chip male">ذكر</span></div>`;
+    body.innerHTML = legend + (mothers.length ? mothers.map(m => {
+      const offs = offBy[m.id].slice().sort((a, b) => cn(a) - cn(b) || a.id - b.id);
+      return `<div class="card" style="padding:10px;display:flex;flex-wrap:wrap;gap:6px;align-items:center">
+        ${chip(m, 'mother')}<span style="color:var(--muted);font-weight:700">←</span>${offs.map(o => chip(o, o.sex === 'male' ? 'male' : 'female')).join('')}
+        <span class="muted" style="margin-inline-start:auto;font-size:.78rem">${offs.length} مولود</span></div>`;
+    }).join('') : '<div class="center-empty">لا توجد أمهات مرتبطة بمواليد بعد.</div>');
     bindCards(body); return;
   }
   if (inspectTab === 'twins') {
