@@ -41,6 +41,7 @@
     try { return nacl.sign.detached.verify(msg, sig, b64ToBytes(PUB_B64)) ? dur : null; } catch (e) { return null; }
   }
   function writeRecord(dur) { var now = Date.now(); lss('mrahi_lic', JSON.stringify({ d: dur, a: now, s: now })); }
+  function deactivate() { try { localStorage.removeItem('mrahi_lic'); } catch (e) {} }   // يُعيد القفل (لا يحذف البيانات)
   function readRecord() { try { return JSON.parse(ls('mrahi_lic') || 'null'); } catch (e) { return null; } }
   function tryActivate(code) { var dur = verify(code); if (dur === null) return { ok: false }; writeRecord(dur); return { ok: true, dur: dur }; }
   function disabled() { return !PUB_B64 || PUB_B64.indexOf('REPLACE_') === 0; }
@@ -64,5 +65,5 @@
     try { var kp = nacl.sign.keyPair.fromSeed(seed); if (bytesToB64(kp.publicKey) === PUB_B64) { writeRecord(0); return true; } } catch (e) {}
     return false;
   }
-  window.MrahiLicense = { deviceId: deviceId, deviceIdPretty: deviceIdPretty, state: state, tryActivate: tryActivate, recoverWithSeed: recoverWithSeed };
+  window.MrahiLicense = { deviceId: deviceId, deviceIdPretty: deviceIdPretty, state: state, tryActivate: tryActivate, recoverWithSeed: recoverWithSeed, deactivate: deactivate };
 })();
