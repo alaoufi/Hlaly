@@ -36,6 +36,16 @@ function ageText(birth) { const m = ageMonths(birth); if (m == null) return null
 const vtWithdrawDays = (t) => Math.max(t.milk_withdrawal_days || 0, t.meat_withdrawal_days || 0, t.withdrawal_days || 0);
 const fmtDate = (d) => d ? String(d).slice(0, 10).replace(/-/g, '/') : '—';
 function toast(m) { const t = document.createElement('div'); t.className = 'toast'; t.textContent = m; document.body.appendChild(t); setTimeout(() => t.remove(), 2800); }
+// نسخ متين للنصّ يعمل في WebView (Clipboard API ثم بديل execCommand). يعيد true عند النجاح.
+async function copyText(text) {
+  try { if (navigator.clipboard && window.isSecureContext) { await navigator.clipboard.writeText(text); return true; } } catch (e) { /* تجاهل */ }
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text; ta.setAttribute('readonly', ''); ta.style.position = 'fixed'; ta.style.top = '0'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.focus(); ta.select(); try { ta.setSelectionRange(0, text.length); } catch (e) {}
+    const ok = document.execCommand('copy'); document.body.removeChild(ta); return ok;
+  } catch (e) { return false; }
+}
 const val = (id) => (document.getElementById(id) || {}).value || '';
 const num = (id) => parseInt(val(id), 10) || 0;
 
@@ -2850,7 +2860,7 @@ function renderLicenseGate() {
     <div class="logo">🔐</div><h2>تفعيل مراح</h2>
     <p class="sub">أرسل «رقم الجهاز» للمالك ليصلك رمز التفعيل، ثم الصقه هنا.</p>
     <div class="field"><label>رقم الجهاز</label>
-      <div id="lic_dev" style="font-size:1.35rem;font-weight:800;letter-spacing:2px;text-align:center;background:#f4f6f4;border:1px solid #d8d8d8;border-radius:12px;padding:14px;direction:ltr">${lic.deviceIdPretty()}</div>
+      <div id="lic_dev" style="font-size:1.35rem;font-weight:800;letter-spacing:2px;text-align:center;background:#f4f6f4;border:1px solid #d8d8d8;border-radius:12px;padding:14px;direction:ltr;-webkit-user-select:text;user-select:text">${lic.deviceIdPretty()}</div>
       <button class="btn outline" id="lic_copy" style="width:100%;margin-top:8px">📋 نسخ رقم الجهاز</button></div>
     ${expiredMsg}
     <div class="field"><label>رمز التفعيل</label><textarea id="lic_key" rows="3" placeholder="الصق رمز التفعيل هنا" style="width:100%"></textarea></div>
@@ -2858,7 +2868,7 @@ function renderLicenseGate() {
     <div class="auth-msg" id="lic_msg"></div>
     <div class="muted" style="margin-top:14px;font-size:.8rem;text-align:center;cursor:pointer" id="lic_owner">أنا المالك</div>
   </div>`;
-  document.getElementById('lic_copy').addEventListener('click', () => { try { navigator.clipboard.writeText(lic.deviceId()); } catch (e) {} toast('نُسخ رقم الجهاز'); });
+  document.getElementById('lic_copy').addEventListener('click', async () => { const ok = await copyText(lic.deviceId()); toast(ok ? 'نُسخ رقم الجهاز ✅' : 'تعذّر النسخ — اضغط مطوّلاً على الرقم لتحديده ونسخه يدوياً'); });
   document.getElementById('lic_go').addEventListener('click', () => {
     const msg = document.getElementById('lic_msg'); msg.className = 'auth-msg';
     const r = lic.tryActivate(document.getElementById('lic_key').value);
