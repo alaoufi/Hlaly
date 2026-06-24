@@ -1375,9 +1375,11 @@ function screenMore() {
     : '';
 
   const ver = window.MRAH_VERSION ? ` • نسخة ${window.MRAH_VERSION}` : '';
+  let licLine = '';
+  if (window.MRAH_APK && window.MrahiLicense) { const s = window.MrahiLicense.state(); if (s.state === 'active') licLine = `<div>🔐 الترخيص: ${s.permanent ? 'دائم' : 'متبقّ ' + s.daysLeft + ' يوم'}</div>`; }
   const footer = `<div class="muted" style="text-align:center;margin-top:18px;font-size:.85rem">
     <div style="font-weight:700;color:var(--green)">✨ التسهيل · الحفظ · التخطيط</div>
-    ${window.MRAH_LOCAL ? 'مراح — تطبيق محلّي • بياناتك على جهازك' : 'مراح — مزرعة مشتركة'}${ver}</div>`;
+    ${window.MRAH_LOCAL ? 'مراح — تطبيق محلّي • بياناتك على جهازك' : 'مراح — مزرعة مشتركة'}${ver}${licLine}</div>`;
 
   view().innerHTML = topUpdate + cats.map(c => {
     const open = moreOpen.has(c.key);
@@ -2836,6 +2838,38 @@ async function switchBackend() {
   location.reload();
 }
 
+// ===== بوابة التفعيل (ترخيص مربوط بالجهاز) =====
+function renderLicenseGate() {
+  showLoading(false);
+  document.getElementById('app').classList.add('hidden');
+  const box = document.getElementById('auth'); box.classList.remove('hidden');
+  const lic = window.MrahiLicense;
+  const st = lic.state();
+  const expiredMsg = st.state === 'expired' ? '<div class="auth-msg err">انتهت صلاحية الترخيص — أدخل رمزاً جديداً.</div>' : '';
+  box.innerHTML = `<div class="auth-box">
+    <div class="logo">🔐</div><h2>تفعيل مراح</h2>
+    <p class="sub">أرسل «رقم الجهاز» للمالك ليصلك رمز التفعيل، ثم الصقه هنا.</p>
+    <div class="field"><label>رقم الجهاز</label>
+      <div style="display:flex;gap:6px"><input id="lic_dev" value="${lic.deviceIdPretty()}" readonly style="flex:1"><button class="btn outline" id="lic_copy" style="white-space:nowrap">نسخ</button></div></div>
+    ${expiredMsg}
+    <div class="field"><label>رمز التفعيل</label><textarea id="lic_key" rows="3" placeholder="الصق رمز التفعيل هنا" style="width:100%"></textarea></div>
+    <button class="btn" id="lic_go">تفعيل</button>
+    <div class="auth-msg" id="lic_msg"></div>
+    <div class="muted" style="margin-top:14px;font-size:.8rem;text-align:center;cursor:pointer" id="lic_owner">أنا المالك</div>
+  </div>`;
+  document.getElementById('lic_copy').addEventListener('click', () => { try { navigator.clipboard.writeText(lic.deviceId()); } catch (e) {} toast('نُسخ رقم الجهاز'); });
+  document.getElementById('lic_go').addEventListener('click', () => {
+    const msg = document.getElementById('lic_msg'); msg.className = 'auth-msg';
+    const r = lic.tryActivate(document.getElementById('lic_key').value);
+    if (r.ok) { msg.classList.add('ok'); msg.textContent = r.dur === 0 ? 'تم التفعيل ✅ (ترخيص دائم)' : `تم التفعيل ✅ (${r.dur} يوم)`; setTimeout(() => location.reload(), 800); }
+    else { msg.classList.add('err'); msg.textContent = 'رمز غير صالح لهذا الجهاز.'; }
+  });
+  document.getElementById('lic_owner').addEventListener('click', () => {
+    const s = prompt('بذرة المالك (64 hex):'); if (!s) return;
+    if (lic.recoverWithSeed(s)) { toast('تم تفعيل المالك (دائم)'); setTimeout(() => location.reload(), 800); } else toast('بذرة غير مطابقة');
+  });
+}
+
 async function init() {
   document.getElementById('backBtn').addEventListener('click', goBack);
   document.getElementById('guideBtn').addEventListener('click', () => setHash('#/guide'));
@@ -2845,8 +2879,9 @@ async function init() {
   window.addEventListener('mrahi-update-available', onUpdSignal);
   window.addEventListener('mrahi-update-applied', onUpdSignal);
 
-  // تطبيق الأندرويد (APK): يختار المستخدم بين محلي ومشترك (يُحفظ الاختيار)
+  // تطبيق الأندرويد (APK): بوابة التفعيل أولاً (ترخيص مربوط بالجهاز)
   if (window.MRAH_APK) {
+    if (window.MrahiLicense) { const s = window.MrahiLicense.state().state; if (s !== 'active' && s !== 'disabled') { renderLicenseGate(); return; } }
     const choice = BK.get();
     if (choice === 'local') { startLocalMode(); return; }
     if (choice === 'cloud') {
