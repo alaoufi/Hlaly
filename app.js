@@ -1811,13 +1811,14 @@ function adminAddUser() {
 /* ===== تفقد الحلال وإحصائيات ===== */
 let inspectTab = 'stats';
 let lineageMode = 'flat';   // عرض الأنساب: قائمة (الأم ← مواليدها) أو شجرة متعدّدة الأجيال
+let afSex = 'male', afSrc = 'born', afCmp = 'gt', afMonths = 3;   // كشف بالعمر (الجنس/المصدر/المقارنة/الأشهر)
 const codeNumOf = (a) => { const m = String(a.code || '').match(/(\d+)/); return m ? parseInt(m[1], 10) : null; };
 const aMini = (a) => `<div class="card click" data-aid="${a.id}" style="margin:6px 0"><div class="li-title">${display(a)} <span class="muted" style="font-weight:400">${internalNo(a)}</span></div><div class="li-sub">${arOf(TYPES, a.type)} • ${arOf(SEX, a.sex)}${a.pen ? ' • ' + esc(a.pen) : ''}${a.status !== 'present' ? ' • ' + arOf(STATUS, a.status) : ''}</div></div>`;
 function screenInspect() {
   if (!can('animals', 'view')) { view().innerHTML = noPerm(); return; }
   const tabs = [
     { k: 'stats', ar: '📊 إحصائيات' }, { k: 'index', ar: '🔢 فهرس' }, { k: 'dups', ar: '♻ تكرار الأرقام' },
-    { k: 'offspring', ar: '👶 الإنتاج' }, { k: 'lineage', ar: '👪 الأنساب' }, { k: 'twins', ar: '👯 التوائم' }, { k: 'gaps', ar: '⚠️ نواقص' },
+    { k: 'offspring', ar: '👶 الإنتاج' }, { k: 'agefilter', ar: '🔎 كشف بالعمر' }, { k: 'lineage', ar: '👪 الأنساب' }, { k: 'twins', ar: '👯 التوائم' }, { k: 'gaps', ar: '⚠️ نواقص' },
   ];
   view().innerHTML = `<div class="chips">${tabs.map(t => `<span class="chip ${inspectTab === t.k ? 'active' : ''}" data-it="${t.k}">${t.ar}</span>`).join('')}</div><div id="inspBody"></div>`;
   view().querySelectorAll('[data-it]').forEach(c => c.addEventListener('click', () => { inspectTab = c.dataset.it; screenInspect(); }));
@@ -1890,6 +1891,34 @@ function renderInspect() {
     body.innerHTML = `<div class="muted" style="margin:4px 0 8px">الأمهات حسب عدد المواليد المسجّلة (${moms.length} أم منتِجة)</div>`
       + (moms.length ? moms.map(({ a, n }) => `<div class="card click" data-aid="${a.id}"><div class="li-title">${display(a)} <span class="muted" style="font-weight:400">${internalNo(a)}</span></div><div class="li-sub">👶 ${n} مولود • ${arOf(TYPES, a.type)}${a.pen ? ' • ' + esc(a.pen) : ''}</div></div>`).join('') : noItem());
     bindCards(body); return;
+  }
+  if (inspectTab === 'agefilter') {
+    const sexChips = `<div class="chips"><span class="chip ${afSex === 'all' ? 'active' : ''}" data-afs="all">الكل</span><span class="chip ${afSex === 'male' ? 'active' : ''}" data-afs="male">♂ ذكور</span><span class="chip ${afSex === 'female' ? 'active' : ''}" data-afs="female">♀ إناث</span></div>`;
+    const srcChips = `<div class="chips"><span class="chip ${afSrc === 'all' ? 'active' : ''}" data-afsrc="all">كل المصادر</span><span class="chip ${afSrc === 'born' ? 'active' : ''}" data-afsrc="born">👶 مواليد</span><span class="chip ${afSrc === 'purchased' ? 'active' : ''}" data-afsrc="purchased">🛒 مشترى</span></div>`;
+    const cmpChips = `<div class="chips" style="margin:0"><span class="chip ${afCmp === 'gt' ? 'active' : ''}" data-afc="gt">أكبر من</span><span class="chip ${afCmp === 'lt' ? 'active' : ''}" data-afc="lt">أصغر من</span></div>`;
+    body.innerHTML = `<div class="card">
+        <div class="muted" style="font-size:.82rem">الجنس:</div>${sexChips}
+        <div class="muted" style="font-size:.82rem;margin-top:4px">المصدر:</div>${srcChips}
+        <div class="muted" style="font-size:.82rem;margin-top:4px">العمر:</div>
+        <div style="display:flex;gap:8px;align-items:center;margin-top:4px">${cmpChips}<input id="af_m" type="number" inputmode="numeric" min="0" value="${afMonths}" style="width:66px;padding:8px;border:1px solid #ddd;border-radius:8px;text-align:center"><span class="muted">شهر</span></div>
+      </div><div id="af_result"></div>`;
+    const compute = () => {
+      afMonths = parseInt(document.getElementById('af_m').value, 10) || 0;
+      let arr = present.filter(a => a.birth);
+      if (afSex !== 'all') arr = arr.filter(a => a.sex === afSex);
+      if (afSrc !== 'all') arr = arr.filter(a => (a.source || 'purchased') === afSrc);
+      arr = arr.filter(a => { const mo = ageMonths(a.birth); return afCmp === 'gt' ? mo > afMonths : mo < afMonths; }).sort((a, b) => ageMonths(b.birth) - ageMonths(a.birth));
+      const noB = present.filter(a => !a.birth && (afSex === 'all' || a.sex === afSex) && (afSrc === 'all' || (a.source || 'purchased') === afSrc)).length;
+      const res = document.getElementById('af_result');
+      res.innerHTML = `<div class="card hl"><div class="li-title">النتيجة: ${arr.length} رأس</div><div class="li-sub">${afSex === 'male' ? 'ذكور' : afSex === 'female' ? 'إناث' : 'الكل'} • ${afSrc === 'born' ? 'مواليد' : afSrc === 'purchased' ? 'مشترى' : 'كل المصادر'} • ${afCmp === 'gt' ? 'أكبر من' : 'أصغر من'} ${afMonths} شهر${noB ? ` • (${noB} بلا ميلاد غير محسوبة)` : ''}</div></div>`
+        + (arr.length ? arr.map(a => `<div class="card click" data-aid="${a.id}"><div class="li-title">${display(a)} <span class="muted" style="font-weight:400">🎂 ${ageText(a.birth)}</span></div><div class="li-sub">${arOf(TYPES, a.type)} • ${arOf(SEX, a.sex)}${a.pen ? ' • ' + esc(a.pen) : ''}</div></div>`).join('') : noItem());
+      bindCards(res);
+    };
+    body.querySelectorAll('[data-afs]').forEach(c => c.addEventListener('click', () => { afSex = c.dataset.afs; body.querySelectorAll('[data-afs]').forEach(x => x.classList.toggle('active', x.dataset.afs === afSex)); compute(); }));
+    body.querySelectorAll('[data-afsrc]').forEach(c => c.addEventListener('click', () => { afSrc = c.dataset.afsrc; body.querySelectorAll('[data-afsrc]').forEach(x => x.classList.toggle('active', x.dataset.afsrc === afSrc)); compute(); }));
+    body.querySelectorAll('[data-afc]').forEach(c => c.addEventListener('click', () => { afCmp = c.dataset.afc; body.querySelectorAll('[data-afc]').forEach(x => x.classList.toggle('active', x.dataset.afc === afCmp)); compute(); }));
+    document.getElementById('af_m').addEventListener('input', compute);
+    compute(); return;
   }
   if (inspectTab === 'lineage') {
     const cn = (a) => { const n = codeNumOf(a); return n == null ? 1e15 : n; };
