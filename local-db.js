@@ -8,7 +8,7 @@
   // (محلي أو مشترك). هذا الملف يكتفي بإتاحة عميل محلي عبر createMrahLocalClient.
 
   const DB_NAME = 'mrahi_local';
-  const DB_VERSION = 2;   // 2: إضافة متجر mrahi_expenses (المصروفات)
+  const DB_VERSION = 3;   // 2: متجر mrahi_expenses (المصروفات). 3: ضمان إنشاء أي متجر ناقص (إصلاح ذاتي)
 
   // الجداول المخزّنة محلياً. الإعدادات والعدّادات مفتاحها نصّي 'key'، والبقية رقم تلقائي 'id'.
   const KEY_STORES = { mrahi_settings: 'key', mrahi_counters: 'key' };
@@ -21,11 +21,14 @@
     'mrahi_forum_bans', 'mrahi_forum_topics', 'mrahi_forum_posts', 'mrahi_forum_likes',
   ];
 
-  let _dbPromise = null;
-  function openDB() {
-    if (_dbPromise) return _dbPromise;
-    _dbPromise = new Promise((resolve, reject) => {
-      const req = indexedDB.open(DB_NAME, DB_VERSION);
+  // كل المتاجر المطلوبة (للتحقّق من اكتمالها وإصلاح أي نقص ذاتياً)
+  function neededStores() { return ID_STORES.concat(Object.keys(KEY_STORES)); }
+  function missingStores(db) { return neededStores().filter(n => !db.objectStoreNames.contains(n)); }
+
+  // فتح قاعدة البيانات بنسخة محدّدة مع إنشاء أي متجر ناقص أثناء الترقية
+  function openAt(version) {
+    return new Promise((resolve, reject) => {
+      const req = version ? indexedDB.open(DB_NAME, version) : indexedDB.open(DB_NAME);
       req.onupgradeneeded = () => {
         const db = req.result;
         ID_STORES.forEach(name => {
@@ -37,6 +40,19 @@
       };
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
+      req.onblocked = () => { /* تثبيت آخر يفتح القاعدة — يُحلّ تلقائياً عند إغلاقه */ };
+    });
+  }
+
+  let _dbPromise = null;
+  function openDB() {
+    if (_dbPromise) return _dbPromise;
+    // إصلاح ذاتي: إن نقص أي متجر (مثلاً mrahi_expenses في قاعدة قديمة)، أعِد الفتح برقم نسخة أعلى لإنشائه.
+    _dbPromise = openAt(DB_VERSION).then(db => {
+      if (missingStores(db).length === 0) return db;
+      const next = db.version + 1;
+      db.close();
+      return openAt(next);
     });
     return _dbPromise;
   }
