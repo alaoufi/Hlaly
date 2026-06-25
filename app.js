@@ -2021,16 +2021,17 @@ function catsFor(kind) { const def = kind === 'income' ? INC_CATS : EXP_CATS; co
 function finCatAr(k) { const f = EXP_CATS.concat(INC_CATS).find(c => c.k === k); if (f) return f.ar; if (String(k).indexOf('c_') === 0) return String(k).slice(2); return k; }
 const money = (n) => (Math.round((+n || 0) * 100) / 100).toLocaleString('ar-EG');
 let financePeriod = 'month';
-function curMonthIdx() { const x = new Date(todayStr() + 'T00:00:00'); return x.getFullYear() * 12 + x.getMonth(); }
-function monthIdxOf(d) { d = asciiDigits(d).slice(0, 10); if (!d) return null; const x = new Date(d + 'T00:00:00'); return isNaN(x) ? null : x.getFullYear() * 12 + x.getMonth(); }
+// تفكيك تاريخ نصّي «YYYY-MM-DD» مباشرةً (دون كائن Date) — مناعة تامّة من فروق التوقيت
+function ymd(date) { const m = /(\d{4})-(\d{2})-(\d{2})/.exec(asciiDigits(date)); return m ? { y: +m[1], mo: +m[2], d: +m[3] } : null; }
+function curMonthIdx() { const p = ymd(todayStr()); return p ? p.y * 12 + (p.mo - 1) : 0; }
+function monthIdxOf(d) { const p = ymd(d); return p ? p.y * 12 + (p.mo - 1) : null; }
 function inPeriod(date, period) {
-  date = asciiDigits(date).slice(0, 10);
-  if (!date) return false;
+  const p = ymd(date);
+  if (!p) return false;
   if (period === 'all') return true;
-  const now = new Date(todayStr() + 'T00:00:00'), d = new Date(date + 'T00:00:00');
-  if (isNaN(d)) return false;
-  if (period === 'year') return d.getFullYear() === now.getFullYear();
-  return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();   // month
+  const t = ymd(todayStr());
+  if (period === 'year') return p.y === t.y;
+  return p.y === t.y && p.mo === t.mo;   // month — مقارنة نصّية للسنة والشهر
 }
 // عدد الأشهر التي يُحتسب فيها مصروف شهري متكرّر بدأ من startDate ضمن الفترة
 function recurMonths(startDate, period) {
