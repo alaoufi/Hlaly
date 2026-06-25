@@ -339,6 +339,7 @@ const ROUTES = {
   types: { t: 'أنواع الحلال', back: true, fn: screenTypes },
   inspect: { t: 'تفقد الحلال', back: true, fn: screenInspect },
   finance: { t: 'المصروفات والميزانية', back: true, fn: screenFinance },
+  fincats: { t: 'أنواع البنود', back: true, fn: screenFinCats },
   trash: { t: 'سلة المحذوفات', back: true, fn: screenTrash },
   tips: { t: 'النصائح والمعلومات', back: true, fn: screenTips },
   guide: { t: 'دليل الاستخدام', back: true, fn: screenGuide },
@@ -1992,7 +1993,14 @@ const EXP_CATS = [
   { k: 'salary', ar: '👷 رواتب العمال' }, { k: 'hay', ar: '🌾 أعلاف حشائش' }, { k: 'grain', ar: '🌽 أعلاف حبوب' },
   { k: 'treatment', ar: '💊 علاجات' }, { k: 'prevention', ar: '🛡️ وقاية' }, { k: 'lump', ar: '🧾 مصروفات مقطوعة' }, { k: 'other', ar: '➕ أخرى' },
 ];
-const expCatAr = (k) => (EXP_CATS.find(c => c.k === k) || {}).ar || k;
+const INC_CATS = [
+  { k: 'sale_big', ar: '🐑 بيع كبار' }, { k: 'sale_male', ar: '♂ بيع ذكور' }, { k: 'milk', ar: '🥛 حليب/ألبان' }, { k: 'wool', ar: '🧶 صوف/جزّ' }, { k: 'other_in', ar: '➕ إيراد آخر' },
+];
+// أنواع مخصّصة يضيفها المستخدم من الإعدادات (تُخزَّن محلياً)
+function loadFinCats() { try { return JSON.parse(localStorage.getItem('mrahi_fin_cats') || '[]'); } catch (e) { return []; } }
+function saveFinCats(a) { try { localStorage.setItem('mrahi_fin_cats', JSON.stringify(a)); } catch (e) {} }
+function catsFor(kind) { const def = kind === 'income' ? INC_CATS : EXP_CATS; const cu = loadFinCats().filter(c => c.kind === kind).map(c => ({ k: 'c_' + c.name, ar: c.name })); return def.concat(cu); }
+function finCatAr(k) { const f = EXP_CATS.concat(INC_CATS).find(c => c.k === k); if (f) return f.ar; if (String(k).indexOf('c_') === 0) return String(k).slice(2); return k; }
 const money = (n) => (Math.round((+n || 0) * 100) / 100).toLocaleString('ar-EG');
 let financePeriod = 'month';
 function curMonthIdx() { const x = new Date(todayStr() + 'T00:00:00'); return x.getFullYear() * 12 + x.getMonth(); }
@@ -2017,58 +2025,81 @@ function screenFinance() {
   if (!can('animals', 'view')) { view().innerHTML = noPerm(); return; }
   const P = financePeriod;
   const periodAr = P === 'month' ? 'هذا الشهر' : P === 'year' ? 'هذه السنة' : 'الإجمالي';
-  // الإيرادات: مبيعات الحلال
+  const entries = C.expenses || [];
+  const counted = (e) => e.recurring === 'monthly' ? recurMonths(e.date, P) : (inPeriod(e.date, P) ? 1 : 0);
+  // إيرادات تلقائية: بيع الحلال من السجل
   const sales = C.animals.filter(a => a.status === 'sold' && a.sale_price != null && inPeriod(a.sale_date, P));
-  const revenue = sales.reduce((s, a) => s + (+a.sale_price || 0), 0);
-  // المصروفات: مشتريات الحلال (تلقائي) + المصروفات المُدخلة
-  const buys = C.animals.filter(a => a.buy_price != null && inPeriod(a.buy_date, P));
-  const buyCost = buys.reduce((s, a) => s + (+a.buy_price || 0), 0);
-  const byCat = {};
-  EXP_CATS.forEach(c => byCat[c.k] = 0);
-  (C.expenses || []).forEach(e => {
-    const amt = +e.amount || 0;
-    const count = e.recurring === 'monthly' ? recurMonths(e.date, P) : (inPeriod(e.date, P) ? 1 : 0);
-    if (count) byCat[e.category] = (byCat[e.category] || 0) + amt * count;
-  });
-  const expTotal = Object.values(byCat).reduce((s, n) => s + n, 0) + buyCost;
-  const net = revenue - expTotal;
+  const revAuto = sales.reduce((s, a) => s + (+a.sale_price || 0), 0);
+  // تكلفة تلقائية: شراء الحلال
+  const buyCost = C.animals.filter(a => a.buy_price != null && inPeriod(a.buy_date, P)).reduce((s, a) => s + (+a.buy_price || 0), 0);
+  // حركات مُدخلة (إيراد/مصروف)
+  const incBy = {}, expBy = {};
+  entries.forEach(e => { const c = counted(e); if (!c) return; const t = (+e.amount || 0) * c; if (e.kind === 'income') incBy[e.category] = (incBy[e.category] || 0) + t; else expBy[e.category] = (expBy[e.category] || 0) + t; });
+  const revManual = Object.values(incBy).reduce((s, n) => s + n, 0);
+  const expManual = Object.values(expBy).reduce((s, n) => s + n, 0);
+  const revenue = revAuto + revManual, expTotal = expManual + buyCost, net = revenue - expTotal;
   const chips = `<div class="chips">${[['month', 'هذا الشهر'], ['year', 'هذه السنة'], ['all', 'الإجمالي']].map(([k, ar]) => `<span class="chip ${P === k ? 'active' : ''}" data-fp="${k}">${ar}</span>`).join('')}</div>`;
-  const catRows = EXP_CATS.filter(c => byCat[c.k] > 0).map(c => row(c.ar, money(byCat[c.k]) + ' ريال')).join('') + (buyCost > 0 ? row('🛒 مشتريات حلال', money(buyCost) + ' ريال') : '');
-  const recent = (C.expenses || []).slice().sort((a, b) => (b.date || '').localeCompare(a.date || '') || (b.id - a.id)).slice(0, 40);
+  const incRows = (revAuto > 0 ? row('🐑 بيع حلال (من السجل)', money(revAuto) + ' ريال') : '') + Object.keys(incBy).filter(k => incBy[k] > 0).map(k => row(finCatAr(k), money(incBy[k]) + ' ريال')).join('');
+  const expRows = Object.keys(expBy).filter(k => expBy[k] > 0).map(k => row(finCatAr(k), money(expBy[k]) + ' ريال')).join('') + (buyCost > 0 ? row('🛒 مشتريات حلال (من السجل)', money(buyCost) + ' ريال') : '');
+  const incomeEntries = entries.filter(e => e.kind === 'income' && counted(e));
+  const expenseEntries = entries.filter(e => e.kind !== 'income' && counted(e));
+  const entryCard = (title, arr) => `<div class="card"><h3>${title} (${arr.length})</h3>${arr.length ? arr.slice().sort((a, b) => (b.date || '').localeCompare(a.date || '')).map(e => `<div class="card click" data-exp="${e.id}" style="margin:6px 0"><div class="li-title">${finCatAr(e.category)} — ${money(e.amount)} ريال${e.recurring === 'monthly' ? ' /شهرياً' : ''}</div><div class="li-sub">${fmtDate(e.date)}${e.note ? ' • ' + esc(e.note) : ''}</div></div>`).join('') : noItem()}</div>`;
   view().innerHTML = chips
-    + `<div class="stats" style="grid-template-columns:1fr 1fr 1fr">
-        <div class="stat green"><div class="n" style="font-size:1.2rem">${money(revenue)}</div><div class="l">💵 مبيعات</div></div>
-        <div class="stat red"><div class="n" style="font-size:1.2rem">${money(expTotal)}</div><div class="l">💸 مصروفات</div></div>
-        <div class="stat ${net >= 0 ? 'green' : 'red'}"><div class="n" style="font-size:1.2rem">${money(net)}</div><div class="l">${net >= 0 ? '📈 صافي ربح' : '📉 صافي خسارة'}</div></div>
+    + `<div style="display:flex;justify-content:space-between;align-items:center;margin:2px 0 8px"><span class="muted" style="font-size:.82rem">الفترة: ${periodAr} • بالريال</span>${can('animals', 'edit') ? '<button class="btn sm outline" id="fin_cats">⚙️ أنواع البنود</button>' : ''}</div>
+      <div class="stats" style="grid-template-columns:1fr 1fr 1fr">
+        <div class="stat green"><div class="n" style="font-size:1.15rem">${money(revenue)}</div><div class="l">💵 إيرادات</div></div>
+        <div class="stat red"><div class="n" style="font-size:1.15rem">${money(expTotal)}</div><div class="l">💸 مصروفات</div></div>
+        <div class="stat ${net >= 0 ? 'green' : 'red'}"><div class="n" style="font-size:1.15rem">${money(net)}</div><div class="l">${net >= 0 ? '📈 صافي ربح' : '📉 صافي خسارة'}</div></div>
       </div>
-      <div class="muted" style="margin:2px 0 8px;font-size:.82rem">الفترة: ${periodAr} • بالريال</div>
-      <div class="card"><h3>تفصيل المصروفات</h3>${catRows || noItem()}${row('— الإجمالي —', money(expTotal) + ' ريال')}</div>
-      <div class="card"><h3>المبيعات (${sales.length})</h3>${sales.length ? sales.map(a => row(display(a), money(a.sale_price) + ' ريال • ' + fmtDate(a.sale_date))).join('') : noItem()}${row('— إجمالي المبيعات —', money(revenue) + ' ريال')}</div>
-      <div class="card"><h3>آخر المصروفات المُدخلة</h3>
-        ${recent.length ? recent.map(e => `<div class="card click" data-exp="${e.id}" style="margin:6px 0"><div class="li-title">${expCatAr(e.category)} — ${money(e.amount)} ريال${e.recurring === 'monthly' ? ' /شهرياً' : ''}</div><div class="li-sub">${fmtDate(e.date)}${e.note ? ' • ' + esc(e.note) : ''}</div></div>`).join('') : noItem()}</div>`;
+      <div class="card"><h3>📊 الموازنة (${periodAr})</h3>
+        <div class="li-title" style="color:var(--green)">➕ الإيرادات</div>${incRows || noItem()}${row('إجمالي الإيرادات', money(revenue) + ' ريال')}
+        <div class="li-title" style="color:#c62828;margin-top:8px">➖ المصروفات</div>${expRows || noItem()}${row('إجمالي المصروفات', money(expTotal) + ' ريال')}
+        <div style="border-top:2px solid #eee;margin-top:8px;padding-top:6px">${row(net >= 0 ? '✅ صافي الربح' : '⚠️ صافي الخسارة', money(net) + ' ريال')}</div></div>
+      <div class="card"><h3>🐑 كشف مبيعات الحلال (${sales.length})</h3>${sales.length ? sales.slice().sort((a, b) => (b.sale_date || '').localeCompare(a.sale_date || '')).map(a => `<div class="card click" data-aid="${a.id}" style="margin:6px 0"><div class="li-title">${display(a)} — ${money(a.sale_price)} ريال</div><div class="li-sub">${fmtDate(a.sale_date)} • ${arOf(SEX, a.sex)}</div></div>`).join('') : noItem()}</div>
+      ${entryCard('💵 كشف الإيرادات المُدخلة', incomeEntries)}
+      ${entryCard('💸 كشف المصروفات', expenseEntries)}`;
   view().querySelectorAll('[data-fp]').forEach(c => c.addEventListener('click', () => { financePeriod = c.dataset.fp; screenFinance(); }));
-  view().querySelectorAll('[data-exp]').forEach(c => c.addEventListener('click', () => expenseModal((C.expenses || []).find(x => String(x.id) === c.dataset.exp))));
-  if (can('animals', 'edit')) addFab('+ مصروف', () => expenseModal(null));
+  view().querySelectorAll('[data-exp]').forEach(c => c.addEventListener('click', () => financeEntryModal(entries.find(x => String(x.id) === c.dataset.exp))));
+  bindCards(view());
+  { const fc = document.getElementById('fin_cats'); if (fc) fc.addEventListener('click', () => setHash('#/fincats')); }
+  if (can('animals', 'edit')) addFab('+ مصروف / إيراد', () => financeEntryModal(null));
 }
-function expenseModal(e) {
-  openModal(e ? 'تعديل مصروف' : 'إضافة مصروف', `
-    ${fSelect('البند', 'ex_cat', EXP_CATS, e ? e.category : 'hay')}
+function financeEntryModal(e) {
+  let kind = e ? (e.kind === 'income' ? 'income' : 'expense') : 'expense';
+  openModal(e ? 'تعديل حركة' : 'إضافة حركة مالية', `
+    <div class="chips"><span class="chip ${kind === 'expense' ? 'active' : ''}" data-kind="expense">💸 مصروف</span><span class="chip ${kind === 'income' ? 'active' : ''}" data-kind="income">💵 إيراد</span></div>
+    <div id="ex_catwrap">${fSelect('البند', 'ex_cat', catsFor(kind), e ? e.category : catsFor(kind)[0].k)}</div>
     ${fInput('المبلغ (ريال)', 'ex_amt', e ? e.amount : '', 'number', 'min="0" step="any" inputmode="decimal"')}
     ${fInput('التاريخ', 'ex_date', e ? e.date : todayStr(), 'date')}
     ${fInput('ملاحظة (اختياري)', 'ex_note', e && e.note)}
-    <div class="check"><input type="checkbox" id="ex_rec" ${e && e.recurring === 'monthly' ? 'checked' : ''}><label for="ex_rec" style="margin:0">متكرّر شهرياً (مثل الرواتب) — يُحتسب كل شهر من تاريخه</label></div>
+    <div class="check"><input type="checkbox" id="ex_rec" ${e && e.recurring === 'monthly' ? 'checked' : ''}><label for="ex_rec" style="margin:0">متكرّر شهرياً (يُحتسب كل شهر من تاريخه)</label></div>
     <button class="btn" id="ex_save" style="margin-top:6px">حفظ</button>
     ${e ? '<button class="btn danger" id="ex_del" style="margin-top:6px">حذف</button>' : ''}`, () => {
+    document.querySelectorAll('[data-kind]').forEach(c => c.addEventListener('click', () => { kind = c.dataset.kind; document.querySelectorAll('[data-kind]').forEach(x => x.classList.toggle('active', x.dataset.kind === kind)); document.getElementById('ex_catwrap').innerHTML = fSelect('البند', 'ex_cat', catsFor(kind), catsFor(kind)[0].k); }));
     document.getElementById('ex_save').addEventListener('click', async () => {
       const amt = val('ex_amt') !== '' ? parseFloat(val('ex_amt')) : 0;
       if (!(amt > 0)) { toast('أدخل مبلغاً صحيحاً'); return; }
-      const obj = { category: val('ex_cat'), amount: amt, date: val('ex_date') || todayStr(), note: val('ex_note').trim(), recurring: document.getElementById('ex_rec').checked ? 'monthly' : '' };
+      const obj = { kind: kind === 'income' ? 'income' : 'expense', category: val('ex_cat'), amount: amt, date: val('ex_date') || todayStr(), note: val('ex_note').trim(), recurring: document.getElementById('ex_rec').checked ? 'monthly' : '' };
       const ok = await guard(async () => { if (e) await dbUpdate('expenses', e.id, obj); else await dbInsert('expenses', obj); });
       if (ok) { closeModal(); toast('تم الحفظ'); await loadAll(); screenFinance(); }
     });
     const del = document.getElementById('ex_del');
-    if (del) del.addEventListener('click', async () => { if (!await confirm2('حذف هذا المصروف؟')) return; const ok = await guard(async () => { await dbDelete('expenses', e.id); }); if (ok) { closeModal(); toast('حُذف'); await loadAll(); screenFinance(); } });
+    if (del) del.addEventListener('click', async () => { if (!await confirm2('حذف هذه الحركة؟')) return; const ok = await guard(async () => { await dbDelete('expenses', e.id); }); if (ok) { closeModal(); toast('حُذف'); await loadAll(); screenFinance(); } });
   });
+}
+// إعدادات أنواع المبيعات والمصروفات (مخصّصة)
+function screenFinCats() {
+  if (!can('animals', 'view')) { view().innerHTML = noPerm(); return; }
+  const custom = loadFinCats();
+  const section = (kind, title, def) => `<div class="card"><h3>${title}</h3>
+      ${def.map(c => `<div class="li-sub">• ${c.ar} <span class="muted">(افتراضي)</span></div>`).join('')}
+      ${custom.filter(c => c.kind === kind).map(c => `<div class="li-sub" style="display:flex;justify-content:space-between;align-items:center;gap:8px">• ${esc(c.name)} <button class="btn sm danger" data-delcat="${kind}|${esc(c.name)}">حذف</button></div>`).join('')}
+      <div style="display:flex;gap:6px;margin-top:8px"><input id="nc_${kind}" placeholder="نوع جديد (مثل: بيع كبار)" style="flex:1"><button class="btn sm" data-addcat="${kind}">➕ إضافة</button></div></div>`;
+  view().innerHTML = `<div class="muted" style="margin-bottom:6px">أضِف أنواعاً مخصّصة للمبيعات والمصروفات. الأنواع الافتراضية ثابتة.</div>`
+    + section('income', '💵 أنواع المبيعات/الإيرادات', INC_CATS)
+    + section('expense', '💸 أنواع المصروفات', EXP_CATS);
+  view().querySelectorAll('[data-addcat]').forEach(b => b.addEventListener('click', () => { const kind = b.dataset.addcat; const name = val('nc_' + kind).trim(); if (!name) { toast('اكتب الاسم'); return; } const arr = loadFinCats(); if (arr.some(c => c.kind === kind && c.name === name)) { toast('موجود مسبقاً'); return; } arr.push({ kind, name }); saveFinCats(arr); toast('أُضيف'); screenFinCats(); }));
+  view().querySelectorAll('[data-delcat]').forEach(b => b.addEventListener('click', async () => { const i = b.dataset.delcat.indexOf('|'); const kind = b.dataset.delcat.slice(0, i), name = b.dataset.delcat.slice(i + 1); if (!await confirm2('حذف هذا النوع؟ (الحركات المسجّلة به لا تتأثّر)')) return; saveFinCats(loadFinCats().filter(c => !(c.kind === kind && c.name === name))); screenFinCats(); }));
 }
 
 /* ===== أنواع الحلال (للمدير) ===== */
