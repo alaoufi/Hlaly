@@ -338,7 +338,7 @@ const ROUTES = {
   members: { t: 'المستخدمون والصلاحيات', back: true, fn: screenMembers },
   types: { t: 'أنواع الحلال', back: true, fn: screenTypes },
   inspect: { t: 'تفقد الحلال', back: true, fn: screenInspect },
-  finance: { t: 'المصروفات والميزانية', back: true, fn: screenFinance },
+  finance: { t: 'المصروفات والميزانية', back: false, fn: screenFinance },
   fincats: { t: 'أنواع البنود', back: true, fn: screenFinCats },
   taglists: { t: 'شكل ولون الرقم', back: true, fn: screenTagLists },
   trash: { t: 'سلة المحذوفات', back: true, fn: screenTrash },
@@ -2083,7 +2083,7 @@ function screenFinance() {
   const expRows = Object.keys(expBy).filter(k => expBy[k] > 0).map(k => row(finCatAr(k), money(expBy[k]) + ' ريال')).join('') + (buyCost > 0 ? row('🛒 مشتريات حلال (من السجل)', money(buyCost) + ' ريال') : '');
   const incomeEntries = entries.filter(e => e.kind === 'income' && counted(e));
   const expenseEntries = entries.filter(e => e.kind !== 'income' && counted(e));
-  const entryCard = (title, arr) => `<div class="card"><h3>${title} (${arr.length})</h3>${arr.length ? arr.slice().sort((a, b) => (b.date || '').localeCompare(a.date || '')).map(e => `<div class="card click" data-exp="${e.id}" style="margin:6px 0"><div class="li-title">${finCatAr(e.category)} — ${money(e.amount)} ريال${e.recurring === 'monthly' ? ' /شهرياً' : ''}</div><div class="li-sub">${fmtDate(e.date)}${e.note ? ' • ' + esc(e.note) : ''}</div></div>`).join('') : noItem()}</div>`;
+  const entryCard = (title, arr, bg) => `<div class="card" style="background:${bg}"><h3>${title} (${arr.length})</h3>${arr.length ? arr.slice().sort((a, b) => (b.date || '').localeCompare(a.date || '')).map(e => `<div class="card click" data-exp="${e.id}" style="margin:6px 0"><div class="li-title">${finCatAr(e.category)} — ${money(e.amount)} ريال${e.recurring === 'monthly' ? ' /شهرياً' : ''}</div><div class="li-sub">${fmtDate(e.date)}${e.note ? ' • ' + esc(e.note) : ''}</div></div>`).join('') : noItem()}</div>`;
   const mt = monthlyTotals(12); const cmax = Math.max(1, ...mt.map(d => Math.max(d.inc, d.exp)));
   const chartCard = `<div class="card"><h3>📈 الإيراد/المصروف الشهري</h3><div style="display:flex;gap:6px;overflow-x:auto;align-items:flex-end;padding-top:6px">${mt.map(d => `<div style="display:flex;flex-direction:column;align-items:center;min-width:40px"><div style="display:flex;gap:2px;align-items:flex-end;height:110px"><div style="width:11px;background:var(--green);height:${Math.round(d.inc / cmax * 110)}px;border-radius:3px 3px 0 0"></div><div style="width:11px;background:#e53935;height:${Math.round(d.exp / cmax * 110)}px;border-radius:3px 3px 0 0"></div></div><div class="muted" style="font-size:.64rem;margin-top:4px;white-space:nowrap">${d.short}</div></div>`).join('')}</div><div class="muted" style="font-size:.72rem;margin-top:6px"><span style="color:var(--green)">▮</span> إيراد &nbsp;&nbsp; <span style="color:#e53935">▮</span> مصروف</div></div>`;
   view().innerHTML = chips
@@ -2093,23 +2093,25 @@ function screenFinance() {
         <div class="stat red"><div class="n" style="font-size:1.15rem">${money(expTotal)}</div><div class="l">💸 مصروفات</div></div>
         <div class="stat ${net >= 0 ? 'green' : 'red'}"><div class="n" style="font-size:1.15rem">${money(net)}</div><div class="l">${net >= 0 ? '📈 صافي ربح' : '📉 صافي خسارة'}</div></div>
       </div>
-      <div class="card"><h3>📊 الموازنة (${periodAr})</h3>
+      ${can('animals', 'edit') ? `<div style="display:flex;gap:8px;margin:8px 0"><button class="btn" id="add_inc" style="flex:1;background:var(--green)">➕ إيراد</button><button class="btn" id="add_exp" style="flex:1;background:#c62828">➖ مصروف</button></div>` : ''}
+      <div class="card" style="background:#fff8e1"><h3>📊 الموازنة (${periodAr})</h3>
         <div class="li-title" style="color:var(--green)">➕ الإيرادات</div>${incRows || noItem()}${row('إجمالي الإيرادات', money(revenue) + ' ريال')}
         <div class="li-title" style="color:#c62828;margin-top:8px">➖ المصروفات</div>${expRows || noItem()}${row('إجمالي المصروفات', money(expTotal) + ' ريال')}
-        <div style="border-top:2px solid #eee;margin-top:8px;padding-top:6px">${row(net >= 0 ? '✅ صافي الربح' : '⚠️ صافي الخسارة', money(net) + ' ريال')}</div></div>
-      ${chartCard}
-      <div class="card"><h3>🐑 كشف مبيعات الحلال (${sales.length})</h3>${sales.length ? sales.slice().sort((a, b) => (b.sale_date || '').localeCompare(a.sale_date || '')).map(a => `<div class="card click" data-aid="${a.id}" style="margin:6px 0"><div class="li-title">${display(a)} — ${money(a.sale_price)} ريال</div><div class="li-sub">${fmtDate(a.sale_date)} • ${arOf(SEX, a.sex)}</div></div>`).join('') : noItem()}</div>
-      ${entryCard('💵 كشف الإيرادات المُدخلة', incomeEntries)}
-      ${entryCard('💸 كشف المصروفات', expenseEntries)}`;
+        <div style="border-top:2px solid #e0d8b8;margin-top:8px;padding-top:6px">${row(net >= 0 ? '✅ صافي الربح' : '⚠️ صافي الخسارة', money(net) + ' ريال')}</div></div>
+      ${entryCard('💵 كشف الإيرادات المُدخلة', incomeEntries, '#e8f5e9')}
+      <div class="card" style="background:#e3f2fd"><h3>🐑 كشف مبيعات الحلال (${sales.length})</h3>${sales.length ? sales.slice().sort((a, b) => (b.sale_date || '').localeCompare(a.sale_date || '')).map(a => `<div class="card click" data-aid="${a.id}" style="margin:6px 0"><div class="li-title">${display(a)} — ${money(a.sale_price)} ريال</div><div class="li-sub">${fmtDate(a.sale_date)} • ${arOf(SEX, a.sex)}</div></div>`).join('') : noItem()}</div>
+      ${entryCard('💸 كشف المصروفات', expenseEntries, '#ffebee')}
+      <div class="card" style="background:#f5f5f5"><h3>📈 الإيراد/المصروف الشهري</h3><div style="display:flex;gap:6px;overflow-x:auto;align-items:flex-end;padding-top:6px">${mt.map(d => `<div style="display:flex;flex-direction:column;align-items:center;min-width:40px"><div style="display:flex;gap:2px;align-items:flex-end;height:110px"><div style="width:11px;background:var(--green);height:${Math.round(d.inc / cmax * 110)}px;border-radius:3px 3px 0 0"></div><div style="width:11px;background:#e53935;height:${Math.round(d.exp / cmax * 110)}px;border-radius:3px 3px 0 0"></div></div><div class="muted" style="font-size:.64rem;margin-top:4px;white-space:nowrap">${d.short}</div></div>`).join('')}</div><div class="muted" style="font-size:.72rem;margin-top:6px"><span style="color:var(--green)">▮</span> إيراد &nbsp;&nbsp; <span style="color:#e53935">▮</span> مصروف</div></div>`;
   view().querySelectorAll('[data-fp]').forEach(c => c.addEventListener('click', () => { financePeriod = c.dataset.fp; screenFinance(); }));
   view().querySelectorAll('[data-exp]').forEach(c => c.addEventListener('click', () => financeEntryModal(entries.find(x => String(x.id) === c.dataset.exp))));
   bindCards(view());
   { const fc = document.getElementById('fin_cats'); if (fc) fc.addEventListener('click', () => setHash('#/fincats')); }
   { const fx = document.getElementById('fin_export'); if (fx) fx.addEventListener('click', financeExportCSV); }
-  if (can('animals', 'edit')) addFab('+ مصروف / إيراد', () => financeEntryModal(null));
+  { const ai = document.getElementById('add_inc'); if (ai) ai.addEventListener('click', () => financeEntryModal(null, 'income')); }
+  { const ae = document.getElementById('add_exp'); if (ae) ae.addEventListener('click', () => financeEntryModal(null, 'expense')); }
 }
-function financeEntryModal(e) {
-  let kind = e ? (e.kind === 'income' ? 'income' : 'expense') : 'expense';
+function financeEntryModal(e, preset) {
+  let kind = e ? (e.kind === 'income' ? 'income' : 'expense') : (preset === 'income' ? 'income' : 'expense');
   openModal(e ? 'تعديل حركة' : 'إضافة حركة مالية', `
     <div class="chips"><span class="chip ${kind === 'expense' ? 'active' : ''}" data-kind="expense">💸 مصروف</span><span class="chip ${kind === 'income' ? 'active' : ''}" data-kind="income">💵 إيراد</span></div>
     <div id="ex_catwrap">${fSelect('البند', 'ex_cat', catsFor(kind), e ? e.category : catsFor(kind)[0].k)}</div>
@@ -2788,6 +2790,7 @@ function renderPending() {
 function buildNav() {
   const tabs = [['#/home', '🏠', 'الرئيسية']];
   if (can('animals', 'view')) tabs.push(['#/animals', '🐑', 'الحلال']);
+  if (can('animals', 'view')) tabs.push(['#/finance', '💰', 'الميزانية']);
   if (!window.MRAH_LOCAL && forumEnabled && canForumView()) tabs.push(['#/forum', '💬', 'المنتدى']);
   if (can('animals', 'view') || can('breeding', 'view') || can('vaccines', 'view') || can('treatments', 'view')) tabs.push(['#/alerts', '🔔', 'التنبيهات']);
   tabs.push(['#/more', '☰', 'المزيد']);
