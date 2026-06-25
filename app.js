@@ -340,6 +340,7 @@ const ROUTES = {
   inspect: { t: 'تفقد الحلال', back: true, fn: screenInspect },
   finance: { t: 'المصروفات والميزانية', back: true, fn: screenFinance },
   fincats: { t: 'أنواع البنود', back: true, fn: screenFinCats },
+  taglists: { t: 'شكل ولون الرقم', back: true, fn: screenTagLists },
   trash: { t: 'سلة المحذوفات', back: true, fn: screenTrash },
   tips: { t: 'النصائح والمعلومات', back: true, fn: screenTips },
   guide: { t: 'دليل الاستخدام', back: true, fn: screenGuide },
@@ -528,6 +529,17 @@ function screenAnimals() {
   if (canEdit) addFab('+ إضافة بهيمة', () => setHash('#/animal-edit/0'));
 }
 
+/* ===== قوائم شكل/لون الوسم (قابلة للتعديل من الإعدادات) ===== */
+const TAG_COLORS_DEF = ['أحمر', 'أزرق', 'أصفر', 'أخضر', 'أبيض', 'أسود', 'برتقالي'];
+const TAG_SHAPES_DEF = ['دائري', 'مربع', 'مستطيل', 'بيضاوي', 'أذن', 'علامة'];
+const COLOR_HEX = { 'أحمر': '#e53935', 'أزرق': '#1e88e5', 'أصفر': '#fdd835', 'أخضر': '#43a047', 'أبيض': '#ffffff', 'أسود': '#222', 'برتقالي': '#fb8c00', 'بنفسجي': '#8e24aa', 'وردي': '#ec407a', 'بني': '#6d4c41', 'رمادي': '#9e9e9e' };
+function loadList(key) { try { return JSON.parse(localStorage.getItem(key) || '[]'); } catch (e) { return []; } }
+function saveList(key, a) { try { localStorage.setItem(key, JSON.stringify(a)); } catch (e) {} }
+const tagColors = () => TAG_COLORS_DEF.concat(loadList('mrahi_tag_colors'));
+const tagShapes = () => TAG_SHAPES_DEF.concat(loadList('mrahi_tag_shapes'));
+const strOpts = (arr) => [{ k: '', ar: '— بدون —' }].concat(arr.map(s => ({ k: s, ar: s })));
+const colorDot = (name) => COLOR_HEX[name] ? `<span style="display:inline-block;width:11px;height:11px;border-radius:50%;background:${COLOR_HEX[name]};border:1px solid #bbb;vertical-align:middle;margin-inline-start:4px"></span>` : '';
+
 /* ===== إضافة/تعديل بهيمة ===== */
 function screenAnimalEdit(arg) {
   if (!can('animals', 'edit')) { view().innerHTML = noPerm(); return; }
@@ -542,6 +554,8 @@ function screenAnimalEdit(arg) {
       ${fInput('رقم المراح (الحظيرة)', 'f_pen', a ? a.pen : lastPen)}
       ${fSelect('نوع المعرّف الخارجي', 'f_kind', IDKIND, a ? a.idkind : 'number')}
       ${fInput('المعرّف الخارجي / الوسم (اختياري — قد يتغيّر أو يسقط)', 'f_code', a && a.code)}
+      ${fSelect('لون الوسم', 'f_tagcolor', strOpts(tagColors()), a ? (a.tag_color || '') : '')}
+      ${fSelect('شكل الوسم', 'f_tagshape', strOpts(tagShapes()), a ? (a.tag_shape || '') : '')}
       ${fInput('الاسم/المسمى (اختياري)', 'f_name', a && a.name)}
       ${fSelect('الجنس', 'f_sex', SEX, a ? a.sex : 'female')}
       ${fSelect('المصدر', 'f_source', SOURCE, a ? (a.source || 'purchased') : 'purchased')}
@@ -566,7 +580,7 @@ function screenAnimalEdit(arg) {
     const code = val('f_code').trim(), name = val('f_name').trim();
     // المعرّف الخارجي اختياري — الرقم الداخلي الثابت يميّز البهيمة دائماً
     const status = val('f_status');
-    const obj = { type: val('f_type'), pen: val('f_pen').trim(), idkind: val('f_kind'), code, name, sex: val('f_sex'), source: val('f_source'), birth: val('f_birth') || null, color: val('f_color').trim(), status, mother_id: parseInt(val('f_mother'), 10) || null, father_name: val('f_father').trim(), notes: val('f_notes').trim(),
+    const obj = { type: val('f_type'), pen: val('f_pen').trim(), idkind: val('f_kind'), code, name, tag_color: val('f_tagcolor'), tag_shape: val('f_tagshape'), sex: val('f_sex'), source: val('f_source'), birth: val('f_birth') || null, color: val('f_color').trim(), status, mother_id: parseInt(val('f_mother'), 10) || null, father_name: val('f_father').trim(), notes: val('f_notes').trim(),
       sale_date: status === 'sold' ? (val('f_saledate') || null) : null,
       sale_price: status === 'sold' && val('f_saleprice') !== '' ? parseFloat(val('f_saleprice')) : null,
       dead_date: status === 'dead' ? (val('f_deaddate') || null) : null };
@@ -615,6 +629,7 @@ function screenAnimalDetail(arg) {
       ${row('النوع', arOf(TYPES, a.type))}
       ${row('🔒 الرقم الداخلي', internalNo(a) + ' (ثابت لا يتغيّر)')}
       ${row('المعرّف الخارجي (الوسم)', a.code ? esc(a.code) + ' • ' + arOf(IDKIND, a.idkind) : '— غير مرقّمة —')}
+      ${(a.tag_color || a.tag_shape) ? row('🏷️ لون/شكل الوسم', [a.tag_color ? esc(a.tag_color) + colorDot(a.tag_color) : '', a.tag_shape ? esc(a.tag_shape) : ''].filter(Boolean).join(' • ')) : ''}
       ${a.name ? row('الاسم', esc(a.name)) : ''}
       ${row('الجنس', arOf(SEX, a.sex))}
       ${row('المراح', esc(a.pen) || '—')}
@@ -1353,6 +1368,7 @@ function screenMore() {
       I(can('animals', 'view'), '🔍 تفقد الحلال وإحصائيات', '#/inspect'),
       I(can('animals', 'add'), '📋 إضافة جماعية (دفعة)', '#/bulk/buy'),
       I(can('breeding', 'view'), '🤰 الحمل والمتابعة', '#/pregnancies'),
+      I(can('animals', 'edit'), '🏷️ شكل ولون الرقم (إعداد)', '#/taglists'),
     ].filter(Boolean) },
     { key: 'health', title: '💉 الصحة (تطعيم وعلاج)', items: [
       I(can('vaccines', 'edit'), '💉 إعطاء تطعيم', '#/vaccinate/0'),
@@ -2129,6 +2145,23 @@ function screenFinCats() {
     + section('expense', '💸 أنواع المصروفات', EXP_CATS);
   view().querySelectorAll('[data-addcat]').forEach(b => b.addEventListener('click', () => { const kind = b.dataset.addcat; const name = val('nc_' + kind).trim(); if (!name) { toast('اكتب الاسم'); return; } const arr = loadFinCats(); if (arr.some(c => c.kind === kind && c.name === name)) { toast('موجود مسبقاً'); return; } arr.push({ kind, name }); saveFinCats(arr); toast('أُضيف'); screenFinCats(); }));
   view().querySelectorAll('[data-delcat]').forEach(b => b.addEventListener('click', async () => { const i = b.dataset.delcat.indexOf('|'); const kind = b.dataset.delcat.slice(0, i), name = b.dataset.delcat.slice(i + 1); if (!await confirm2('حذف هذا النوع؟ (الحركات المسجّلة به لا تتأثّر)')) return; saveFinCats(loadFinCats().filter(c => !(c.kind === kind && c.name === name))); screenFinCats(); }));
+}
+
+// إعدادات قوائم شكل ولون الوسم (إضافة/حذف مخصّصة)
+function screenTagLists() {
+  if (!can('animals', 'edit')) { view().innerHTML = noPerm(); return; }
+  const section = (key, title, def) => {
+    const custom = loadList(key);
+    return `<div class="card"><h3>${title}</h3>
+      ${def.map(s => `<div class="li-sub">• ${esc(s)}${colorDot(s)} <span class="muted">(افتراضي)</span></div>`).join('')}
+      ${custom.map(s => `<div class="li-sub" style="display:flex;justify-content:space-between;align-items:center;gap:8px">• ${esc(s)}${colorDot(s)} <button class="btn sm danger" data-dell="${key}|${esc(s)}">حذف</button></div>`).join('')}
+      <div style="display:flex;gap:6px;margin-top:8px"><input id="nl_${key}" placeholder="إضافة جديد" style="flex:1"><button class="btn sm" data-addl="${key}">➕ إضافة</button></div></div>`;
+  };
+  view().innerHTML = `<div class="muted" style="margin-bottom:6px">أضِف ألواناً وأشكالاً للوسم تظهر كقائمة عند إضافة البهيمة. الافتراضية ثابتة.</div>`
+    + section('mrahi_tag_colors', '🎨 ألوان الوسم', TAG_COLORS_DEF)
+    + section('mrahi_tag_shapes', '🔷 أشكال الوسم', TAG_SHAPES_DEF);
+  view().querySelectorAll('[data-addl]').forEach(b => b.addEventListener('click', () => { const key = b.dataset.addl; const name = val('nl_' + key).trim(); if (!name) { toast('اكتب الاسم'); return; } const arr = loadList(key); const def = key === 'mrahi_tag_colors' ? TAG_COLORS_DEF : TAG_SHAPES_DEF; if (def.includes(name) || arr.includes(name)) { toast('موجود مسبقاً'); return; } arr.push(name); saveList(key, arr); toast('أُضيف'); screenTagLists(); }));
+  view().querySelectorAll('[data-dell]').forEach(b => b.addEventListener('click', async () => { const i = b.dataset.dell.indexOf('|'); const key = b.dataset.dell.slice(0, i), name = b.dataset.dell.slice(i + 1); if (!await confirm2('حذف هذا الخيار؟ (البهائم المسجّلة به لا تتأثّر)')) return; saveList(key, loadList(key).filter(s => s !== name)); screenTagLists(); }));
 }
 
 /* ===== أنواع الحلال (للمدير) ===== */
