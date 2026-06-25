@@ -1391,7 +1391,6 @@ function screenMore() {
       I(!window.MRAH_LOCAL && isAdmin(), '👥 المستخدمون والصلاحيات', '#/members'),
       I(!window.MRAH_LOCAL && (isAdmin() || isAnyForumMod()), '⚙️ إعدادات المنتدى', '#/forum-admin'),
       I(isSys(), '💡 النصائح والمعلومات', '#/tips'),
-      I(window.MRAH_APK, `🔧 وضع قاعدة البيانات (${window.MRAH_LOCAL ? 'محلي' : 'مشترك'}) — تغيير`, '__switch'),
     ].filter(Boolean) },
     { key: 'app', title: '📱 التطبيق', items: [
       I(window.MRAH_APK, '🔄 تحقق من وجود تحديث', '__checkupdate'),
@@ -2841,9 +2840,7 @@ function renderAuth() {
         : fInput('الجوال أو اسم المستخدم', 'a_id', '') +
           pinField('الرقم السري (٤ أرقام)', 'a_pin')}
       <button class="btn" id="a_submit">${mode === 'signin' ? 'تسجيل الدخول' : 'إنشاء حساب'}</button>
-      <div class="auth-msg" id="a_msg"></div>
-      ${window.MRAH_APK ? '<button class="btn outline" id="a_switch" style="margin-top:12px">🔧 تغيير وضع قاعدة البيانات</button>' : ''}</div>`;
-    { const sw = document.getElementById('a_switch'); if (sw) sw.addEventListener('click', switchBackend); }
+      <div class="auth-msg" id="a_msg"></div></div>`;
     document.getElementById('t_in').addEventListener('click', () => { mode = 'signin'; draw(); });
     { const up = document.getElementById('t_up'); if (up) up.addEventListener('click', () => { mode = 'signup'; draw(); }); }
     { const o = document.getElementById('ty_owner'); if (o) o.addEventListener('click', () => { acctType = 'owner'; draw(); }); }
@@ -3075,14 +3072,13 @@ async function init() {
   // تطبيق الأندرويد (APK): بوابة التفعيل أولاً (ترخيص مربوط بالجهاز)
   if (window.MRAH_APK) {
     if (window.MrahiLicense) { const s = window.MrahiLicense.state().state; if (s !== 'active' && s !== 'disabled') { renderLicenseGate(); return; } }
+    // محلي افتراضياً (الوضع المشترك مخفي) — يُحترم من اختار «مشترك» سابقاً فقط
     const choice = BK.get();
-    if (choice === 'local') { startLocalMode(); return; }
     if (choice === 'cloud') {
       const c = BK.cloud();
       if (c.url && c.key) { window.MRAH_CONFIG = { SUPABASE_URL: c.url, SUPABASE_ANON_KEY: c.key }; startCloudMode(); return; }
     }
-    renderBackendChooser();   // أول تشغيل أو إعداد ناقص
-    return;
+    BK.set('local'); startLocalMode(); return;
   }
 
   // الويب: Supabase عبر config.js
