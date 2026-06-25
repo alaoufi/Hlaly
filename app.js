@@ -1362,6 +1362,8 @@ async function bulkApply() {
 
 /* ===== المزيد ===== */
 const moreOpen = new Set(['herd']);   // التصنيفات المفتوحة (الشائع «الحلال» مفتوح افتراضياً)
+// لون خلفية خفيف لكل مجال في «المزيد» لتمييز الأقسام بصرياً
+const MORE_BG = { herd: '#e8f5e9', health: '#e3f2fd', ops: '#fff8e1', guides: '#f3e5f5', admin: '#ffebee', app: '#eceff1' };
 function screenMore() {
   const owner = me && me.account_type === 'owner';
   const I = (cond, label, hash) => cond ? [label, hash] : null;
@@ -1416,9 +1418,10 @@ function screenMore() {
 
   view().innerHTML = topUpdate + cats.map(c => {
     const open = moreOpen.has(c.key);
-    return `<div class="acc-head card click" data-cat="${c.key}" style="display:flex;align-items:center;justify-content:space-between">
+    const bg = MORE_BG[c.key] || 'var(--card)';
+    return `<div class="acc-head card click" data-cat="${c.key}" style="display:flex;align-items:center;justify-content:space-between;background:${bg}">
         <span class="li-title" style="margin:0">${c.title}</span><span style="color:var(--muted);font-size:1.1rem">${open ? '▾' : '▸'}</span></div>`
-      + (open ? `<div style="margin:0 8px 8px">${c.items.map(([l, h]) => `<div class="card click" data-go="${h}" style="margin:6px 0"><div class="li-title">${l}</div></div>`).join('')}</div>` : '');
+      + (open ? `<div style="margin:0 8px 8px">${c.items.map(([l, h]) => `<div class="card click" data-go="${h}" style="margin:6px 0;background:${bg}"><div class="li-title">${l}</div></div>`).join('')}</div>` : '');
   }).join('') + footer;
 
   view().querySelectorAll('[data-cat]').forEach(h => h.addEventListener('click', () => { const k = h.dataset.cat; moreOpen.has(k) ? moreOpen.delete(k) : moreOpen.add(k); screenMore(); }));
