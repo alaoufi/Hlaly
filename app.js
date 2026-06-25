@@ -2021,6 +2021,31 @@ function recurMonths(startDate, period) {
   if (period === 'year') { const yStart = new Date(todayStr() + 'T00:00:00').getFullYear() * 12; return Math.max(0, now - Math.max(s, yStart) + 1); }
   return now - s + 1;   // all
 }
+function monthLabelShort(m) { const y = Math.floor(m / 12), mo = m % 12; return (mo + 1) + '/' + (y % 100); }
+// إجماليات الإيراد/المصروف لكل شهر خلال آخر n أشهر
+function monthlyTotals(n) {
+  const now = curMonthIdx(); const arr = []; const idx = {};
+  for (let i = n - 1; i >= 0; i--) { const m = now - i; idx[m] = arr.length; arr.push({ m, short: monthLabelShort(m), inc: 0, exp: 0 }); }
+  C.animals.forEach(a => { if (a.status === 'sold' && a.sale_price != null && a.sale_date) { const mi = monthIdxOf(a.sale_date); if (idx[mi] != null) arr[idx[mi]].inc += +a.sale_price || 0; } });
+  C.animals.forEach(a => { if (a.buy_price != null && a.buy_date) { const mi = monthIdxOf(a.buy_date); if (idx[mi] != null) arr[idx[mi]].exp += +a.buy_price || 0; } });
+  (C.expenses || []).forEach(e => { const amt = +e.amount || 0; const s = monthIdxOf(e.date); if (s == null) return;
+    if (e.recurring === 'monthly') { arr.forEach(o => { if (o.m >= s) { if (e.kind === 'income') o.inc += amt; else o.exp += amt; } }); }
+    else if (idx[s] != null) { if (e.kind === 'income') arr[idx[s]].inc += amt; else arr[idx[s]].exp += amt; } });
+  return arr;
+}
+function financeExportCSV() {
+  const P = financePeriod;
+  const cell = (s) => { s = String(s == null ? '' : s); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+  const rows = [['النوع', 'البند', 'التاريخ', 'المبلغ', 'ملاحظة']];
+  let rev = 0, exp = 0;
+  C.animals.filter(a => a.status === 'sold' && a.sale_price != null && inPeriod(a.sale_date, P)).forEach(a => { rows.push(['إيراد', 'بيع حلال ' + display(a), a.sale_date, +a.sale_price || 0, '']); rev += +a.sale_price || 0; });
+  (C.expenses || []).filter(e => e.kind === 'income').forEach(e => { const c = e.recurring === 'monthly' ? recurMonths(e.date, P) : (inPeriod(e.date, P) ? 1 : 0); if (!c) return; const t = (+e.amount || 0) * c; rows.push(['إيراد', finCatAr(e.category) + (c > 1 ? ` ×${c}` : ''), e.date, t, e.note || '']); rev += t; });
+  (C.expenses || []).filter(e => e.kind !== 'income').forEach(e => { const c = e.recurring === 'monthly' ? recurMonths(e.date, P) : (inPeriod(e.date, P) ? 1 : 0); if (!c) return; const t = (+e.amount || 0) * c; rows.push(['مصروف', finCatAr(e.category) + (c > 1 ? ` ×${c}` : ''), e.date, t, e.note || '']); exp += t; });
+  C.animals.filter(a => a.buy_price != null && inPeriod(a.buy_date, P)).forEach(a => { rows.push(['مصروف', 'مشتريات حلال ' + display(a), a.buy_date, +a.buy_price || 0, '']); exp += +a.buy_price || 0; });
+  rows.push([]); rows.push(['—', 'إجمالي الإيرادات', '', rev, '']); rows.push(['—', 'إجمالي المصروفات', '', exp, '']); rows.push(['—', 'الصافي', '', rev - exp, '']);
+  const csv = '﻿' + rows.map(r => r.map(cell).join(',')).join('\n');
+  shareOrDownload('mrahi_finance_' + stamp() + '.csv', csv, 'text/csv');
+}
 function screenFinance() {
   if (!can('animals', 'view')) { view().innerHTML = noPerm(); return; }
   const P = financePeriod;
@@ -2044,8 +2069,10 @@ function screenFinance() {
   const incomeEntries = entries.filter(e => e.kind === 'income' && counted(e));
   const expenseEntries = entries.filter(e => e.kind !== 'income' && counted(e));
   const entryCard = (title, arr) => `<div class="card"><h3>${title} (${arr.length})</h3>${arr.length ? arr.slice().sort((a, b) => (b.date || '').localeCompare(a.date || '')).map(e => `<div class="card click" data-exp="${e.id}" style="margin:6px 0"><div class="li-title">${finCatAr(e.category)} — ${money(e.amount)} ريال${e.recurring === 'monthly' ? ' /شهرياً' : ''}</div><div class="li-sub">${fmtDate(e.date)}${e.note ? ' • ' + esc(e.note) : ''}</div></div>`).join('') : noItem()}</div>`;
+  const mt = monthlyTotals(12); const cmax = Math.max(1, ...mt.map(d => Math.max(d.inc, d.exp)));
+  const chartCard = `<div class="card"><h3>📈 الإيراد/المصروف الشهري</h3><div style="display:flex;gap:6px;overflow-x:auto;align-items:flex-end;padding-top:6px">${mt.map(d => `<div style="display:flex;flex-direction:column;align-items:center;min-width:40px"><div style="display:flex;gap:2px;align-items:flex-end;height:110px"><div style="width:11px;background:var(--green);height:${Math.round(d.inc / cmax * 110)}px;border-radius:3px 3px 0 0"></div><div style="width:11px;background:#e53935;height:${Math.round(d.exp / cmax * 110)}px;border-radius:3px 3px 0 0"></div></div><div class="muted" style="font-size:.64rem;margin-top:4px;white-space:nowrap">${d.short}</div></div>`).join('')}</div><div class="muted" style="font-size:.72rem;margin-top:6px"><span style="color:var(--green)">▮</span> إيراد &nbsp;&nbsp; <span style="color:#e53935">▮</span> مصروف</div></div>`;
   view().innerHTML = chips
-    + `<div style="display:flex;justify-content:space-between;align-items:center;margin:2px 0 8px"><span class="muted" style="font-size:.82rem">الفترة: ${periodAr} • بالريال</span>${can('animals', 'edit') ? '<button class="btn sm outline" id="fin_cats">⚙️ أنواع البنود</button>' : ''}</div>
+    + `<div style="display:flex;justify-content:space-between;align-items:center;gap:6px;margin:2px 0 8px;flex-wrap:wrap"><span class="muted" style="font-size:.82rem">الفترة: ${periodAr} • بالريال</span><span style="display:flex;gap:6px"><button class="btn sm outline" id="fin_export">🖨️ تصدير</button>${can('animals', 'edit') ? '<button class="btn sm outline" id="fin_cats">⚙️ أنواع البنود</button>' : ''}</span></div>
       <div class="stats" style="grid-template-columns:1fr 1fr 1fr">
         <div class="stat green"><div class="n" style="font-size:1.15rem">${money(revenue)}</div><div class="l">💵 إيرادات</div></div>
         <div class="stat red"><div class="n" style="font-size:1.15rem">${money(expTotal)}</div><div class="l">💸 مصروفات</div></div>
@@ -2055,6 +2082,7 @@ function screenFinance() {
         <div class="li-title" style="color:var(--green)">➕ الإيرادات</div>${incRows || noItem()}${row('إجمالي الإيرادات', money(revenue) + ' ريال')}
         <div class="li-title" style="color:#c62828;margin-top:8px">➖ المصروفات</div>${expRows || noItem()}${row('إجمالي المصروفات', money(expTotal) + ' ريال')}
         <div style="border-top:2px solid #eee;margin-top:8px;padding-top:6px">${row(net >= 0 ? '✅ صافي الربح' : '⚠️ صافي الخسارة', money(net) + ' ريال')}</div></div>
+      ${chartCard}
       <div class="card"><h3>🐑 كشف مبيعات الحلال (${sales.length})</h3>${sales.length ? sales.slice().sort((a, b) => (b.sale_date || '').localeCompare(a.sale_date || '')).map(a => `<div class="card click" data-aid="${a.id}" style="margin:6px 0"><div class="li-title">${display(a)} — ${money(a.sale_price)} ريال</div><div class="li-sub">${fmtDate(a.sale_date)} • ${arOf(SEX, a.sex)}</div></div>`).join('') : noItem()}</div>
       ${entryCard('💵 كشف الإيرادات المُدخلة', incomeEntries)}
       ${entryCard('💸 كشف المصروفات', expenseEntries)}`;
@@ -2062,6 +2090,7 @@ function screenFinance() {
   view().querySelectorAll('[data-exp]').forEach(c => c.addEventListener('click', () => financeEntryModal(entries.find(x => String(x.id) === c.dataset.exp))));
   bindCards(view());
   { const fc = document.getElementById('fin_cats'); if (fc) fc.addEventListener('click', () => setHash('#/fincats')); }
+  { const fx = document.getElementById('fin_export'); if (fx) fx.addEventListener('click', financeExportCSV); }
   if (can('animals', 'edit')) addFab('+ مصروف / إيراد', () => financeEntryModal(null));
 }
 function financeEntryModal(e) {
