@@ -16,6 +16,7 @@ on:
       - "capacitor.config.json"
       - "package.json"
       - "scripts/**"
+      - "branding/**"
       - ".github/workflows/android.yml"
 
 permissions:
