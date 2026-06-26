@@ -9,7 +9,7 @@
 (function () {
   'use strict';
   var VERSION_JSON = 'https://github.com/alaoufi/marahi/releases/download/apk-latest/version.json';
-  var APK_URL = 'https://github.com/alaoufi/marahi/releases/download/apk-latest/mrah.apk';
+  var APK_URL = 'https://github.com/alaoufi/marahi/releases/download/apk-latest/hlaly.apk';
 
   function buildNum(v) { var m = String(v || '').match(/(\d+)\s*$/); return m ? parseInt(m[1], 10) : 0; }
   function say(msg) { try { if (typeof toast === 'function') toast(msg); } catch (e) {} }

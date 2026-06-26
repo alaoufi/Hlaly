@@ -50,7 +50,7 @@ jobs:
 
       - name: ملف رقم النسخة (version.json) للتحقق من التحديث
         run: |
-          printf '{"version":"%s","url":"https://github.com/${{ github.repository }}/releases/download/apk-latest/mrah.apk"}\n' "$APP_VERSION" > version.json
+          printf '{"version":"%s","url":"https://github.com/${{ github.repository }}/releases/download/apk-latest/hlaly.apk"}\n' "$APP_VERSION" > version.json
           cat version.json
 
       - name: إضافة منصّة أندرويد
@@ -87,14 +87,14 @@ jobs:
           "$BT/zipalign" -p -f 4 "$UNSIGNED" app-aligned.apk
           "$BT/apksigner" sign \
             --ks release.keystore --ks-pass pass:MrahiRelease2026 --key-pass pass:MrahiRelease2026 \
-            --out mrah.apk app-aligned.apk
-          "$BT/apksigner" verify --print-certs mrah.apk
+            --out hlaly.apk app-aligned.apk
+          "$BT/apksigner" verify --print-certs hlaly.apk
 
       - name: رفع ملف APK (أثر داخلي)
         uses: actions/upload-artifact@v4
         with:
           name: mrah-app
-          path: mrah.apk
+          path: hlaly.apk
           if-no-files-found: error
 
       - name: نشر إصدار برابط تنزيل مباشر + حزمة تحديث
@@ -104,19 +104,21 @@ jobs:
           name: حلالي — تطبيق أندرويد (أحدث نسخة)
           body: |
             تطبيق حلالي لأندرويد (النسخة ${{ env.APP_VERSION }}).
-            نزّل **mrah.apk** مباشرة وثبّته. عند أول فتح تختار: محلي (بلا إنترنت) أو مشترك (Supabase).
+            نزّل **hlaly.apk** مباشرة وثبّته. عند أول فتح تختار: محلي (بلا إنترنت) أو مشترك (Supabase).
 
             **إن ظهر تحذير «Play Protect — تم حظر التطبيق»:** هذا تنبيه عادي لأي تطبيق خارج المتجر.
             اضغط **«مزيد من التفاصيل»** ثم **«التثبيت على أي حال / بدون فحص»** ليُكمل التثبيت. (التطبيق آمن وموقّع بمفتاح ثابت.)
 
             للتحديث لاحقاً: من «المزيد ← تحقق من وجود تحديث»، يفتح تنزيل النسخة الجديدة وتُثبَّت فوق الحالية مع حفظ بياناتك.
           files: |
-            mrah.apk
+            hlaly.apk
             version.json
 
-      - name: حذف ملف mrahi.apk القديم إن وُجد
+      - name: حذف ملفات APK القديمة (mrahi.apk / mrah.apk) إن وُجدت
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          id=$(gh api repos/${{ github.repository }}/releases/tags/apk-latest --jq '.assets[] | select(.name=="mrahi.apk") | .id' || true)
-          if [ -n "$id" ]; then gh api -X DELETE repos/${{ github.repository }}/releases/assets/$id && echo "حُذف mrahi.apk القديم"; else echo "لا يوجد ملف قديم"; fi
+          for old in mrahi.apk mrah.apk; do
+            id=$(gh api repos/${{ github.repository }}/releases/tags/apk-latest --jq ".assets[] | select(.name==\"$old\") | .id" || true)
+            if [ -n "$id" ]; then gh api -X DELETE repos/${{ github.repository }}/releases/assets/$id && echo "حُذف $old القديم"; else echo "لا يوجد $old"; fi
+          done
