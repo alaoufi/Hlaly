@@ -57,6 +57,11 @@ main { padding: 14px; max-width: 760px; margin: 0 auto; }
 }
 .field input:focus, .field select:focus, .field textarea:focus { outline: none; border-color: var(--green); box-shadow: 0 0 0 2px var(--green-l); }
 .field textarea { resize: vertical; min-height: 64px; }
+/* أزرار الإدخال الصوتي/المسح بالكاميرا بجانب الحقول */
+.aux-btn { display: inline-block; margin: 6px 6px 0 0; padding: 8px 14px; border: 1px solid #d0d5d0; border-radius: 10px; background: #f3f6f3; font-size: 1.05rem; line-height: 1; cursor: pointer; }
+.aux-btn:active { opacity: .6; }
+.aux-btn.listening { background: var(--green-l); border-color: var(--green); animation: micpulse 1s infinite; }
+@keyframes micpulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.12); } }
 /* حقل رقم سري مع زر عين لإظهار/إخفاء القيمة */
 .field.pw { position: relative; }
 .field.pw input { padding-inline-end: 44px; }
