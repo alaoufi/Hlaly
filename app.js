@@ -293,6 +293,48 @@ async function importVaccineLib() {
   const ok = await guard(async () => { const { error } = await sb.from(TABLES.vaccineTypes).insert(toAdd); if (error) throw error; });
   if (ok) { toast(`أُضيف ${toAdd.length} نوع تطعيم`); await loadAll(); screenVaccineTypes(); }
 }
+// تطبيع اسم المكتبة لكشف التكرار: إزالة ما بين الأقواس واللاتيني والأرقام والتشكيل وتوحيد الحروف
+function libNormName(s) {
+  return String(s || '')
+    .replace(/[\(（][^)）]*[\)）]/g, ' ')        // ما بين الأقواس (مثل FMD/الأنثراكس)
+    .replace(/[A-Za-z0-9\-+./]+/g, ' ')           // اللاتيني والأرقام والرموز (Rev-1, LA200)
+    .replace(/[ً-ْ]/g, '')              // التشكيل
+    .replace(/[إأآا]/g, 'ا').replace(/[ىي]/g, 'ي').replace(/ة/g, 'ه').replace(/ؤ/g, 'و').replace(/ئ/g, 'ي')
+    .replace(/\s+/g, ' ').trim();
+}
+// درجة اكتمال إدخال (لاختيار الأنسب للإبقاء عند التكرار)
+function libScore(r) {
+  let n = 0;
+  ['source', 'dose', 'usage', 'treats', 'recommended_age', 'notes'].forEach(k => { if (r[k] && String(r[k]).trim()) n++; });
+  if (r.meat_withdrawal_days != null) n++;
+  if (r.milk_withdrawal_days != null) n++;
+  if (Array.isArray(r.species) && r.species.length) n++;
+  if (r.validity_days) n++;
+  return n;
+}
+// كشف التكرار وحذف المكرر (يُبقي الأكمل، وينقل الباقي إلى سلة المحذوفات بعد التأكيد)
+function dedupeLibrary(kind) {
+  const list = ((kind === 'vaccineTypes' ? C.vaccineTypes : C.treatmentTypes) || []).slice();
+  const groups = {};
+  list.forEach(r => { const k = libNormName(r.name); if (!k) return; (groups[k] = groups[k] || []).push(r); });
+  const removals = [];
+  Object.values(groups).forEach(g => {
+    if (g.length < 2) return;
+    const sorted = g.slice().sort((a, b) => libScore(b) - libScore(a) || (b.id || 0) - (a.id || 0));
+    removals.push({ keep: sorted[0], drop: sorted.slice(1) });
+  });
+  const dropCount = removals.reduce((s, r) => s + r.drop.length, 0);
+  if (!dropCount) { toast('لا يوجد تكرار'); return; }
+  const html = removals.map(r => `<div style="padding:6px 0;border-bottom:1px solid #eee">
+      <div class="li-sub" style="color:var(--green)">✅ يبقى: ${esc(r.keep.name)}</div>
+      <div class="li-sub" style="color:#c62828">🗑️ يُحذف: ${r.drop.map(d => esc(d.name)).join('، ')}</div></div>`).join('');
+  openModal(`كشف التكرار (${dropCount})`, `<div class="muted" style="margin-bottom:6px">سيُبقى الإدخال الأكمل بياناتٍ، ويُنقل المكرر إلى سلة المحذوفات (يمكن استعادته).</div>${html}<button class="btn danger" id="dedup_go" style="margin-top:8px">حذف المكرر (${dropCount})</button>`, () => {
+    document.getElementById('dedup_go').addEventListener('click', async () => {
+      const ok = await guard(async () => { for (const r of removals) for (const d of r.drop) await dbDelete(kind, d.id); });
+      if (ok) { closeModal(); toast(`حُذف ${dropCount} مكرر`); await loadAll(); (kind === 'vaccineTypes' ? screenVaccineTypes : screenTreatmentTypes)(); }
+    });
+  });
+}
 async function importTreatmentLib() {
   const have = new Set((C.treatmentTypes || []).map(t => (t.name || '').trim()));
   const rows = treatmentRowsFromLib().filter(r => !have.has(r.name.trim()));
@@ -1162,7 +1204,7 @@ function speciesLabel(arr) { return (Array.isArray(arr) && arr.length) ? arr.map
 function screenVaccineTypes() {
   if (!can('vaccines', 'view')) { view().innerHTML = noPerm(); return; }
   const list = C.vaccineTypes.slice().sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-  const bar = `<div class="card" style="background:#fff8e1"><div class="li-sub">${LIB_DISCLAIMER}</div></div><div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px"><button class="btn sm outline" id="vt_plan">🗓️ برنامج التطعيم الموصى به</button>${can('vaccines', 'edit') ? '<button class="btn sm outline" id="vt_import">📚 استيراد المكتبة الموصى بها</button>' : ''}</div>`;
+  const bar = `<div class="card" style="background:#fff8e1"><div class="li-sub">${LIB_DISCLAIMER}</div></div><div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px"><button class="btn sm outline" id="vt_plan">🗓️ برنامج التطعيم الموصى به</button>${can('vaccines', 'edit') ? '<button class="btn sm outline" id="vt_import">📚 استيراد المكتبة الموصى بها</button><button class="btn sm outline" id="vt_dedup">🧹 كشف وحذف المكرر</button>' : ''}</div>`;
   view().innerHTML = bar + (list.length ? list.map(v => `<div class="card">
       <div class="li-title">${esc(v.name)}</div>
       <div class="li-sub">نوع البهيمة: ${esc(speciesLabel(v.species))}</div>
@@ -1177,6 +1219,7 @@ function screenVaccineTypes() {
     </div>`).join('') : '<div class="center-empty">عرّف أنواع التطعيمات مرة واحدة.</div>');
   { const p = document.getElementById('vt_plan'); if (p) p.addEventListener('click', () => setHash('#/vaccine-plan')); }
   { const im = document.getElementById('vt_import'); if (im) im.addEventListener('click', importVaccineLib); }
+  { const dd = document.getElementById('vt_dedup'); if (dd) dd.addEventListener('click', () => dedupeLibrary('vaccineTypes')); }
   view().querySelectorAll('[data-edit]').forEach(b => b.addEventListener('click', () => vaccineTypeModal(C.vaccineTypes.find(v => String(v.id) === b.dataset.edit))));
   view().querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', async () => {
     if (!await confirm2('حذف نوع التطعيم؟ سينتقل إلى سلة المحذوفات.')) return;
@@ -1219,7 +1262,7 @@ function screenTreatmentTypes() {
     : `${t.withdrawal_days || 0} يوم`;
   view().innerHTML = `<div class="card" style="background:#fff8e1"><div class="li-sub">${LIB_DISCLAIMER}</div></div>`
     + `<div class="muted" style="margin-bottom:8px">عرّف العلاجات المتكررة مرة واحدة لاستخدامها بسرعة عند تسجيل علاج.</div>`
-    + `${can('treatments', 'edit') ? '<div style="margin-bottom:8px"><button class="btn sm outline" id="tt_import">📚 استيراد المكتبة الموصى بها</button></div>' : ''}`
+    + `${can('treatments', 'edit') ? '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px"><button class="btn sm outline" id="tt_import">📚 استيراد المكتبة الموصى بها</button><button class="btn sm outline" id="tt_dedup">🧹 كشف وحذف المكرر</button></div>' : ''}`
     + (list.length ? list.map(t => `<div class="card">
       <div class="li-title">${esc(t.name)} <span class="muted" style="font-weight:400">${t.form ? '• ' + arOf(TREAT_FORM, t.form) : ''}</span></div>
       ${t.dose ? `<div class="li-sub">الجرعة: ${esc(t.dose)}</div>` : ''}
@@ -1232,6 +1275,7 @@ function screenTreatmentTypes() {
       ${can('treatments', 'edit') ? `<div class="btn-row" style="margin-top:6px"><button class="btn sm outline" data-edit="${t.id}">تعديل</button><button class="btn sm danger" data-del="${t.id}">حذف</button></div>` : ''}
     </div>`).join('') : '<div class="center-empty">لا توجد أنواع علاج — أضِف نوعاً.</div>');
   { const im = document.getElementById('tt_import'); if (im) im.addEventListener('click', importTreatmentLib); }
+  { const dd = document.getElementById('tt_dedup'); if (dd) dd.addEventListener('click', () => dedupeLibrary('treatmentTypes')); }
   view().querySelectorAll('[data-edit]').forEach(b => b.addEventListener('click', () => treatmentTypeModal(C.treatmentTypes.find(t => String(t.id) === b.dataset.edit))));
   view().querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', async () => {
     if (!await confirm2('حذف نوع العلاج؟ سينتقل إلى سلة المحذوفات.')) return;
