@@ -6,7 +6,7 @@ import sharp from 'sharp';
 
 const GREEN = { r: 0x2e, g: 0x7d, b: 0x32, alpha: 1 };
 const CAMEL = 'branding/camel.png';      // جمل مقصوص (لشاشة البداية)
-const PHOTO = 'branding/app-photo.png';  // صورة الأيقونة الكاملة بخلفيتها
+const PHOTO = 'branding/app-photo-titled.png';  // صورة الأيقونة الكاملة بخلفيتها مع اسم «حلالي»
 mkdirSync('assets', { recursive: true });
 
 const solid = (size, color) => sharp({ create: { width: size, height: size, channels: 4, background: color } });
