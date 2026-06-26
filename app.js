@@ -182,8 +182,9 @@ async function loadAll() {
     if (C.types.length) TYPES = C.types.slice().sort((a, b) => (a.sort || 0) - (b.sort || 0)).map(t => ({ k: t.key, ar: t.ar, gest: t.gest, puberty: t.puberty, weaning: t.weaning }));
   } catch (e) { /* تجاهل */ }
   await autoSeedTypes();      // تعبئة أنواع الحلال الافتراضية لتصبح قابلة للتعديل (مرة واحدة)
-  await autoSeedVaccines();   // تعبئة أولية لأنواع التطعيمات الموصى بها (مرة واحدة) في القاعدة المشتركة
-  await autoSeedTreatments(); // تعبئة أولية لأنواع العلاج الموصى بها (مرة واحدة) في القاعدة المشتركة
+  await autoSeedVaccines();   // تعبئة أولية لأنواع التطعيمات الموصى بها (مرة واحدة) — أي تثبيت جديد
+  await autoSeedTreatments(); // تعبئة أولية لأنواع العلاج الموصى بها (مرة واحدة) — أي تثبيت جديد
+  await autoUpgradeLibrary(); // إيصال أي تحديث للمكتبة للأجهزة المُحدّثة تلقائياً (إضافة الناقص فقط)
   // النصائح والمعلومات (محتوى عام يديره مدير النظام)
   try {
     const tp = await sb.from('mrahi_tips').select('*');
@@ -217,6 +218,7 @@ const SMALL_RUM = ['نعيم', 'حري', 'نجد', 'غنم', 'ماعز'];       
 const ALL_LIVE = ['إبل', 'نعيم', 'حري', 'نجد', 'غنم', 'ماعز', 'بقر'];   // كل الأنواع
 const SR_CATTLE = SMALL_RUM.concat(['بقر']);                            // أغنام/ماعز + بقر
 const VAC_NOTE = 'استرشادي — راجع نشرة المنتج والطبيب البيطري';
+const LIB_VERSION = 2;   // ارفعه عند تحديث مكتبة التطعيمات/الأدوية ليصل الجديد تلقائياً للأجهزة المُحدّثة
 const LIB_DISCLAIMER = 'ℹ️ بيانات استرشادية من مصادر عامة (WOAH/FAO/FARAD/نشرات الشركات). نشرة المنتج المُستخدَم هي المرجع القانوني، والاستخدام في الماعز/الإبل غالباً خارج التسمية فتُمدَّد مدة التحريم — راجع الطبيب البيطري.';
 // مكتبة التطعيمات المُسندة (WOAH/OIE، FAO، نشرات MSD/Ceva، Merck) — تُبذَر مرة واحدة وتُتاح بزر «استيراد المكتبة».
 // كل عنصر: { name, species(عربية), usage(الأمراض), age(العمر/المنشّطة/التكرار), valid(أيام الحماية), milk, meat, route, source }
@@ -368,6 +370,22 @@ async function autoSeedTreatments() {
   try { localStorage.setItem('mrahi_treatment_types_seeded', '1'); } catch (e) { /* تجاهل */ }
   const r = await sb.from(TABLES.treatmentTypes).select('*');
   C.treatmentTypes = r.error ? C.treatmentTypes : (r.data || []);
+}
+// ترقية المكتبة تلقائياً: عند رفع LIB_VERSION تُضاف الإدخالات الناقصة فقط (لا تمسّ ما عدّله المستخدم)
+async function autoUpgradeLibrary() {
+  let cur = 0; try { cur = parseInt(localStorage.getItem('mrahi_lib_version') || '0', 10) || 0; } catch (e) { /* تجاهل */ }
+  if (cur >= LIB_VERSION) return;
+  try {
+    const haveV = new Set((C.vaccineTypes || []).map(v => (v.name || '').trim()));
+    const addV = vaccineRowsFromLib().filter(r => !haveV.has(r.name.trim()));
+    if (addV.length) { const { error } = await sb.from(TABLES.vaccineTypes).insert(addV); if (error) return; }
+    const haveT = new Set((C.treatmentTypes || []).map(t => (t.name || '').trim()));
+    const addT = treatmentRowsFromLib().filter(r => !haveT.has(r.name.trim()));
+    if (addT.length) { const { error } = await sb.from(TABLES.treatmentTypes).insert(addT); if (error) return; }
+  } catch (e) { return; }   // إن فشل (قاعدة غير جاهزة) يُعاد في التحميل التالي
+  try { localStorage.setItem('mrahi_lib_version', String(LIB_VERSION)); } catch (e) { /* تجاهل */ }
+  try { const rv = await sb.from(TABLES.vaccineTypes).select('*'); if (!rv.error) C.vaccineTypes = rv.data || []; } catch (e) { /* تجاهل */ }
+  try { const rt = await sb.from(TABLES.treatmentTypes).select('*'); if (!rt.error) C.treatmentTypes = rt.data || []; } catch (e) { /* تجاهل */ }
 }
 async function loadSignupOpen() {
   try {
