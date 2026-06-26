@@ -15,7 +15,9 @@ body {
 
 /* App bar */
 .appbar {
-  position: sticky; top: 0; z-index: 20; background: var(--green); color: #fff;
+  position: sticky; top: 0; z-index: 20; color: #fff;
+  /* تدرّج مستوحى من ألوان الأيقونة: سماء زرقاء ← رمال صحراوية */
+  background: linear-gradient(135deg, #557a97 0%, #7d6a4d 55%, #8a6a44 100%);
   display: flex; align-items: center; gap: 8px;
   padding: 14px 14px; padding-top: calc(14px + env(safe-area-inset-top)); box-shadow: var(--shadow);
 }
