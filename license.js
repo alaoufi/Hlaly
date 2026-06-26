@@ -1,11 +1,11 @@
-/* مراح — التحقّق من ترخيص التفعيل (Ed25519، مطابق لآلية mdk_keygen).
+/* حلالي — التحقّق من ترخيص التفعيل (Ed25519، مطابق لآلية mdk_keygen).
    التطبيق يحمل المفتاح العامّ فقط ويتحقّق محلياً؛ البذرة السرّية تبقى في الـkeygen.
    النصّ المُوقَّع: "MRHL1|<معرّف الجهاز>|<المدّة بالأيام>". المدّة 0 = ترخيص دائم.
    يتطلّب تحميل nacl.min.js (tweetnacl) قبله. يعمل في تطبيق الجوال فقط. */
 (function () {
   'use strict';
-  var PUB_B64 = 'q6t0BfdSs/AF9EAHkRAwAoaqRwHFp7m052uCRxlwKw4=';   // المفتاح العامّ لمراح (عامّ — آمن)
-  var PREFIX = 'MRHL1';                                            // بادئة مراح (تطابق الـkeygen)
+  var PUB_B64 = 'q6t0BfdSs/AF9EAHkRAwAoaqRwHFp7m052uCRxlwKw4=';   // المفتاح العامّ لحلالي (عامّ — آمن)
+  var PREFIX = 'MRHL1';                                            // بادئة حلالي (تطابق الـkeygen)
   var B32 = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
   function b32e(bytes) { var bits = 0, v = 0, o = ''; for (var i = 0; i < bytes.length; i++) { v = (v << 8) | bytes[i]; bits += 8; while (bits >= 5) { o += B32[(v >>> (bits - 5)) & 31]; bits -= 5; } v &= (1 << bits) - 1; } if (bits > 0) o += B32[(v << (5 - bits)) & 31]; return o; }

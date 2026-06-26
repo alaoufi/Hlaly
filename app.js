@@ -1,4 +1,4 @@
-/* مراح — تطبيق ويب متعدد المستخدمين (Supabase) — مزرعة واحدة مشتركة + صلاحيات تفصيلية */
+/* حلالي — تطبيق ويب متعدد المستخدمين (Supabase) — مزرعة واحدة مشتركة + صلاحيات تفصيلية */
 'use strict';
 
 /* ===== مسميات ===== */
@@ -150,7 +150,7 @@ const TABLES = {
 };
 function can(mod, act) { return !!(me && me.is_active && (me.role === 'admin' || (me.perms && me.perms[mod] && me.perms[mod][act]))); }
 const isAdmin = () => !!(me && me.role === 'admin' && me.is_active);
-// مدير النظام: صلاحية منفصلة عن إدارة المراح، تتحكّم بالمحتوى العام (النصائح والمعلومات)
+// مدير النظام: صلاحية منفصلة عن إدارة الحظيرة، تتحكّم بالمحتوى العام (النصائح والمعلومات)
 const isSys = () => !!(me && me.is_active && me.is_sysadmin);
 // صف حلال يخصّني؟ (التطبيق يعرض حلالي فقط؛ المدير يرى الكل؛ الحلال المُشارَك يُعرض في شاشة مستقلة)
 function mineHerdRow(r) { return !!(me && (me.role === 'admin' || r.owner_id === me.user_id)); }
@@ -502,7 +502,7 @@ function confirm2(msg, opts = {}) {
 function setHash(h) { location.hash = h; }
 function goBack() { history.length > 1 ? history.back() : setHash('#/home'); }
 const ROUTES = {
-  home: { t: 'مراح', back: false, fn: screenHome },
+  home: { t: 'حلالي', back: false, fn: screenHome },
   animals: { t: 'الحلال', back: false, fn: screenAnimals },
   alerts: { t: 'التنبيهات', back: false, fn: screenAlerts },
   more: { t: 'المزيد', back: false, fn: screenMore },
@@ -579,12 +579,12 @@ function screenHome() {
   const hasHerd = can('animals', 'view');
   const roleLabel = isAdmin() ? 'مدير' : (me.account_type === 'visitor' ? 'زائر' : 'صاحب حلال');
   view().innerHTML = `
-    <div class="title-lg">مراح</div>
+    <div class="title-lg">حلالي</div>
     <div class="muted">أهلاً ${esc(me.full_name || '')} • ${roleLabel}</div>
     ${tipsHomeCards()}
     ${hasHerd ? `<div class="muted" style="font-size:.8rem;margin:2px 0 4px">اضغط أي بطاقة لعرض محتواها</div>
     <div class="stats">
-      <div class="stat green" data-sfilter="present" style="cursor:pointer"><div class="n">${present}</div><div class="l">في المراح</div></div>
+      <div class="stat green" data-sfilter="present" style="cursor:pointer"><div class="n">${present}</div><div class="l">في الحظيرة</div></div>
       <div class="stat amber" data-go="#/alerts" style="cursor:pointer"><div class="n">${births.length}</div><div class="l">ولادات قادمة</div></div>
       <div class="stat blue" data-go="#/alerts" style="cursor:pointer"><div class="n">${vaccs.length}</div><div class="l">تطعيمات قادمة</div></div>
       <div class="stat red" data-go="#/alerts" style="cursor:pointer"><div class="n">${treats.length}</div><div class="l">علاجات حالية</div></div>
@@ -609,7 +609,7 @@ function screenHome() {
     ${can('treatments', 'view') ? `<div class="card"><h3>العلاجات الحالية (تحت التحريم)</h3>${treats.length ? treats.map(t => row(display(animalById(t.animal_id)), `${esc(t.med_name)} • ينتهي ${fmtDate(t.withdrawal_end)}`)).join('') : noItem()}</div>` : ''}`;
   { const gf = view().querySelector('[data-go-forum]'); if (gf) gf.addEventListener('click', () => setHash('#/forum')); }
   view().querySelectorAll('[data-go]').forEach(c => c.addEventListener('click', () => setHash(c.dataset.go)));
-  // بطاقات الحالة: تفتح قائمة الحلال مُرشَّحة (في المراح/مباعة/نافقة)
+  // بطاقات الحالة: تفتح قائمة الحلال مُرشَّحة (في الحظيرة/مباعة/نافقة)
   view().querySelectorAll('[data-sfilter]').forEach(c => c.addEventListener('click', () => { animalFilter = ''; animalSourceFilter = ''; animalSexFilter = ''; animalStatusFilter = c.dataset.sfilter; setHash('#/animals'); }));
   // بطاقات المواليد: تفتح المواليد (مصدر=ولادة) مُرشَّحة بالجنس
   view().querySelectorAll('[data-born]').forEach(c => c.addEventListener('click', () => { animalFilter = ''; animalStatusFilter = 'present'; animalSourceFilter = 'born'; animalSexFilter = c.dataset.born === 'all' ? '' : c.dataset.born; setHash('#/animals'); }));
@@ -677,7 +677,7 @@ let animalFilter = '';
 let animalStatusFilter = 'present';
 let animalSourceFilter = '';   // '' | 'born' | 'purchased'
 let animalSexFilter = '';      // '' | 'male' | 'female'
-// آخر «رقم مراح» مُدخَل — يُثبَّت تلقائياً في إضافة البهيمة التالية حتى يُغيَّر (إدخال أسرع للدفعات)
+// آخر «رقم حظيرة» مُدخَل — يُثبَّت تلقائياً في إضافة البهيمة التالية حتى يُغيَّر (إدخال أسرع للدفعات)
 let lastPen = (() => { try { return localStorage.getItem('mrahi_last_pen') || ''; } catch (e) { return ''; } })();
 // آخر بهيمة مُدخَلة (لِزر «نسخ من آخر إدخال» — تسريع الإدخال المتكرّر)
 let lastAnimal = (() => { try { return JSON.parse(localStorage.getItem('mrahi_last_animal') || 'null'); } catch (e) { return null; } })();
@@ -688,7 +688,7 @@ function animalCard(a) {
   return `<div class="card click" data-aid="${a.id}">
     <div class="li-title">${display(a)}</div>
     <div class="li-sub">${arOf(TYPES, a.type)} • ${arOf(SEX, a.sex)} • <span class="badge ${st}">${arOf(STATUS, a.status)}</span></div>
-    ${a.pen ? `<div class="li-sub">المراح: ${esc(a.pen)}</div>` : ''}
+    ${a.pen ? `<div class="li-sub">الحظيرة: ${esc(a.pen)}</div>` : ''}
     ${off ? `<div class="li-sub link" data-off="${a.id}">👶 المواليد: ${off} — عرض</div>` : ''}
     ${mother ? `<div class="li-sub link" data-momopen="${a.mother_id}">🤱 الأم: ${display(mother)}</div>` : ''}</div>`;
 }
@@ -709,7 +709,7 @@ function offspringListModal(motherId) {
 function screenAnimals() {
   if (!can('animals', 'view')) { view().innerHTML = noPerm(); return; }
   const chips = `<div class="chips"><span class="chip ${!animalFilter ? 'active' : ''}" data-f="">الكل</span>${TYPES.map(t => `<span class="chip ${animalFilter === t.k ? 'active' : ''}" data-f="${t.k}">${t.ar}</span>`).join('')}</div>`;
-  const stChips = `<div class="chips"><span class="chip ${animalStatusFilter === 'present' ? 'active' : ''}" data-s="present">في المراح</span><span class="chip ${animalStatusFilter === 'sold' ? 'active' : ''}" data-s="sold">مباعة</span><span class="chip ${animalStatusFilter === 'dead' ? 'active' : ''}" data-s="dead">نافقة</span><span class="chip ${!animalStatusFilter ? 'active' : ''}" data-s="">الكل</span></div>`;
+  const stChips = `<div class="chips"><span class="chip ${animalStatusFilter === 'present' ? 'active' : ''}" data-s="present">في الحظيرة</span><span class="chip ${animalStatusFilter === 'sold' ? 'active' : ''}" data-s="sold">مباعة</span><span class="chip ${animalStatusFilter === 'dead' ? 'active' : ''}" data-s="dead">نافقة</span><span class="chip ${!animalStatusFilter ? 'active' : ''}" data-s="">الكل</span></div>`;
   const srcChips = `<div class="chips"><span class="chip ${!animalSourceFilter ? 'active' : ''}" data-src="">كل المصادر</span><span class="chip ${animalSourceFilter === 'born' ? 'active' : ''}" data-src="born">👶 مواليد</span><span class="chip ${animalSourceFilter === 'purchased' ? 'active' : ''}" data-src="purchased">🛒 مشترى</span></div>`;
   const sexBanner = animalSexFilter ? `<div class="card hl" style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px"><span>الجنس: ${arOf(SEX, animalSexFilter)}</span><button class="btn sm outline" id="clrSex">✕ إلغاء</button></div>` : '';
   const list = C.animals.filter(a => (!animalFilter || a.type === animalFilter) && (!animalStatusFilter || a.status === animalStatusFilter) && (!animalSourceFilter || (a.source || 'purchased') === animalSourceFilter) && (!animalSexFilter || a.sex === animalSexFilter)).sort((a, b) => b.id - a.id);
@@ -755,7 +755,7 @@ function screenAnimalEdit(arg) {
     <div class="card"><h3>البيانات الأساسية</h3>
       ${a ? `<div class="muted" style="margin-bottom:8px">🔒 الرقم الداخلي ${internalNo(a)} — ثابت لا يتغيّر (هوية النظام).</div>` : '<div class="muted" style="margin-bottom:8px">🔒 سيُمنح رقم داخلي ثابت تلقائياً (لا يتغيّر مهما تغيّر الوسم).</div>'}
       ${fSelect('نوع الحلال', 'f_type', TYPES, a ? a.type : (animalFilter || 'sheep'))}
-      ${fInput('رقم المراح (الحظيرة)', 'f_pen', a ? a.pen : lastPen)}
+      ${fInput('رقم الحظيرة', 'f_pen', a ? a.pen : lastPen)}
       ${fSelect('نوع المعرّف الخارجي', 'f_kind', IDKIND, a ? a.idkind : 'number')}
       ${fInput('المعرّف الخارجي / الوسم (اختياري — قد يتغيّر أو يسقط)', 'f_code', a && a.code)}
       ${fSelect('لون الوسم', 'f_tagcolor', strOpts(tagColors()), a ? (a.tag_color || '') : '')}
@@ -797,7 +797,7 @@ function screenAnimalEdit(arg) {
     if (a && !await confirm2('حفظ التعديل على هذه البهيمة؟ النسخة السابقة ستبقى في سلة المحذوفات.')) return;
     const ok = await guard(async () => { if (a) await dbUpdate('animals', id, obj); else await dbInsert('animals', obj); });
     if (ok) {
-      // ثبّت آخر مراح وآخر بهيمة للإضافة التالية (للبهائم الجديدة) — تسريع الإدخال المتكرّر
+      // ثبّت آخر حظيرة وآخر بهيمة للإضافة التالية (للبهائم الجديدة) — تسريع الإدخال المتكرّر
       if (!a) {
         lastPen = obj.pen || ''; try { localStorage.setItem('mrahi_last_pen', lastPen); } catch (e) {}
         lastAnimal = { type: obj.type, pen: obj.pen, idkind: obj.idkind, sex: obj.sex, source: obj.source, color: obj.color, tag_color: obj.tag_color, tag_shape: obj.tag_shape, father_name: obj.father_name };
@@ -846,7 +846,7 @@ function screenAnimalDetail(arg) {
       ${(a.tag_color || a.tag_shape) ? row('🏷️ لون/شكل الوسم', [a.tag_color ? esc(a.tag_color) + colorDot(a.tag_color) : '', a.tag_shape ? esc(a.tag_shape) : ''].filter(Boolean).join(' • ')) : ''}
       ${a.name ? row('الاسم', esc(a.name)) : ''}
       ${row('الجنس', arOf(SEX, a.sex))}
-      ${row('المراح', esc(a.pen) || '—')}
+      ${row('الحظيرة', esc(a.pen) || '—')}
       ${row('المصدر', arOf(SOURCE, a.source || 'purchased'))}
       ${row('تاريخ الميلاد', fmtDate(a.birth))}
       ${a.birth ? row('🎂 العمر', ageText(a.birth)) : ''}
@@ -859,7 +859,7 @@ function screenAnimalDetail(arg) {
       ${a.status === 'dead' ? row('تاريخ النفوق', fmtDate(a.dead_date)) : ''}
       ${can('animals', 'edit') ? `<div class="btn-row" style="margin-top:8px">${a.status === 'present'
         ? `<button class="btn sm" id="qSell">💰 تسجيل بيع</button><button class="btn sm danger" id="qDead">📉 تسجيل نفوق</button>`
-        : `<button class="btn sm outline" id="qBack">↩ إعادة للمراح</button>`}</div>` : ''}</div>
+        : `<button class="btn sm outline" id="qBack">↩ إعادة للحظيرة</button>`}</div>` : ''}</div>
     <div class="card"><h3>النسب</h3>
       ${row('الأم', mother ? display(mother) : '—')}
       ${row('الأب / الفحل', esc(a.father_name) || '—')}
@@ -897,7 +897,7 @@ function addOffspringModal(mother) {
     ${fSelect('الجنس', 'of_sex', SEX, 'female')}
     ${fInput('العدد', 'of_count', '', 'number', 'min="1" inputmode="numeric"')}
     ${fInput('تاريخ الميلاد', 'of_birth', todayStr(), 'date')}
-    ${fInput('رقم المراح', 'of_pen', mother.pen || lastPen)}
+    ${fInput('رقم الحظيرة', 'of_pen', mother.pen || lastPen)}
     <div class="chips"><span class="chip active" data-om="none">⭕ بدون ترقيم</span><span class="chip" data-om="num">🔢 بترقيم</span></div>
     <div id="ofNone" class="muted" style="font-size:.82rem">تُضاف بلا رقم — لكلٍّ رقم داخلي ثابت. رقّمها لاحقاً عند الكبر.</div>
     <div id="ofNum" class="hidden">
@@ -1020,10 +1020,10 @@ function screenPregnancies() {
   view().querySelectorAll('[data-birth]').forEach(b => b.addEventListener('click', () => openBirthModal(C.pregnancies.find(x => x.id === parseInt(b.dataset.birth, 10)))));
 }
 // بدء/تعديل متابعة حمل بالسونار — حفظ تلقائي فور كتابة عمر الحمل.
-// مرشّحات: النوع والمراح. الأرقام تصاعدياً. كل صف: الرقم + عمر الحمل + الولادة المتوقّعة.
+// مرشّحات: النوع والحظيرة. الأرقام تصاعدياً. كل صف: الرقم + عمر الحمل + الولادة المتوقّعة.
 function startPregBulkModal() {
   const all = C.animals.filter(a => a.status === 'present' && a.sex === 'female');
-  if (!all.length) { toast('لا توجد إناث في المراح'); return; }
+  if (!all.length) { toast('لا توجد إناث في الحظيرة'); return; }
   const pens = [...new Set(all.map(a => a.pen || '').filter(Boolean))].sort();
   const typesUsed = TYPES.filter(t => all.some(a => a.type === t.k));
   let typeF = '', penF = '';
@@ -1066,7 +1066,7 @@ function startPregBulkModal() {
     applyFilter(); updCount();
   };
   const typeChips = typesUsed.length > 1 ? `النوع: <div class="chips"><span class="chip active" data-typef="">الكل</span>${typesUsed.map(t => `<span class="chip" data-typef="${t.k}">${t.ar}</span>`).join('')}</div>` : '';
-  const penChips = pens.length > 1 ? `المراح: <div class="chips"><span class="chip active" data-penf="">الكل</span>${pens.map(p => `<span class="chip" data-penf="${esc(p)}">${esc(p)}</span>`).join('')}</div>` : '';
+  const penChips = pens.length > 1 ? `الحظيرة: <div class="chips"><span class="chip active" data-penf="">الكل</span>${pens.map(p => `<span class="chip" data-penf="${esc(p)}">${esc(p)}</span>`).join('')}</div>` : '';
   openModal('🔊 متابعة الحمل بالسونار', `
     ${fInput('تاريخ السونار', 'pp_date', todayStr(), 'date')}
     ${typeChips}
@@ -1461,7 +1461,7 @@ function quickSell(a) {
     <button class="btn" id="qs_save">حفظ البيع</button>`, () => {
     document.getElementById('qs_save').addEventListener('click', async () => {
       const wd = withdrawalActiveOn(a.id, val('qs_date') || todayStr());
-      const msg = wd ? `⚠️ هذه البهيمة تحت تحريم دواء حتى ${fmtDate(wd)} (لا يُنصح ببيعها/ذبحها قبله). تسجيل البيع وإخراجها من المراح؟` : 'تسجيل بيع هذه البهيمة وإخراجها من المراح؟';
+      const msg = wd ? `⚠️ هذه البهيمة تحت تحريم دواء حتى ${fmtDate(wd)} (لا يُنصح ببيعها/ذبحها قبله). تسجيل البيع وإخراجها من الحظيرة؟` : 'تسجيل بيع هذه البهيمة وإخراجها من الحظيرة؟';
       if (!await confirm2(msg, wd ? { danger: true } : {})) return;
       const price = val('qs_price') !== '' ? parseFloat(val('qs_price')) : null;
       const ok = await guard(async () => { await dbUpdate('animals', a.id, { status: 'sold', sale_date: val('qs_date') || null, sale_price: price, dead_date: null }); });
@@ -1474,16 +1474,16 @@ function quickDead(a) {
     ${fInput('تاريخ النفوق', 'qd_date', todayStr(), 'date')}
     <button class="btn danger" id="qd_save">حفظ النفوق</button>`, () => {
     document.getElementById('qd_save').addEventListener('click', async () => {
-      if (!await confirm2('تسجيل نفوق هذه البهيمة وإخراجها من المراح؟')) return;
+      if (!await confirm2('تسجيل نفوق هذه البهيمة وإخراجها من الحظيرة؟')) return;
       const ok = await guard(async () => { await dbUpdate('animals', a.id, { status: 'dead', dead_date: val('qd_date') || null, sale_date: null, sale_price: null }); });
       if (ok) { closeModal(); toast('تم تسجيل النفوق'); await loadAll(); screenAnimalDetail(String(a.id)); }
     });
   });
 }
 async function quickRevert(a) {
-  if (!await confirm2('إعادة هذه البهيمة إلى المراح؟ ستُلغى بيانات البيع/النفوق.')) return;
+  if (!await confirm2('إعادة هذه البهيمة إلى الحظيرة؟ ستُلغى بيانات البيع/النفوق.')) return;
   const ok = await guard(async () => { await dbUpdate('animals', a.id, { status: 'present', sale_date: null, sale_price: null, dead_date: null }); });
-  if (ok) { toast('أُعيدت للمراح'); await loadAll(); screenAnimalDetail(String(a.id)); }
+  if (ok) { toast('أُعيدت للحظيرة'); await loadAll(); screenAnimalDetail(String(a.id)); }
 }
 
 /* ===== عمليات بالجملة (قائمة) ===== */
@@ -1523,7 +1523,7 @@ function renderBulkBody() {
   if (bulkOp === 'buy') {
     body.innerHTML = `<div class="card"><h3>حقول مشتركة لكل الرؤوس</h3>
       ${fSelect('نوع الحلال', 'bk_type', TYPES, animalFilter || 'sheep')}
-      ${fInput('رقم المراح (الحظيرة)', 'bk_pen', lastPen)}
+      ${fInput('رقم الحظيرة', 'bk_pen', lastPen)}
       ${fSelect('المصدر', 'bk_source', SOURCE, 'born')}
       ${fInput('التاريخ (شراء/ميلاد)', 'bk_date', todayStr(), 'date')}
       ${fInput('اللون (اختياري)', 'bk_color', '')}
@@ -1634,7 +1634,7 @@ function renderBulkBody() {
   const listHtml = cands.length ? cands.map(a => `<label class="bulk-row"><input type="checkbox" data-sel="${a.id}" ${bulkSel.has(a.id) ? 'checked' : ''}><span>${display(a)} <span class="muted">${arOf(TYPES, a.type)}${a.pen ? ' • ' + esc(a.pen) : ''}</span></span></label>`).join('') : '<div class="muted">لا توجد بهائم مطابقة.</div>';
   body.innerHTML = `<div class="card"><h3>بيانات العملية</h3>${form}</div>
     <div class="card"><div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin:0">اختر البهائم</h3>${cands.length ? '<button class="btn sm outline" id="bk_all">تحديد/إلغاء الكل</button>' : ''}</div>
-      ${cands.length ? `${fInput('🔍 بحث (رقم/مراح)', 'bk_search', '')}` : ''}
+      ${cands.length ? `${fInput('🔍 بحث (رقم/حظيرة)', 'bk_search', '')}` : ''}
       <div class="muted" id="bk_count" style="margin:4px 0">المحدد: ${bulkSel.size}</div><div id="bk_list">${listHtml}</div></div>
     <button class="btn" id="bk_apply">تطبيق على المحدد (${bulkSel.size})</button>`;
   const refresh = () => { document.getElementById('bk_count').textContent = 'المحدد: ' + bulkSel.size; document.getElementById('bk_apply').textContent = 'تطبيق على المحدد (' + bulkSel.size + ')'; };
@@ -1722,7 +1722,7 @@ function screenMore() {
   if (window.MRAH_APK && window.MrahiLicense) { const s = window.MrahiLicense.state(); if (s.state === 'active') licLine = `<div>🔐 الترخيص: ${s.permanent ? 'دائم' : 'متبقّ ' + s.daysLeft + ' يوم'}</div>`; }
   const footer = `<div class="muted" style="text-align:center;margin-top:18px;font-size:.85rem">
     <div style="font-weight:700;color:var(--green)">✨ التسهيل · الحفظ · التخطيط</div>
-    ${window.MRAH_LOCAL ? 'مراح — تطبيق محلّي • بياناتك على جهازك' : 'مراح — مزرعة مشتركة'}${ver}${licLine}</div>`;
+    ${window.MRAH_LOCAL ? 'حلالي — تطبيق محلّي • بياناتك على جهازك' : 'حلالي — مزرعة مشتركة'}${ver}${licLine}</div>`;
 
   view().innerHTML = topUpdate + cats.map(c => {
     const open = moreOpen.has(c.key);
@@ -1854,17 +1854,17 @@ function screenSharedHerd() {
   view().innerHTML = `
     <div class="ro-banner">👁 عرض فقط — حلال ${esc(ownerName)}</div>
     <div class="stats">
-      <div class="stat green"><div class="n">${present.length}</div><div class="l">في المراح</div></div>
+      <div class="stat green"><div class="n">${present.length}</div><div class="l">في الحظيرة</div></div>
       <div class="stat blue"><div class="n">${animals.length}</div><div class="l">الإجمالي</div></div>
     </div>
-    <div class="search"><input id="shq" placeholder="ابحث برقم/اسم/مراح"></div>
+    <div class="search"><input id="shq" placeholder="ابحث برقم/اسم/حظيرة"></div>
     <div class="card"><h3>الحلال (${present.length})</h3><div id="shlist"></div></div>`;
   const listEl = document.getElementById('shlist');
   const drawList = (term) => {
     let arr = present;
     if (term) { const t = term.toLowerCase(); arr = present.filter(a => [a.code, a.name, a.pen].some(x => (x || '').toLowerCase().includes(t))); }
     arr = arr.slice().sort((a, b) => b.id - a.id);
-    listEl.innerHTML = arr.length ? arr.map(a => `<div class="card click" data-sa="${a.id}"><div class="li-title">${display(a)}</div><div class="li-sub">${arOf(TYPES, a.type)} • ${arOf(SEX, a.sex)}${a.pen ? ' • المراح: ' + esc(a.pen) : ''}</div></div>`).join('') : noItem();
+    listEl.innerHTML = arr.length ? arr.map(a => `<div class="card click" data-sa="${a.id}"><div class="li-title">${display(a)}</div><div class="li-sub">${arOf(TYPES, a.type)} • ${arOf(SEX, a.sex)}${a.pen ? ' • الحظيرة: ' + esc(a.pen) : ''}</div></div>`).join('') : noItem();
     listEl.querySelectorAll('[data-sa]').forEach(c => c.addEventListener('click', () => sharedAnimalModal(parseInt(c.dataset.sa, 10), ownerId)));
   };
   drawList('');
@@ -2006,13 +2006,13 @@ function remap(obj, maps) {
 function stamp() { return new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-'); }
 async function shareOrDownload(filename, text, mime) {
   const blob = new Blob([text], { type: mime }); const file = new File([blob], filename, { type: mime });
-  if (navigator.canShare && navigator.canShare({ files: [file] })) { try { await navigator.share({ files: [file], title: 'نسخة احتياطية — مراح' }); return; } catch (e) {} }
+  if (navigator.canShare && navigator.canShare({ files: [file] })) { try { await navigator.share({ files: [file], title: 'نسخة احتياطية — حلالي' }); return; } catch (e) {} }
   const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = filename; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); toast('تم تنزيل الملف');
 }
 function exportJson() { const data = { exportedAt: new Date().toISOString(), animals: C.animals, matings: C.matings, pregnancies: C.pregnancies, births: C.births, vaccineTypes: C.vaccineTypes, vaccinations: C.vaccinations, treatments: C.treatments }; shareOrDownload('mrahi_backup_' + stamp() + '.json', JSON.stringify(data, null, 2), 'application/json'); }
 function exportCsv() {
   const cell = s => { s = String(s == null ? '' : s); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
-  const head = ['النوع', 'المراح', 'المعرف', 'نوع المعرف', 'الاسم', 'الجنس', 'المصدر', 'تاريخ الميلاد', 'اللون', 'الحالة', 'تاريخ البيع', 'سعر البيع', 'تاريخ النفوق', 'رقم الأم', 'اسم الأب', 'ملاحظات'];
+  const head = ['النوع', 'الحظيرة', 'المعرف', 'نوع المعرف', 'الاسم', 'الجنس', 'المصدر', 'تاريخ الميلاد', 'اللون', 'الحالة', 'تاريخ البيع', 'سعر البيع', 'تاريخ النفوق', 'رقم الأم', 'اسم الأب', 'ملاحظات'];
   const rows = C.animals.map(a => [arOf(TYPES, a.type), a.pen, a.code, arOf(IDKIND, a.idkind), a.name, arOf(SEX, a.sex), arOf(SOURCE, a.source || 'purchased'), a.birth, a.color, arOf(STATUS, a.status), a.sale_date || '', a.sale_price != null ? a.sale_price : '', a.dead_date || '', a.mother_id ? (animalById(a.mother_id) || {}).code || '' : '', a.father_name, a.notes].map(cell).join(','));
   shareOrDownload('mrahi_animals_' + stamp() + '.csv', '﻿' + head.join(',') + '\n' + rows.join('\n'), 'text/csv');
 }
@@ -2045,7 +2045,7 @@ function memberCard(m) {
   return `<div class="card">
     <div style="display:flex;justify-content:space-between;align-items:center">
       <div><div class="li-title">${esc(m.full_name || '—')}</div>
-        <div class="li-sub"><span class="badge ${m.role === 'admin' ? 'role' : ''}">${m.role === 'admin' ? 'مدير المراح' : (m.account_type === 'visitor' ? '👤 زائر' : '🐑 صاحب حلال')}</span>
+        <div class="li-sub"><span class="badge ${m.role === 'admin' ? 'role' : ''}">${m.role === 'admin' ? 'مدير الحظيرة' : (m.account_type === 'visitor' ? '👤 زائر' : '🐑 صاحب حلال')}</span>
         ${m.is_sysadmin ? '<span class="badge role">مدير النظام</span>' : ''}
         <span class="badge ${m.is_active ? '' : 'off'}">${m.is_active ? 'مفعّل' : 'موقوف'}</span>
         ${m.user_id === me.user_id ? '<span class="badge">أنت</span>' : ''}</div>
@@ -2183,9 +2183,9 @@ function renderInspect() {
     const boughtAll = present.filter(a => (a.source || 'purchased') === 'purchased');
     const bM = bornAll.filter(a => a.sex === 'male').length, bF = bornAll.filter(a => a.sex === 'female').length;
     const pM = boughtAll.filter(a => a.sex === 'male').length, pF = boughtAll.filter(a => a.sex === 'female').length;
-    const pens = {}; present.forEach(a => { const p = a.pen || '— بلا مراح'; pens[p] = (pens[p] || 0) + 1; });
+    const pens = {}; present.forEach(a => { const p = a.pen || '— بلا حظيرة'; pens[p] = (pens[p] || 0) + 1; });
     const penList = Object.entries(pens).sort((x, y) => y[1] - x[1]);
-    // توزيع الأعمار (في المراح، حسب الميلاد)
+    // توزيع الأعمار (في الحظيرة، حسب الميلاد)
     const withBirth = present.filter(a => a.birth);
     const noBirth = present.length - withBirth.length;
     const young = withBirth.filter(a => ageMonths(a.birth) < 6).length;
@@ -2204,23 +2204,23 @@ function renderInspect() {
     const underNow = present.filter(a => underSet.has(a.id)).length;
     body.innerHTML = `
       <div class="stats">
-        <div class="stat green"><div class="n">${present.length}</div><div class="l">في المراح</div></div>
+        <div class="stat green"><div class="n">${present.length}</div><div class="l">في الحظيرة</div></div>
         <div class="stat blue"><div class="n">${f}</div><div class="l">إناث</div></div>
         <div class="stat amber"><div class="n">${m}</div><div class="l">ذكور</div></div>
       </div>
       <div class="card"><h3>حسب النوع</h3>${byType.length ? byType.map(x => row(x.ar, x.n)).join('') : noItem()}</div>
-      <div class="card"><h3>👶 الإنتاج (مواليد) — في المراح</h3>${row('ذكور', bM)}${row('إناث', bF)}${row('المجموع', bM + bF)}</div>
-      <div class="card"><h3>🛒 المشترى — في المراح</h3>${row('ذكور', pM)}${row('إناث', pF)}${row('المجموع', pM + pF)}</div>
-      <div class="card"><h3>🎂 توزيع الأعمار (في المراح)</h3>${row('صغار (أقل من ٦ أشهر)', young)}${row('من ٦ لـ ١٢ شهر', sub)}${row('بالغة (سنة فأكثر)', adult)}${noBirth ? row('بلا تاريخ ميلاد', noBirth) : ''}</div>
+      <div class="card"><h3>👶 الإنتاج (مواليد) — في الحظيرة</h3>${row('ذكور', bM)}${row('إناث', bF)}${row('المجموع', bM + bF)}</div>
+      <div class="card"><h3>🛒 المشترى — في الحظيرة</h3>${row('ذكور', pM)}${row('إناث', pF)}${row('المجموع', pM + pF)}</div>
+      <div class="card"><h3>🎂 توزيع الأعمار (في الحظيرة)</h3>${row('صغار (أقل من ٦ أشهر)', young)}${row('من ٦ لـ ١٢ شهر', sub)}${row('بالغة (سنة فأكثر)', adult)}${noBirth ? row('بلا تاريخ ميلاد', noBirth) : ''}</div>
       <div class="card"><h3>📈 مؤشّرات الإنتاج</h3>${row('معدّل التوائم', twinRate + '%')}${row('متوسط المواليد لكل أم', avgOff)}${row('عدد الأمهات المنتِجة', damCount)}</div>
       <div class="card"><h3>⛔ تحت التحريم الآن</h3>${row('عدد البهائم', underNow)}</div>
-      <div class="card"><h3>الحالة (الكل)</h3>${row('في المراح', present.length)}${row('مباعة', sold)}${row('نافقة', dead)}${row('الإجمالي', A.length)}</div>
-      <div class="card"><h3>حسب المراح</h3>${penList.length ? penList.map(([p, n]) => row(p, n)).join('') : noItem()}</div>`;
+      <div class="card"><h3>الحالة (الكل)</h3>${row('في الحظيرة', present.length)}${row('مباعة', sold)}${row('نافقة', dead)}${row('الإجمالي', A.length)}</div>
+      <div class="card"><h3>حسب الحظيرة</h3>${penList.length ? penList.map(([p, n]) => row(p, n)).join('') : noItem()}</div>`;
     return;
   }
   if (inspectTab === 'index') {
     const arr = present.slice().sort((a, b) => { const x = codeNumOf(a), y = codeNumOf(b); if (x == null && y == null) return a.id - b.id; if (x == null) return 1; if (y == null) return -1; return x - y; });
-    body.innerHTML = `<div class="muted" style="margin:4px 0 8px">فهرس تسلسلي — ${arr.length} رأس في المراح</div>`
+    body.innerHTML = `<div class="muted" style="margin:4px 0 8px">فهرس تسلسلي — ${arr.length} رأس في الحظيرة</div>`
       + (arr.length ? arr.map((a, i) => `<div class="card click" data-aid="${a.id}"><div class="li-title">${i + 1}. ${display(a)} <span class="muted" style="font-weight:400">${internalNo(a)}</span></div><div class="li-sub">${arOf(TYPES, a.type)} • ${arOf(SEX, a.sex)}${a.pen ? ' • ' + esc(a.pen) : ''}</div></div>`).join('') : noItem());
     bindCards(body); return;
   }
@@ -2228,7 +2228,7 @@ function renderInspect() {
     const map = {}; present.filter(a => a.code).forEach(a => { (map[a.code] = map[a.code] || []).push(a); });
     const dups = Object.entries(map).filter(([, arr]) => arr.length > 1).sort((x, y) => y[1].length - x[1].length);
     body.innerHTML = dups.length
-      ? `<div class="muted" style="margin:4px 0 8px">أرقام يتشاركها أكثر من رأس في المراح — راجِعها.</div>` + dups.map(([code, arr]) => `<div class="card"><div class="li-title">⚠️ الرقم «${esc(code)}» مكرّر (${arr.length})</div>${arr.map(aMini).join('')}</div>`).join('')
+      ? `<div class="muted" style="margin:4px 0 8px">أرقام يتشاركها أكثر من رأس في الحظيرة — راجِعها.</div>` + dups.map(([code, arr]) => `<div class="card"><div class="li-title">⚠️ الرقم «${esc(code)}» مكرّر (${arr.length})</div>${arr.map(aMini).join('')}</div>`).join('')
       : '<div class="center-empty">لا يوجد تكرار في الأرقام ✅</div>';
     bindCards(body); return;
   }
@@ -2694,7 +2694,7 @@ async function screenForum() {
       <div class="fc-body"><div class="li-title">${esc(c.name)}</div><div class="li-sub">${esc(c.description || '')}</div></div>
       <div class="fc-count">${counts[c.id] || 0}</div>
     </div>`;
-  view().innerHTML = `<div class="muted" style="margin-bottom:8px">منتدى مراح — تبادل الخبرات والاستشارات بين الأعضاء.</div>`
+  view().innerHTML = `<div class="muted" style="margin-bottom:8px">منتدى حلالي — تبادل الخبرات والاستشارات بين الأعضاء.</div>`
     + (latest.length ? `<div class="card"><h3>أحدث المواضيع</h3>${latest.map(t => `<div class="forum-latest" data-topic="${t.id}"><div class="li-title sm">${t.is_pinned ? '📌 ' : ''}${esc(t.title)}</div><div class="li-sub">${esc(forumCatName(t.category_id))} • ${esc(t.author_name || 'عضو')}${modBadge(t.category_id, t.author_id)} • ${timeAgo(t.last_activity)}</div></div>`).join('')}</div>` : '')
     + `<div class="forum-section-h">الأقسام</div>`
     + (cats.length ? cats.map(catCard).join('') : '<div class="center-empty">لا توجد أقسام بعد.</div>');
@@ -3089,11 +3089,19 @@ function openModal(title, body, onMount) {
 }
 function closeModal() { document.getElementById('modalRoot').innerHTML = ''; }
 
+// عرض أيقونة التطبيق بحجمها الطبيعي (عند الضغط على الشعار في الهيدر)
+function showAppIcon() {
+  const root = document.getElementById('modalRoot');
+  const v = window.MRAH_VERSION ? '?v=' + encodeURIComponent(window.MRAH_VERSION) : '';
+  root.innerHTML = `<div class="modal-bg appicon-view"><img src="icon-512.png${v}" alt="حلالي"><div class="appicon-cap">حلالي</div></div>`;
+  root.querySelector('.appicon-view').addEventListener('click', closeModal);
+}
+
 const noPerm = () => '<div class="center-empty">ليست لديك صلاحية الوصول لهذا القسم.<br>راجع مدير النظام.</div>';
 
 /* ===== شاشة بانتظار التفعيل ===== */
 function renderPending() {
-  document.getElementById('screenTitle').textContent = 'مراح';
+  document.getElementById('screenTitle').textContent = 'حلالي';
   document.getElementById('backBtn').classList.add('hidden');
   document.getElementById('bottomnav').innerHTML = '';
   document.querySelectorAll('.fab').forEach(f => f.remove());
@@ -3148,7 +3156,7 @@ function renderAuth() {
         ? 'تدير حلالك الخاص (بهائمك، تلقيحك، تطعيماتك…) بخصوصية تامة. يُفعّل حسابك بعد موافقة المدير.'
         : 'تتصفّح وتشارك في المنتدى والنصائح. الدخول فوري بلا انتظار، دون إدارة حلال.'}</div>`;
     box.innerHTML = `<div class="auth-box">
-      <div class="logo">🐪</div><h2>مراح</h2><div class="sub">إدارة الحلال — دخول الفريق</div>
+      <div class="logo">🐪</div><h2>حلالي</h2><div class="sub">إدارة الحلال — دخول الفريق</div>
       <div class="auth-tabs"><button id="t_in" class="${mode === 'signin' ? 'active' : ''}">دخول</button>${signupOpen ? `<button id="t_up" class="${mode === 'signup' ? 'active' : ''}">حساب جديد</button>` : ''}</div>
       ${signupOpen ? '' : '<div class="muted" style="text-align:center;font-size:.85rem;margin:-4px 0 8px">التسجيل مغلق حالياً. راجع مدير النظام.</div>'}
       ${mode === 'signup'
@@ -3278,7 +3286,7 @@ function renderBackendChooser() {
   document.getElementById('app').classList.add('hidden');
   const box = document.getElementById('auth'); box.classList.remove('hidden');
   box.innerHTML = `<div class="auth-box">
-    <div class="logo">🐪</div><h2>مراح</h2><div class="sub">اختر مكان حفظ بياناتك</div>
+    <div class="logo">🐪</div><h2>حلالي</h2><div class="sub">اختر مكان حفظ بياناتك</div>
     <button class="btn" id="bk_local">📵 محلي على هذا الجهاز<br><span style="font-weight:400;font-size:.8rem;opacity:.85">يعمل بلا إنترنت • بياناتك على جوالك فقط • بلا تسجيل دخول</span></button>
     <button class="btn outline" id="bk_cloud" style="margin-top:10px">☁️ مشترك (عدّة مستخدمين)<br><span style="font-weight:400;font-size:.8rem;opacity:.85">قاعدة Supabase واحدة • تسجيل دخول وصلاحيات • يحدّدها المدير</span></button>
     <div id="bk_cloud_form" class="hidden" style="margin-top:14px;text-align:right">
@@ -3356,7 +3364,7 @@ function renderLicenseGate() {
   const st = lic.state();
   const expiredMsg = st.state === 'expired' ? '<div class="auth-msg err">انتهت صلاحية الترخيص — أدخل رمزاً جديداً.</div>' : '';
   box.innerHTML = `<div class="auth-box">
-    <div class="logo">🔐</div><h2>تفعيل مراح</h2>
+    <div class="logo">🔐</div><h2>تفعيل حلالي</h2>
     <p class="sub">أرسل «رقم الجهاز» للمالك ليصلك رمز التفعيل، ثم الصقه هنا.</p>
     <div class="field"><label>رقم الجهاز</label>
       <div id="lic_dev" style="font-size:1.35rem;font-weight:800;letter-spacing:2px;text-align:center;color:#1b5e20;background:#f4f6f4;border:1px solid #d8d8d8;border-radius:12px;padding:14px;direction:ltr;-webkit-user-select:text;user-select:text">${lic.deviceIdPretty()}</div>
@@ -3382,7 +3390,7 @@ function renderLicenseGate() {
 
 async function init() {
   document.getElementById('backBtn').addEventListener('click', goBack);
-  document.getElementById('guideBtn').addEventListener('click', () => setHash('#/home'));   // شعار التطبيق ← الرئيسية (الدليل في «المزيد»)
+  document.getElementById('guideBtn').addEventListener('click', showAppIcon);   // شعار التطبيق ← عرض الأيقونة بحجمها الطبيعي
   window.addEventListener('hashchange', () => { if (me && me.is_active) render(); });
   // إشارة توفّر تحديث (يطلقها updater.js): نقطة على «المزيد» وإبراز الزر
   const onUpdSignal = () => { if (!me || !me.is_active) return; buildNav(); if (parseHash().name === 'more') render(); };
