@@ -210,27 +210,32 @@ async function loadAll() {
   } catch (e) { /* تجاهل */ }
   try { await sb.rpc('mrahi_purge_trash'); } catch (e) { /* تنظيف أفضل جهد */ }
 }
-// مكتبة التطعيمات الموصى بها (استرشادية) — تُبذَر مرة واحدة وتُتاح كذلك بزر «استيراد المكتبة».
-// كل عنصر: { name, species(أسماء عربية), usage(الأمراض/الغرض), age(التوقيت الموصى به), valid(أيام الفاعلية), milk, meat, notes }
+// خرائط أنواع البهائم: من المفاتيح الإنجليزية إلى الأسماء العربية في التطبيق
+const SP_AR = { sheep: ['نعيم', 'حري', 'نجد', 'غنم'], goat: ['ماعز'], camel: ['إبل'], cattle: ['بقر'] };
+function spAr(enArr) { const out = []; (enArr || []).forEach(s => (SP_AR[s] || []).forEach(a => { if (!out.includes(a)) out.push(a); })); return out; }
 const SMALL_RUM = ['نعيم', 'حري', 'نجد', 'غنم', 'ماعز'];                 // الأغنام بأنواعها والماعز
 const ALL_LIVE = ['إبل', 'نعيم', 'حري', 'نجد', 'غنم', 'ماعز', 'بقر'];   // كل الأنواع
+const SR_CATTLE = SMALL_RUM.concat(['بقر']);                            // أغنام/ماعز + بقر
 const VAC_NOTE = 'استرشادي — راجع نشرة المنتج والطبيب البيطري';
+const LIB_DISCLAIMER = 'ℹ️ بيانات استرشادية من مصادر عامة (WOAH/FAO/FARAD/نشرات الشركات). نشرة المنتج المُستخدَم هي المرجع القانوني، والاستخدام في الماعز/الإبل غالباً خارج التسمية فتُمدَّد مدة التحريم — راجع الطبيب البيطري.';
+// مكتبة التطعيمات المُسندة (WOAH/OIE، FAO، نشرات MSD/Ceva، Merck) — تُبذَر مرة واحدة وتُتاح بزر «استيراد المكتبة».
+// كل عنصر: { name, species(عربية), usage(الأمراض), age(العمر/المنشّطة/التكرار), valid(أيام الحماية), milk, meat, route, source }
 const VACCINE_LIB = [
-  { name: 'التسمّم المعوي (الكلوستريديا)', species: SMALL_RUM, usage: 'التسمّم المعوي والوذمة والكزاز (مجموعة الكلوستريديا)', age: 'من عمر ٦–٨ أسابيع، جرعة منشّطة بعد ٣–٤ أسابيع، ثم سنوياً', valid: 365, milk: 0, meat: 0 },
-  { name: 'طاعون المجترات الصغيرة (PPR)', species: SMALL_RUM, usage: 'طاعون المجترات الصغيرة', age: 'من عمر ٣–٤ أشهر، يتكرّر كل ٣ سنوات', valid: 1095, milk: 0, meat: 0 },
-  { name: 'جدري الأغنام والماعز', species: SMALL_RUM, usage: 'مرض الجدري', age: 'سنوياً قبل موسم الانتشار', valid: 365, milk: 0, meat: 0 },
-  { name: 'الحمى القلاعية (FMD)', species: ALL_LIVE, usage: 'الحمى القلاعية', age: 'كل ٦ أشهر', valid: 180, milk: 0, meat: 0 },
-  { name: 'البروسيلا (Rev-1)', species: SMALL_RUM, usage: 'البروسيلا (الإجهاض المُعدي)', age: 'للإناث عمر ٣–٦ أشهر، جرعة واحدة', valid: 0, milk: 0, meat: 0, notes: 'لقاح حيّ — للإناث فقط وبحذر (خطر على الإنسان عند الوخز)' },
-  { name: 'التسمّم الدموي (الباستريلا)', species: ALL_LIVE, usage: 'التسمّم الدموي والالتهابات التنفسية', age: 'سنوياً، ويُفضّل قبل الشتاء', valid: 365, milk: 0, meat: 0 },
-  { name: 'مرض اللسان الأزرق', species: SMALL_RUM, usage: 'مرض اللسان الأزرق (بلوتنغ)', age: 'سنوياً قبل موسم الحشرات الناقلة', valid: 365, milk: 0, meat: 0 },
-  { name: 'الجمرة الخبيثة (الأنثراكس)', species: ALL_LIVE, usage: 'الجمرة الخبيثة', age: 'سنوياً في المناطق الموبوءة', valid: 365, milk: 0, meat: 0 },
-  { name: 'الكزاز (التيتانوس)', species: ALL_LIVE, usage: 'الكزاز', age: 'حسب الحاجة وقبل العمليات الجراحية', valid: 365, milk: 0, meat: 0 },
-  { name: 'جدري الإبل', species: ['إبل'], usage: 'الجدري الإبلي', age: 'للصغار، ويتكرّر سنوياً', valid: 365, milk: 0, meat: 0 },
-  { name: 'التهاب الجلد العقدي', species: ['بقر'], usage: 'التهاب الجلد العقدي', age: 'سنوياً قبل موسم الحشرات', valid: 365, milk: 0, meat: 0 },
-  { name: 'حمى الوادي المتصدّع', species: ALL_LIVE, usage: 'حمى الوادي المتصدّع', age: 'عند توصية الجهات البيطرية', valid: 365, milk: 0, meat: 0 },
-  { name: 'الإجهاض المُعدي (المتدثّرة)', species: SMALL_RUM, usage: 'الإجهاض المُعدي المتدثّر (Chlamydia)', age: 'للإناث قبل موسم التلقيح', valid: 365, milk: 0, meat: 0 },
-  { name: 'الالتهاب الرئوي البلوري (CCPP)', species: ['ماعز'], usage: 'الالتهاب الرئوي البلوري المُعدي للماعز', age: 'سنوياً', valid: 365, milk: 0, meat: 0 },
-  { name: 'داء الكلب (السعار)', species: ALL_LIVE, usage: 'داء الكلب', age: 'عند الخطر/التوصية، سنوياً', valid: 365, milk: 0, meat: 0 },
+  { name: 'التسمّم المعوي/الكلوستريديا (متعدد)', species: SR_CATTLE, usage: 'التسمّم المعوي، الكلوة اللينة، الوذمة الخبيثة، الكزاز', age: 'الأولى من ٢-٣ أسابيع (جرعتان)، منشّطة بعد ٤-٦ أسابيع، ثم سنوياً', valid: 365, milk: 0, meat: 0, route: 'تحت الجلد', source: 'MSD Heptavac-P / Ceva Coglavax' },
+  { name: 'التسمّم الدموي (الباستريلا)', species: SR_CATTLE, usage: 'التهاب رئوي باستريلي وتسمّم دموي', age: 'من ٣ أسابيع (جرعتان)، منشّطة بعد ٤-٦ أسابيع، ثم سنوياً', valid: 365, milk: 0, meat: 0, route: 'تحت الجلد', source: 'MSD Ovivac-P / Heptavac-P SPC' },
+  { name: 'طاعون المجترات الصغيرة (PPR)', species: SMALL_RUM, usage: 'طاعون المجترات الصغيرة (فيروسي)', age: 'من ٤ أشهر، لقاح حي — كل ٣ سنوات', valid: 1095, milk: 0, meat: 0, route: 'تحت الجلد', source: 'FAO/WOAH؛ سلالة Nigeria 75/1' },
+  { name: 'جدري الأغنام والماعز', species: SMALL_RUM, usage: 'الجدري (فيروسي)', age: 'من ٣ أشهر (من ٣ أسابيع وقت التفشي)، سنوياً', valid: 365, milk: 0, meat: 0, route: 'تحت الجلد', source: 'WOAH Terrestrial Manual 3.7.12' },
+  { name: 'الحمى القلاعية (FMD)', species: SR_CATTLE, usage: 'الحمى القلاعية (فيروسي متعدد العترات)', age: 'من شهرين-٤ أشهر (جرعتان بفارق ٤ أسابيع)، كل ٦ أشهر', valid: 180, milk: 0, meat: 0, route: 'عضلي/تحت الجلد', source: 'WOAH FMD + MSD Vet Manual' },
+  { name: 'البروسيلا Rev-1', species: SMALL_RUM, usage: 'الإجهاض المُعدي (بروسيلا) — لقاح حي', age: '٣-٥ أشهر، جرعة واحدة (الملتحمة مفضّلة)', valid: 0, milk: 0, meat: 0, route: 'ملتحمي/تحت الجلد', source: 'WOAH Rev.1 Manual', notes: 'للإناث فقط وبحذر — خطر على الإنسان عند الوخز' },
+  { name: 'مرض اللسان الأزرق', species: SR_CATTLE, usage: 'اللسان الأزرق (فيروسي، حسب العترة)', age: 'من شهر واحد، سنوياً', valid: 365, milk: 0, meat: 0, route: 'تحت الجلد', source: 'WOAH؛ نشرات اللقاح المعطّل' },
+  { name: 'الجمرة الخبيثة (الأنثراكس)', species: ALL_LIVE, usage: 'الجمرة الخبيثة (جرثومية)', age: '٣-٦ أشهر، سنوياً (كل ٦ أشهر بالمناطق عالية الخطورة)', valid: 365, milk: 0, meat: 21, route: 'تحت الجلد', source: 'Merck Vet Manual + MSD Anthravax', notes: 'لقاح حي (Sterne 34F2)' },
+  { name: 'الكزاز (توكسويد)', species: SR_CATTLE, usage: 'الكزاز (المطثية الكزازية)', age: 'من ٣-٤ أسابيع (ضمن مجموعة الكلوستريديا)، سنوياً', valid: 365, milk: 0, meat: 0, route: 'تحت الجلد', source: 'MSU/UNL CDT guidance' },
+  { name: 'جدري الإبل', species: ['إبل'], usage: 'جدري الإبل (فيروسي)', age: 'من ٦-٩ أشهر، لقاح حي — حماية عدة سنوات', valid: 1825, milk: 0, meat: 0, route: 'تحت الجلد', source: 'WOAH Terrestrial Manual 3.5.1' },
+  { name: 'التهاب الجلد العقدي (LSD)', species: ['بقر'], usage: 'التهاب الجلد العقدي (فيروسي)', age: 'من ٦ أشهر، لقاح حي — سنوياً', valid: 365, milk: 0, meat: 0, route: 'تحت الجلد', source: 'WOAH؛ دراسات مدة المناعة' },
+  { name: 'حمى الوادي المتصدّع (RVF)', species: ALL_LIVE, usage: 'حمى الوادي المتصدّع (فيروسي)', age: 'من ٦ أشهر (Smithburn حي — يُتجنّب في الحوامل)، كل ~٣ سنوات', valid: 1095, milk: 0, meat: 0, route: 'تحت الجلد', source: 'WOAH RVF disease card' },
+  { name: 'الالتهاب الرئوي البلوري للماعز (CCPP)', species: ['ماعز'], usage: 'ذات الجنب الرئوي المُعدي للماعز (Mccp)', age: 'من ١٠ أسابيع، جرعة واحدة — سنوياً', valid: 365, milk: 0, meat: 0, route: 'تحت الجلد', source: 'WOAH Terrestrial Manual 3.7.4' },
+  { name: 'الإجهاض المُعدي/المتدثّرة (EAE)', species: SMALL_RUM, usage: 'الإجهاض الحُبيبي (متدثّرة)', age: 'من ٥ أشهر، قبل التلقيح بـ٤ أسابيع على الأقل', valid: 365, milk: 0, meat: 0, route: 'تحت الجلد/عضلي', source: 'MSD/Ceva EAE SPC' },
+  { name: 'داء الكلب (السعار)', species: ALL_LIVE, usage: 'داء الكلب (فيروسي)', age: 'من ٣ أشهر، منشّطة بعد سنة، ثم سنوياً', valid: 365, milk: 0, meat: 0, route: 'عضلي/تحت الجلد', source: 'Merck/MSD Nobivac Rabies' },
 ];
 // تحويل المكتبة إلى صفوف جدول أنواع التطعيمات (تحليل أسماء الأنواع إلى مفاتيحها)
 function vaccineRowsFromLib() {
@@ -239,7 +244,8 @@ function vaccineRowsFromLib() {
     validity_days: v.valid || 0, milk_withdrawal_days: v.milk || 0, meat_withdrawal_days: v.meat || 0,
     withdrawal_days: Math.max(v.milk || 0, v.meat || 0),
     species: (v.species || []).map(ar => (TYPES.find(x => x.ar === ar) || {}).k).filter(Boolean),
-    notes: v.notes || VAC_NOTE,
+    notes: [v.notes || VAC_NOTE, v.route ? 'طريق الإعطاء: ' + v.route : ''].filter(Boolean).join(' • '),
+    source: v.source || '',
   }));
 }
 // بذر أنواع الحلال الافتراضية في القاعدة لتصبح قابلة للتعديل (الاسم/مدة الحمل/سن البلوغ/سن الفطام)
@@ -287,73 +293,74 @@ async function importVaccineLib() {
 }
 async function importTreatmentLib() {
   const have = new Set((C.treatmentTypes || []).map(t => (t.name || '').trim()));
-  const rows = RECOMMENDED_TREATMENTS.map(([name, formAr, sp, treats, notes]) => ({
-    name, form: (TREAT_FORM.find(f => f.ar === formAr) || {}).k || null, dose: '', duration_days: 0, withdrawal_days: 0,
-    species: sp.map(ar => (TYPES.find(x => x.ar === ar) || {}).k).filter(Boolean), treats, notes,
-  })).filter(r => !have.has(r.name.trim()));
+  const rows = treatmentRowsFromLib().filter(r => !have.has(r.name.trim()));
   if (!rows.length) { toast('مكتبة العلاجات محدّثة — لا جديد'); return; }
   if (!await confirm2(`إضافة ${rows.length} نوع علاج موصى به للمكتبة؟`)) return;
   const ok = await guard(async () => { const { error } = await sb.from(TABLES.treatmentTypes).insert(rows); if (error) throw error; });
   if (ok) { toast(`أُضيف ${rows.length} نوع علاج`); await loadAll(); screenTreatmentTypes(); }
 }
-// أنواع العلاج الموصى بها — تُضاف مرة واحدة. الجرعة/مدة الاستخدام/التحريم تُترك فارغة
-// عمداً (تُحدَّد حسب نشرة المُنتِج). [الاسم، نوع العلاج، أنواع البهائم، يعالج الأمراض، ملاحظات]
-const VT_ALL5 = ['إبل', 'نعيم', 'حري', 'نجد', 'ماعز'];
-const VT_SMALL = ['نعيم', 'حري', 'نجد', 'ماعز'];
-const RECOMMENDED_TREATMENTS = [
-  ['أوكسي تتراسيكلين', 'إبر', VT_ALL5, 'التهابات بكتيرية، التهابات تنفسية، جروح ملوثة', 'تحدد الجرعة والتحريم حسب المنتج'],
-  ['تتراسيكلين', 'إبر', VT_ALL5, 'التهابات بكتيرية، التهابات تنفسية', 'تحدد الجرعة والتحريم حسب المنتج'],
-  ['بنسلين', 'إبر', VT_ALL5, 'التهابات بكتيرية، التهابات الجروح', 'تحدد الجرعة والتحريم حسب المنتج'],
-  ['بنسلين ستربتومايسين', 'إبر', VT_ALL5, 'التهابات بكتيرية عامة', 'تحدد الجرعة والتحريم حسب المنتج'],
-  ['أموكسيسيلين', 'إبر', VT_ALL5, 'التهابات بكتيرية، التهابات تنفسية', 'تحدد الجرعة والتحريم حسب المنتج'],
-  ['سيفتيوفور', 'إبر', VT_ALL5, 'التهابات تنفسية، التهابات بكتيرية', 'تحدد الجرعة والتحريم حسب المنتج'],
-  ['إنروفلوكساسين', 'إبر', VT_ALL5, 'التهابات بكتيرية، التهابات تنفسية', 'تحدد الجرعة والتحريم حسب المنتج'],
-  ['فلورفينيكول', 'إبر', VT_ALL5, 'التهابات تنفسية، التهابات بكتيرية', 'تحدد الجرعة والتحريم حسب المنتج'],
-  ['تايلوسين', 'إبر', VT_ALL5, 'التهابات تنفسية، بعض التهابات الضرع', 'تحدد الجرعة والتحريم حسب المنتج'],
-  ['تلميكوسين', 'إبر', VT_ALL5, 'التهابات تنفسية', 'يستخدم بحذر وتحت إشراف بيطري'],
-  ['لينكومايسين', 'إبر', VT_ALL5, 'التهابات بكتيرية', 'تحدد الجرعة والتحريم حسب المنتج'],
-  ['سلفاديازين ترايميثوبريم', 'إبر', VT_ALL5, 'التهابات بكتيرية، إسهالات بكتيرية', 'تحدد الجرعة والتحريم حسب المنتج'],
-  ['ميترونيدازول', 'تجريع', VT_ALL5, 'التهابات معوية، بعض العدوى اللاهوائية', 'حسب وصف الطبيب البيطري'],
-  ['ألبندازول', 'تجريع', VT_ALL5, 'ديدان داخلية، ديدان كبدية', 'تحدد الجرعة والتحريم حسب المنتج'],
-  ['فينبندازول', 'تجريع', VT_ALL5, 'ديدان داخلية، ديدان رئوية', 'تحدد الجرعة والتحريم حسب المنتج'],
-  ['ليفاميزول', 'تجريع', VT_ALL5, 'ديدان داخلية', 'تحدد الجرعة والتحريم حسب المنتج'],
-  ['إيفرمكتين', 'إبر', VT_ALL5, 'طفيليات داخلية، طفيليات خارجية، جرب، قمل', 'تحدد الجرعة والتحريم حسب المنتج'],
-  ['دورامكتين', 'إبر', VT_ALL5, 'طفيليات داخلية، طفيليات خارجية، جرب', 'تحدد الجرعة والتحريم حسب المنتج'],
-  ['موكسيدكتين', 'إبر', VT_ALL5, 'طفيليات داخلية، طفيليات خارجية', 'تحدد الجرعة والتحريم حسب المنتج'],
-  ['كلوسانتيل', 'تجريع', VT_ALL5, 'ديدان كبدية، بعض الطفيليات', 'تحدد الجرعة والتحريم حسب المنتج'],
-  ['نيتروكسينيل', 'إبر', VT_ALL5, 'ديدان كبدية', 'تحدد الجرعة والتحريم حسب المنتج'],
-  ['برازيكوانتيل', 'تجريع', VT_ALL5, 'ديدان شريطية', 'تحدد الجرعة والتحريم حسب المنتج'],
-  ['ديكلوروفوس', 'تجريع', VT_SMALL, 'طفيليات داخلية', 'يستخدم فقط حسب الاعتماد المحلي'],
-  ['تولترازوريل', 'تجريع', VT_SMALL, 'كوكسيديا، إسهال صغار', 'تحدد الجرعة والتحريم حسب المنتج'],
-  ['ديكلازوريل', 'تجريع', VT_SMALL, 'كوكسيديا', 'تحدد الجرعة والتحريم حسب المنتج'],
-  ['أمبروليوم', 'تجريع', VT_SMALL, 'كوكسيديا', 'تحدد الجرعة والتحريم حسب المنتج'],
-  ['أميتراز', 'رش', VT_ALL5, 'قراد، جرب، قمل، طفيليات خارجية', 'للاستخدام الخارجي فقط'],
-  ['سايبرمثرين', 'رش', VT_ALL5, 'قراد، ذباب، قمل، طفيليات خارجية', 'للاستخدام الخارجي فقط'],
-  ['فلونكسين ميجلومين', 'إبر', VT_ALL5, 'مضاد التهاب وخافض حرارة ومسكّن', 'تحدد الجرعة والتحريم حسب المنتج'],
-  ['ميلوكسيكام', 'إبر', VT_ALL5, 'مضاد التهاب ومسكّن', 'تحدد الجرعة والتحريم حسب المنتج'],
-  ['كيتوبروفين', 'إبر', VT_ALL5, 'مضاد التهاب ومسكّن', 'تحدد الجرعة والتحريم حسب المنتج'],
-  ['ديكساميثازون', 'إبر', VT_ALL5, 'مضاد التهاب (كورتيزون)', 'قد يُسبّب الإجهاض — يُتجنّب في الحمل وبإشراف بيطري'],
-  ['فيتامين AD3E', 'إبر', VT_ALL5, 'دعم المناعة والخصوبة ونقص الفيتامينات', 'حسب الإرشاد'],
-  ['مركّب فيتامين ب', 'إبر', VT_ALL5, 'فاتح شهية ودعم عام ونقص فيتامين ب', 'حسب الإرشاد'],
-  ['سيلينيوم وفيتامين هـ', 'إبر', VT_ALL5, 'الوقاية من مرض العضلة البيضاء ونقص السيلينيوم', 'حسب الإرشاد'],
-  ['كالسيوم (محلول وريدي)', 'إبر', VT_ALL5, 'نقص الكالسيوم (التكزّز/حمى اللبن)', 'يُعطى ببطء وبإشراف بيطري'],
-  ['أوكسيتوسين', 'إبر', VT_ALL5, 'تحفيز الطلق وإدرار الحليب بعد الولادة', 'بجرعات دقيقة وبإشراف بيطري'],
-  ['جنتاميسين', 'إبر', VT_ALL5, 'التهابات بكتيرية (سالبة الجرام)', 'مدة تحريم طويلة — راجع المنتج'],
-  ['نيومايسين', 'تجريع', VT_ALL5, 'إسهالات بكتيرية معوية', 'تحدد الجرعة والتحريم حسب المنتج'],
-  ['محلول معالجة الجفاف (إلكتروليت)', 'تجريع', VT_ALL5, 'تعويض السوائل في الإسهال والجفاف', 'يُعطى مع علاج السبب'],
-  ['صبغة اليود (مطهّر)', 'دهن', VT_ALL5, 'تطهير سرّة المواليد والجروح', 'للاستخدام الخارجي فقط'],
+// مكتبة الأدوية المُسندة (FARAD للتحريم، نشرات الشركات/EMA للجرعة، Merck) — تُبذَر مرة واحدة وتُتاح بزر «استيراد المكتبة».
+// مدد التحريم تقريبية وللّحم/الحليب؛ الاستخدام في الماعز/الإبل غالباً خارج التسمية فتُمدَّد. نشرة المنتج هي المرجع.
+// كل عنصر: { name, form(عربي), species(عربية), dose, treats, meat, milk(null=ممنوع للحليب), source, notes }
+const TREATMENT_LIB = [
+  { name: 'أوكسي تتراسيكلين (قصير المفعول)', form: 'إبر', species: ALL_LIVE, dose: '٦-١١ ملغم/كغم عضل/وريد كل ٢٤ ساعة', treats: 'التهاب رئوي، عين وردية، عدوى عامة', meat: 22, milk: 4, source: 'FARAD extralabel OTC', notes: 'خارج التسمية بالأغنام/الماعز' },
+  { name: 'أوكسي تتراسيكلين طويل المفعول (LA200)', form: 'إبر', species: ALL_LIVE, dose: '٢٠ ملغم/كغم تحت الجلد كل ٤٨-٧٢ ساعة', treats: 'التهاب رئوي، عدوى عامة، كلاميديا', meat: 28, milk: 7, source: 'FARAD/cattle SPC', notes: 'خارج التسمية بالأغنام/الماعز — مدّد الفترة' },
+  { name: 'بنسلين بروكايين G', form: 'إبر', species: ALL_LIVE, dose: '٢٠٠٠٠-٤٤٠٠٠ وحدة/كغم عضل كل ٢٤ ساعة', treats: 'عدوى موجبة الغرام، تسمّم معوي، عرج', meat: 9, milk: 2, source: 'FARAD small ruminants', notes: 'الجرعات الأعلى خارج التسمية تُطيل الفترة' },
+  { name: 'بنسلين-ستربتومايسين', form: 'إبر', species: ALL_LIVE, dose: '١ مل/٢٥ كغم عضل كل ٢٤ ساعة', treats: 'عدوى عامة مختلطة، تنفسي', meat: 35, milk: 4, source: 'نشرة Norbrook/MSD', notes: 'ستربتومايسين يُطيل فترة اللحم؛ خارج التسمية' },
+  { name: 'أموكسيسيلين طويل المفعول', form: 'إبر', species: ALL_LIVE, dose: '١٥ ملغم/كغم عضل كل ٤٨ ساعة', treats: 'تنفسي، التهاب ضرع، عدوى عامة', meat: 28, milk: 4, source: 'MSD Betamox LA؛ EMA MRL', notes: 'خارج التسمية في الماعز عادة' },
+  { name: 'سيفتيوفور', form: 'إبر', species: SR_CATTLE, dose: '١-٢ ملغم/كغم تحت الجلد كل ٢٤ ساعة', treats: 'تنفسي، عرج، عدوى حادة', meat: 8, milk: 0, source: 'FARAD؛ Excenel/Naxcel', notes: 'يُمنع رفع الجرعة خارج التسمية' },
+  { name: 'إنروفلوكساسين', form: 'إبر', species: ALL_LIVE, dose: '٥ ملغم/كغم تحت الجلد كل ٢٤ ساعة', treats: 'تنفسي، عدوى سالبة الغرام', meat: 14, milk: null, source: 'Baytril SPC؛ EMA', notes: 'الفلوروكينولونات مقيّدة خارج التسمية' },
+  { name: 'فلورفينيكول', form: 'إبر', species: SR_CATTLE, dose: '٢٠ ملغم/كغم عضل كل ٤٨ ساعة أو ٤٠ تحت الجلد مرة', treats: 'تنفسي (مانهيميا، باستوريلا)', meat: 30, milk: null, source: 'Nuflor SPC؛ FARAD', notes: 'يُمنع في حيوانات الحليب' },
+  { name: 'تايلوسين', form: 'إبر', species: SR_CATTLE, dose: '١٠ ملغم/كغم عضل كل ٢٤ ساعة', treats: 'تنفسي، ميكوبلازما، عرج', meat: 21, milk: 4, source: 'Tylan SPC؛ FARAD', notes: 'خارج التسمية بالأغنام/الماعز' },
+  { name: 'تلميكوسين', form: 'إبر', species: ['نعيم', 'حري', 'نجد', 'غنم', 'بقر'], dose: '١٠ ملغم/كغم تحت الجلد مرة واحدة', treats: 'تنفسي (مانهيميا/باستوريلا)', meat: 28, milk: null, source: 'Micotil SPC', notes: 'قاتل للإنسان عند الحقن الخاطئ — تحت الجلد فقط، يُتجنّب بالماعز' },
+  { name: 'تولاثرومايسين', form: 'إبر', species: SR_CATTLE, dose: '٢٫٥ ملغم/كغم تحت الجلد مرة واحدة', treats: 'تنفسي، عين وردية، عرج', meat: 35, milk: null, source: 'Draxxin SPC؛ EMA', notes: 'يُمنع في حيوانات الحليب' },
+  { name: 'سلفاديازين-ترايميثوبريم', form: 'إبر', species: ALL_LIVE, dose: '١٥ ملغم/كغم عضل/فموي كل ٢٤ ساعة', treats: 'تنفسي، إسهال، عدوى عامة', meat: 14, milk: 3, source: 'Norodine/Tribrissen؛ FARAD', notes: 'خارج التسمية؛ السلفا تُطيل الفترة' },
+  { name: 'جنتاميسين', form: 'إبر', species: SR_CATTLE, dose: '٢-٤ ملغم/كغم عضل/وريد كل ٢٤ ساعة', treats: 'عدوى سالبة الغرام حادة، إنتان', meat: 180, milk: null, source: 'FARAD aminoglycosides', notes: 'بقايا كلوية طويلة جداً — يُتجنّب في الغذاء عادة' },
+  { name: 'لينكومايسين', form: 'إبر', species: SR_CATTLE, dose: '١٠ ملغم/كغم عضل كل ٢٤ ساعة', treats: 'عرج (تعفّن أظلاف)، عدوى مفاصل', meat: 14, milk: null, source: 'Lincocin SPC', notes: 'سامّ للمجترات إن أُعطي فموياً' },
+  { name: 'ألبندازول', form: 'تجريع', species: ALL_LIVE, dose: '٧٫٥-١٠ ملغم/كغم فموي مرة (الماعز ١٥)', treats: 'ديدان معدية معوية ورئوية وكبد', meat: 14, milk: 5, source: 'Valbazen SPC؛ FARAD', notes: 'يُتجنّب أول ٣٠ يوم حمل (مشوّه)' },
+  { name: 'فينبندازول', form: 'تجريع', species: ALL_LIVE, dose: '٥-١٠ ملغم/كغم فموي مرة (الماعز أعلى)', treats: 'ديدان معدية معوية ورئوية', meat: 14, milk: 0, source: 'Panacur SPC؛ FARAD', notes: 'آمن نسبياً في الحمل' },
+  { name: 'ليفاميزول', form: 'تجريع', species: SR_CATTLE, dose: '٧٫٥ ملغم/كغم فموي مرة', treats: 'ديدان معدية معوية ورئوية', meat: 3, milk: null, source: 'Levacide SPC؛ FARAD', notes: 'هامش أمان ضيّق؛ غالباً ممنوع بالحليب' },
+  { name: 'إيفرمكتين', form: 'إبر', species: ALL_LIVE, dose: '٢٠٠ ميكروغم/كغم تحت الجلد/فموي مرة', treats: 'ديدان داخلية وخارجية (جرب، قمل)', meat: 35, milk: null, source: 'Ivomec SPC؛ FARAD', notes: 'يُمنع في حيوانات الحليب' },
+  { name: 'دورامكتين', form: 'إبر', species: SR_CATTLE, dose: '٢٠٠ ميكروغم/كغم تحت الجلد/عضل مرة', treats: 'ديدان داخلية وخارجية، جرب', meat: 35, milk: null, source: 'Dectomax SPC', notes: 'يُمنع في حيوانات الحليب' },
+  { name: 'موكسيدكتين', form: 'تجريع', species: SR_CATTLE, dose: '٢٠٠ ميكروغم/كغم فموي / ٣٠٠ تحت الجلد', treats: 'ديدان داخلية وخارجية مقاومة', meat: 14, milk: 5, source: 'Cydectin SPC', notes: 'بعض مستحضراته مسموحة بالحليب — تحقّق' },
+  { name: 'كلوسانتيل', form: 'تجريع', species: SR_CATTLE, dose: '١٠ ملغم/كغم فموي مرة', treats: 'ديدان كبد (فاشيولا)، هيمونكس، نغف', meat: 28, milk: null, source: 'Flukiver SPC', notes: 'يُمنع في حيوانات الحليب البشري' },
+  { name: 'نيتروكسينيل', form: 'إبر', species: SR_CATTLE, dose: '١٠ ملغم/كغم تحت الجلد مرة', treats: 'ديدان كبد بالغة، هيمونكس', meat: 60, milk: null, source: 'Trodax SPC', notes: 'فترة لحم طويلة؛ يُمنع بالحليب' },
+  { name: 'تريكلابندازول', form: 'تجريع', species: SR_CATTLE, dose: '١٠ ملغم/كغم فموي مرة', treats: 'ديدان كبد يافعة وبالغة (فاشيولا)', meat: 56, milk: null, source: 'Fasinex SPC', notes: 'يُمنع في حيوانات الحليب' },
+  { name: 'برازيكوانتيل', form: 'تجريع', species: ['نعيم', 'حري', 'نجد', 'غنم', 'ماعز', 'إبل'], dose: '٣٫٥-١٥ ملغم/كغم فموي مرة', treats: 'ديدان شريطية (منيزيا)', meat: 28, milk: null, source: 'مركّب درنش (Virbac/Zoetis)', notes: 'غالباً ضمن مركّب — تحقّق المستحضر' },
+  { name: 'تولترازوريل', form: 'تجريع', species: SR_CATTLE, dose: '٢٠ ملغم/كغم فموي مرة', treats: 'كوكسيديا (الإيميريا) في الصغار', meat: 42, milk: null, source: 'Baycox SPC', notes: 'يُمنع في حيوانات الحليب' },
+  { name: 'ديكلازوريل', form: 'تجريع', species: SR_CATTLE, dose: '١ ملغم/كغم فموي مرة', treats: 'كوكسيديا في الحملان/الجداء', meat: 0, milk: null, source: 'Vecoxan SPC', notes: 'فترة لحم قصيرة/صفر حسب المستحضر' },
+  { name: 'أميتراز', form: 'رش', species: ALL_LIVE, dose: 'حسب التخفيف على الجلد', treats: 'قراد، جرب، قمل، طفيليات خارجية', meat: 0, milk: null, source: 'نشرة المنتج', notes: 'للاستخدام الخارجي فقط' },
+  { name: 'فلونكسين ميغلومين', form: 'إبر', species: ALL_LIVE, dose: '١٫١-٢٫٢ ملغم/كغم وريد كل ٢٤ ساعة', treats: 'حمى، ألم، التهاب، تسمّم داخلي', meat: 4, milk: 3, source: 'FARAD (وريد ≤٢٫٢ ملغم/كغم)', notes: 'يُفضّل الوريد؛ العضل/تحت الجلد يُطيل الفترة كثيراً' },
+  { name: 'ميلوكسيكام', form: 'إبر', species: ALL_LIVE, dose: '٠٫٥ ملغم/كغم تحت الجلد/فموي مرة', treats: 'ألم، التهاب، عرج، بعد الجراحة', meat: 11, milk: 3, source: 'Metacam SPC؛ FARAD', notes: 'خارج التسمية بالأغنام/الماعز' },
+  { name: 'كيتوبروفين', form: 'إبر', species: SR_CATTLE, dose: '٣ ملغم/كغم عضل/وريد كل ٢٤ ساعة', treats: 'حمى، ألم، التهاب، عرج', meat: 4, milk: 0, source: 'Ketofen SPC', notes: 'خارج التسمية بالأغنام/الماعز' },
+  { name: 'ديكساميثازون', form: 'إبر', species: ALL_LIVE, dose: '٠٫٠٥-٠٫١ ملغم/كغم عضل/وريد مرة', treats: 'التهاب، صدمة، كيتوزس، حساسية', meat: 8, milk: 3, source: 'Dexadreson/Colvasone SPC', notes: 'يُجهض في أواخر الحمل — تجنّب بالحوامل' },
+  { name: 'أوكسيتوسين', form: 'إبر', species: ALL_LIVE, dose: '١٠-٢٠ وحدة عضل/وريد حسب الحاجة', treats: 'تحفيز الولادة، احتباس مشيمة، إدرار حليب', meat: 0, milk: 0, source: 'Oxytocin-S SPC', notes: 'لا يُعطى قبل اتساع عنق الرحم' },
+  { name: 'فيتامين AD3E', form: 'إبر', species: ALL_LIVE, dose: '١-٢ مل عضل حسب الوزن', treats: 'نقص فيتامينات، خصوبة، مناعة، نمو', meat: 0, milk: 0, source: 'نشرة المنتج', notes: 'تجنّب جرعة A الزائدة' },
+  { name: 'مركّب فيتامين ب', form: 'إبر', species: ALL_LIVE, dose: '٢-٥ مل عضل/تحت الجلد حسب الوزن', treats: 'ضعف شهية، نقص ثيامين، داعم عام', meat: 0, milk: 0, source: 'نشرة المنتج', notes: 'صفر فترة غالباً — تحقّق' },
+  { name: 'سيلينيوم + فيتامين هـ', form: 'إبر', species: ALL_LIVE, dose: '١ مل/٢٠ كغم عضل/تحت الجلد', treats: 'مرض العضلة البيضاء، خصوبة، نقص سيلينيوم', meat: 0, milk: 0, source: 'Dystosel/Selevit SPC', notes: 'السيلينيوم سامّ بجرعة زائدة — التزم الجرعة' },
+  { name: 'كالسيوم (بوروغلوكونات)', form: 'إبر', species: ALL_LIVE, dose: '٥٠-١٠٠ مل وريد بطيء/تحت الجلد', treats: 'حمى الحليب، نقص كالسيوم، تشنّج', meat: 0, milk: 0, source: 'Calcamax/Calciject SPC', notes: 'وريد ببطء مع مراقبة القلب' },
+  { name: 'محلول معالجة الجفاف (إلكتروليت)', form: 'تجريع', species: ALL_LIVE, dose: 'حسب الوزن ودرجة الجفاف', treats: 'تعويض السوائل في الإسهال والجفاف', meat: 0, milk: 0, source: 'نشرة المنتج', notes: 'يُعطى مع علاج السبب' },
+  { name: 'صبغة اليود (مطهّر)', form: 'دهن', species: ALL_LIVE, dose: 'موضعي على السرّة/الجرح', treats: 'تطهير سرّة المواليد والجروح', meat: 0, milk: 0, source: 'نشرة المنتج', notes: 'للاستخدام الخارجي فقط' },
 ];
+// تحويل مكتبة الأدوية إلى صفوف جدول أنواع العلاج (التحريم المُخزَّن = للّحم، الأهم للبيع/الذبح)
+function treatmentRowsFromLib() {
+  return TREATMENT_LIB.map(t => {
+    const formAr = (t.form || '').split('/')[0];
+    return {
+      name: t.name, form: (TREAT_FORM.find(f => f.ar === formAr) || {}).k || null,
+      dose: t.dose || '', duration_days: 0,
+      withdrawal_days: t.meat == null ? 0 : t.meat,
+      milk_withdrawal_days: t.milk, meat_withdrawal_days: t.meat,
+      species: (t.species || []).map(ar => (TYPES.find(x => x.ar === ar) || {}).k).filter(Boolean),
+      treats: t.treats || '', notes: t.notes || '', source: t.source || '',
+    };
+  });
+}
 async function autoSeedTreatments() {
   if (C.treatmentTypes.length) return;               // توجد بيانات مسبقاً ⇒ لا تعبئة
   let done = false; try { done = !!localStorage.getItem('mrahi_treatment_types_seeded'); } catch (e) { /* تجاهل */ }
   if (done) return;
-  const rows = RECOMMENDED_TREATMENTS.map(([name, formAr, sp, treats, notes]) => ({
-    name,
-    form: (TREAT_FORM.find(f => f.ar === formAr) || {}).k || null,
-    dose: '', duration_days: 0, withdrawal_days: 0,
-    species: sp.map(ar => (TYPES.find(x => x.ar === ar) || {}).k).filter(Boolean),
-    treats, notes,
-  }));
+  const rows = treatmentRowsFromLib();
   try {
     const { error } = await sb.from(TABLES.treatmentTypes).insert(rows); // إدراج دفعة واحدة (سريع)
     if (error) return;                               // غالباً قبل تشغيل الترقية (جدول/أعمدة) ⇒ يُعاد لاحقاً
@@ -1137,7 +1144,7 @@ function speciesLabel(arr) { return (Array.isArray(arr) && arr.length) ? arr.map
 function screenVaccineTypes() {
   if (!can('vaccines', 'view')) { view().innerHTML = noPerm(); return; }
   const list = C.vaccineTypes.slice().sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-  const bar = `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px"><button class="btn sm outline" id="vt_plan">🗓️ برنامج التطعيم الموصى به</button>${can('vaccines', 'edit') ? '<button class="btn sm outline" id="vt_import">📚 استيراد المكتبة الموصى بها</button>' : ''}</div>`;
+  const bar = `<div class="card" style="background:#fff8e1"><div class="li-sub">${LIB_DISCLAIMER}</div></div><div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px"><button class="btn sm outline" id="vt_plan">🗓️ برنامج التطعيم الموصى به</button>${can('vaccines', 'edit') ? '<button class="btn sm outline" id="vt_import">📚 استيراد المكتبة الموصى بها</button>' : ''}</div>`;
   view().innerHTML = bar + (list.length ? list.map(v => `<div class="card">
       <div class="li-title">${esc(v.name)}</div>
       <div class="li-sub">نوع البهيمة: ${esc(speciesLabel(v.species))}</div>
@@ -1147,6 +1154,7 @@ function screenVaccineTypes() {
       ${v.validity_days ? `<div class="li-sub">مدة الفاعلية: ${v.validity_days} يوم</div>` : ''}
       <div class="li-sub">مدة التحريم للحليب: ${v.milk_withdrawal_days || 0} يوم • للحوم: ${v.meat_withdrawal_days || 0} يوم</div>
       ${v.notes ? `<div class="li-sub">${esc(v.notes)}</div>` : ''}
+      ${v.source ? `<div class="li-sub" style="opacity:.7">📚 المصدر: ${esc(v.source)}</div>` : ''}
       ${can('vaccines', 'edit') ? `<div class="btn-row" style="margin-top:6px"><button class="btn sm outline" data-edit="${v.id}">تعديل</button><button class="btn sm danger" data-del="${v.id}">حذف</button></div>` : ''}
     </div>`).join('') : '<div class="center-empty">عرّف أنواع التطعيمات مرة واحدة.</div>');
   { const p = document.getElementById('vt_plan'); if (p) p.addEventListener('click', () => setHash('#/vaccine-plan')); }
@@ -1169,6 +1177,7 @@ function vaccineTypeModal(v) {
     ${fInput('مدة الفاعلية (أيام)', 'vt_valid', v ? v.validity_days : '', 'number', 'min="0"')}
     ${fInput('مدة التحريم للحليب (أيام)', 'vt_milk', v ? v.milk_withdrawal_days : '', 'number', 'min="0"')}
     ${fInput('مدة التحريم للحوم (أيام)', 'vt_meat', v ? v.meat_withdrawal_days : '', 'number', 'min="0"')}
+    ${fInput('المصدر (اختياري)', 'vt_source', v && v.source)}
     ${fTextarea('ملاحظات', 'vt_notes', v && v.notes)}
     <button class="btn" id="vt_save">حفظ</button>`, () => {
     bindSpecies();
@@ -1176,7 +1185,7 @@ function vaccineTypeModal(v) {
       const name = val('vt_name').trim(); if (!name) { toast('أدخل اسم التطعيم'); return; }
       if (v && !await confirm2('حفظ تعديل نوع التطعيم؟')) return;
       const milk = num('vt_milk'), meat = num('vt_meat');
-      const obj = { name, usage: val('vt_usage').trim(), dose: val('vt_dose').trim(), recommended_age: val('vt_age').trim(), validity_days: num('vt_valid'), milk_withdrawal_days: milk, meat_withdrawal_days: meat, withdrawal_days: Math.max(milk, meat), species: getSpecies(), notes: val('vt_notes').trim() };
+      const obj = { name, usage: val('vt_usage').trim(), dose: val('vt_dose').trim(), recommended_age: val('vt_age').trim(), validity_days: num('vt_valid'), milk_withdrawal_days: milk, meat_withdrawal_days: meat, withdrawal_days: Math.max(milk, meat), species: getSpecies(), source: val('vt_source').trim(), notes: val('vt_notes').trim() };
       const ok = await guard(async () => { if (v) await dbUpdate('vaccineTypes', v.id, obj); else await dbInsert('vaccineTypes', obj); });
       if (ok) { closeModal(); toast('تم الحفظ'); await loadAll(); screenVaccineTypes(); }
     });
@@ -1187,16 +1196,21 @@ function vaccineTypeModal(v) {
 function screenTreatmentTypes() {
   if (!can('treatments', 'view')) { view().innerHTML = noPerm(); return; }
   const list = C.treatmentTypes.slice().sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-  view().innerHTML = `<div class="muted" style="margin-bottom:8px">عرّف العلاجات المتكررة مرة واحدة لاستخدامها بسرعة عند تسجيل علاج.</div>`
+  const milkLabel = (t) => t.meat_withdrawal_days != null || t.milk_withdrawal_days !== undefined
+    ? `لحم ${t.meat_withdrawal_days != null ? t.meat_withdrawal_days + ' يوم' : (t.withdrawal_days || 0) + ' يوم'} • حليب ${t.milk_withdrawal_days == null ? 'يُمنع/غير محدّد' : t.milk_withdrawal_days + ' يوم'}`
+    : `${t.withdrawal_days || 0} يوم`;
+  view().innerHTML = `<div class="card" style="background:#fff8e1"><div class="li-sub">${LIB_DISCLAIMER}</div></div>`
+    + `<div class="muted" style="margin-bottom:8px">عرّف العلاجات المتكررة مرة واحدة لاستخدامها بسرعة عند تسجيل علاج.</div>`
     + `${can('treatments', 'edit') ? '<div style="margin-bottom:8px"><button class="btn sm outline" id="tt_import">📚 استيراد المكتبة الموصى بها</button></div>' : ''}`
     + (list.length ? list.map(t => `<div class="card">
       <div class="li-title">${esc(t.name)} <span class="muted" style="font-weight:400">${t.form ? '• ' + arOf(TREAT_FORM, t.form) : ''}</span></div>
       ${t.dose ? `<div class="li-sub">الجرعة: ${esc(t.dose)}</div>` : ''}
       ${t.duration_days ? `<div class="li-sub">مدة استخدام العلاج: ${t.duration_days} يوم</div>` : ''}
-      <div class="li-sub">مدة التحريم للحليب واللحم: ${t.withdrawal_days || 0} يوم</div>
+      <div class="li-sub">مدة التحريم: ${milkLabel(t)}</div>
       <div class="li-sub">البهيمة: ${esc(speciesLabel(t.species))}</div>
       ${t.treats ? `<div class="li-sub">يعالج الأمراض: ${esc(t.treats)}</div>` : ''}
       ${t.notes ? `<div class="li-sub">${esc(t.notes)}</div>` : ''}
+      ${t.source ? `<div class="li-sub" style="opacity:.7">📚 المصدر: ${esc(t.source)}</div>` : ''}
       ${can('treatments', 'edit') ? `<div class="btn-row" style="margin-top:6px"><button class="btn sm outline" data-edit="${t.id}">تعديل</button><button class="btn sm danger" data-del="${t.id}">حذف</button></div>` : ''}
     </div>`).join('') : '<div class="center-empty">لا توجد أنواع علاج — أضِف نوعاً.</div>');
   { const im = document.getElementById('tt_import'); if (im) im.addEventListener('click', importTreatmentLib); }
@@ -1214,16 +1228,19 @@ function treatmentTypeModal(t) {
     ${fSelect('نوع العلاج', 'tt_form', TREAT_FORM, t ? t.form : '', '— اختر —')}
     ${fInput('الجرعة', 'tt_dose', t && t.dose)}
     ${fInput('مدة استخدام العلاج (أيام)', 'tt_dur', t ? t.duration_days : '', 'number', 'min="0"')}
-    ${fInput('مدة التحريم للحليب واللحم (أيام)', 'tt_days', t ? t.withdrawal_days : '', 'number', 'min="0"')}
+    ${fInput('مدة التحريم للحوم (أيام)', 'tt_meat', t ? (t.meat_withdrawal_days != null ? t.meat_withdrawal_days : t.withdrawal_days) : '', 'number', 'min="0"')}
+    ${fInput('مدة التحريم للحليب (أيام — اتركه فارغاً = يُمنع/غير محدّد)', 'tt_milk', t ? t.milk_withdrawal_days : '', 'number', 'min="0"')}
     ${fSpecies(t && t.species)}
     ${fInput('يعالج الأمراض', 'tt_treats', t && t.treats)}
+    ${fInput('المصدر (اختياري)', 'tt_source', t && t.source)}
     ${fTextarea('ملاحظات', 'tt_notes', t && t.notes)}
     <button class="btn" id="tt_save">حفظ</button>`, () => {
     bindSpecies();
     document.getElementById('tt_save').addEventListener('click', async () => {
       const name = val('tt_name').trim(); if (!name) { toast('أدخل اسم العلاج'); return; }
       if (t && !await confirm2('حفظ تعديل نوع العلاج؟')) return;
-      const obj = { name, form: val('tt_form') || null, dose: val('tt_dose').trim(), duration_days: num('tt_dur'), withdrawal_days: num('tt_days'), species: getSpecies(), treats: val('tt_treats').trim(), notes: val('tt_notes').trim() };
+      const meat = num('tt_meat'); const milk = val('tt_milk') !== '' ? num('tt_milk') : null;
+      const obj = { name, form: val('tt_form') || null, dose: val('tt_dose').trim(), duration_days: num('tt_dur'), withdrawal_days: meat, meat_withdrawal_days: meat, milk_withdrawal_days: milk, species: getSpecies(), treats: val('tt_treats').trim(), source: val('tt_source').trim(), notes: val('tt_notes').trim() };
       const ok = await guard(async () => { if (t) await dbUpdate('treatmentTypes', t.id, obj); else await dbInsert('treatmentTypes', obj); });
       if (ok) { closeModal(); toast('تم الحفظ'); await loadAll(); screenTreatmentTypes(); }
     });
@@ -1321,7 +1338,7 @@ function screenVaccinePlan() {
     const items = VACCINE_LIB.filter(v => inGroup(v, arr));
     if (!items.length) return;
     html += `<div class="card" style="background:#e3f2fd"><h3>${title}</h3>` + items.map(v =>
-      `<div style="padding:7px 0;border-bottom:1px solid #d0e3f0"><div class="li-title">💉 ${esc(v.name)}</div>${v.usage ? `<div class="li-sub">${esc(v.usage)}</div>` : ''}<div class="li-sub">🗓️ ${esc(v.age || 'حسب الإرشاد')}</div></div>`
+      `<div style="padding:7px 0;border-bottom:1px solid #d0e3f0"><div class="li-title">💉 ${esc(v.name)}</div>${v.usage ? `<div class="li-sub">${esc(v.usage)}</div>` : ''}<div class="li-sub">🗓️ ${esc(v.age || 'حسب الإرشاد')}</div>${v.route ? `<div class="li-sub">💉 ${esc(v.route)}</div>` : ''}${v.source ? `<div class="li-sub" style="opacity:.7">📚 ${esc(v.source)}</div>` : ''}</div>`
     ).join('') + '</div>';
   });
   view().innerHTML = html;
