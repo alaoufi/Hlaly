@@ -3382,7 +3382,7 @@ function renderLicenseGate() {
 
 async function init() {
   document.getElementById('backBtn').addEventListener('click', goBack);
-  document.getElementById('guideBtn').addEventListener('click', () => setHash('#/guide'));
+  document.getElementById('guideBtn').addEventListener('click', () => setHash('#/home'));   // شعار التطبيق ← الرئيسية (الدليل في «المزيد»)
   window.addEventListener('hashchange', () => { if (me && me.is_active) render(); });
   // إشارة توفّر تحديث (يطلقها updater.js): نقطة على «المزيد» وإبراز الزر
   const onUpdSignal = () => { if (!me || !me.is_active) return; buildNav(); if (parseHash().name === 'more') render(); };
