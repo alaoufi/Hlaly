@@ -218,7 +218,8 @@ const SMALL_RUM = ['نعيم', 'حري', 'نجد', 'غنم', 'ماعز'];       
 const ALL_LIVE = ['إبل', 'نعيم', 'حري', 'نجد', 'غنم', 'ماعز', 'بقر'];   // كل الأنواع
 const SR_CATTLE = SMALL_RUM.concat(['بقر']);                            // أغنام/ماعز + بقر
 const VAC_NOTE = 'استرشادي — راجع نشرة المنتج والطبيب البيطري';
-const LIB_VERSION = 2;   // ارفعه عند تحديث مكتبة التطعيمات/الأدوية ليصل الجديد تلقائياً للأجهزة المُحدّثة
+const LIB_VERSION = 3;
+const LIB_DATA_VERSION = 1;   // ارفعه عند تحديث مكتبة التطعيمات/الأدوية ليصل الجديد تلقائياً للأجهزة المُحدّثة
 const LIB_DISCLAIMER = 'ℹ️ بيانات استرشادية من مصادر عامة (WOAH/FAO/FARAD/نشرات الشركات). نشرة المنتج المُستخدَم هي المرجع القانوني، والاستخدام في الماعز/الإبل غالباً خارج التسمية فتُمدَّد مدة التحريم — راجع الطبيب البيطري.';
 // مكتبة التطعيمات المُسندة (WOAH/OIE، FAO، نشرات MSD/Ceva، Merck) — تُبذَر مرة واحدة وتُتاح بزر «استيراد المكتبة».
 // كل عنصر: { name, species(عربية), usage(الأمراض), age(العمر/المنشّطة/التكرار), valid(أيام الحماية), milk, meat, route, source }
@@ -343,6 +344,56 @@ async function importTreatmentLib() {
   const ok = await guard(async () => { const { error } = await sb.from(TABLES.treatmentTypes).insert(rows); if (error) throw error; });
   if (ok) { toast(`أُضيف ${rows.length} نوع علاج`); await loadAll(); screenTreatmentTypes(); }
 }
+// تحويل صفوف library.json (لقاحات/أدوية) إلى صفوف جداول التطبيق
+function vaccineRowFromJson(v) {
+  return { name: v.name, usage: v.usage || '', dose: '', recommended_age: v.age || '',
+    validity_days: v.valid || 0, milk_withdrawal_days: v.milk || 0, meat_withdrawal_days: v.meat || 0,
+    withdrawal_days: Math.max(v.milk || 0, v.meat || 0),
+    species: (v.species || []).map(ar => (TYPES.find(x => x.ar === ar) || {}).k).filter(Boolean),
+    notes: [v.notes || VAC_NOTE, v.route ? 'طريق الإعطاء: ' + v.route : ''].filter(Boolean).join(' • '), source: v.source || '' };
+}
+function treatmentRowFromJson(t) {
+  const formAr = (t.form || '').split('/')[0];
+  return { name: t.name, form: (TREAT_FORM.find(f => f.ar === formAr) || {}).k || null, dose: t.dose || '', duration_days: 0,
+    withdrawal_days: t.meat == null ? 0 : t.meat, milk_withdrawal_days: t.milk, meat_withdrawal_days: t.meat,
+    species: (t.species || []).map(ar => (TYPES.find(x => x.ar === ar) || {}).k).filter(Boolean),
+    treats: t.treats || '', notes: t.notes || '', source: t.source || '' };
+}
+// تحديث مكتبة الأدوية واللقاحات من الإنترنت (إن توفّر) — يضيف الناقص ويحدّث البيانات المُسندة
+const LIBRARY_JSON_URL = 'https://github.com/alaoufi/marahi/releases/download/apk-latest/library.json';
+async function fetchLibraryJson() {
+  try {
+    const P = window.Capacitor && window.Capacitor.Plugins;
+    if (P && P.CapacitorHttp) { const r = await P.CapacitorHttp.get({ url: LIBRARY_JSON_URL, headers: { 'Cache-Control': 'no-cache' } }); return typeof r.data === 'string' ? JSON.parse(r.data) : r.data; }
+    const resp = await fetch(LIBRARY_JSON_URL, { cache: 'no-store' }); return await resp.json();
+  } catch (e) { return null; }
+}
+async function updateLibraryFromInternet(manual) {
+  const data = await fetchLibraryJson();
+  if (!data || !Array.isArray(data.vaccines) || !Array.isArray(data.treatments)) { if (manual) toast('تعذّر جلب التحديث (تحقّق من الإنترنت)'); return; }
+  let stored = 0; try { stored = parseInt(localStorage.getItem('mrahi_lib_online_ver') || '0', 10) || 0; } catch (e) { /* تجاهل */ }
+  if (!manual && (data.version || 0) <= stored) return;   // لا جديد (تحديث تلقائي صامت)
+  // يُحدَّث الصفّ فقط إن اختلفت بياناته المُسندة (تفادي إعادة كتابة المتطابق وتكدّس الأرشيف)
+  const diff = (ex, r, keys) => keys.some(k => String(ex[k] == null ? '' : ex[k]) !== String(r[k] == null ? '' : r[k]));
+  const VK = ['usage', 'recommended_age', 'validity_days', 'milk_withdrawal_days', 'meat_withdrawal_days', 'source'];
+  const TK = ['form', 'dose', 'withdrawal_days', 'milk_withdrawal_days', 'meat_withdrawal_days', 'treats', 'source'];
+  let added = 0, updated = 0;
+  const ok = await guard(async () => {
+    for (const v of data.vaccines) {
+      const r = vaccineRowFromJson(v); const ex = (C.vaccineTypes || []).find(x => (x.name || '').trim() === r.name.trim());
+      if (ex) { if (diff(ex, r, VK)) { await dbUpdate('vaccineTypes', ex.id, r); updated++; } } else { await dbInsert('vaccineTypes', r); added++; }
+    }
+    for (const t of data.treatments) {
+      const r = treatmentRowFromJson(t); const ex = (C.treatmentTypes || []).find(x => (x.name || '').trim() === r.name.trim());
+      if (ex) { if (diff(ex, r, TK)) { await dbUpdate('treatmentTypes', ex.id, r); updated++; } } else { await dbInsert('treatmentTypes', r); added++; }
+    }
+  });
+  if (ok) {
+    try { localStorage.setItem('mrahi_lib_online_ver', String(data.version || 0)); } catch (e) { /* تجاهل */ }
+    await loadAll();
+    if (manual) { toast(`تم التحديث من الإنترنت: +${added} جديد، ${updated} مُحدَّث`); if (location.hash.indexOf('vaccine') >= 0) screenVaccineTypes(); else if (location.hash.indexOf('treatment') >= 0) screenTreatmentTypes(); }
+  } else if (manual) { toast('تعذّر حفظ التحديث'); }
+}
 // مكتبة الأدوية المُسندة (FARAD للتحريم، نشرات الشركات/EMA للجرعة، Merck) — تُبذَر مرة واحدة وتُتاح بزر «استيراد المكتبة».
 // مدد التحريم تقريبية وللّحم/الحليب؛ الاستخدام في الماعز/الإبل غالباً خارج التسمية فتُمدَّد. نشرة المنتج هي المرجع.
 // كل عنصر: { name, form(عربي), species(عربية), dose, treats, meat, milk(null=ممنوع للحليب), source, notes }
@@ -447,7 +498,11 @@ async function setForumSetting(key, value) {
   const { error } = await sb.from('mrahi_settings').upsert({ key, value, updated_at: new Date().toISOString() }, { onConflict: 'key' });
   if (error) throw error;
 }
-async function refreshAndRender() { showLoading(true); try { await loadAll(); } catch (e) { toast('خطأ تحميل: ' + e.message); } buildNav(); showLoading(false); render(); }
+async function refreshAndRender() {
+  showLoading(true); try { await loadAll(); } catch (e) { toast('خطأ تحميل: ' + e.message); } buildNav(); showLoading(false); render();
+  // فحص تحديث مكتبة الأدوية/التطعيمات من الإنترنت مرّة واحدة (صامت، لا يعطّل البدء)
+  if (!window._libOnlineChecked) { window._libOnlineChecked = 1; setTimeout(() => { try { updateLibraryFromInternet(false); } catch (e) { /* تجاهل */ } }, 4000); }
+}
 function showLoading(b) { document.getElementById('loading').classList.toggle('hidden', !b); }
 
 // سلة المحذوفات/الأرشيف: نحفظ لقطة قبل أي حذف أو تعديل (أفضل جهد، لا تُعطّل العملية)
@@ -1204,7 +1259,7 @@ function speciesLabel(arr) { return (Array.isArray(arr) && arr.length) ? arr.map
 function screenVaccineTypes() {
   if (!can('vaccines', 'view')) { view().innerHTML = noPerm(); return; }
   const list = C.vaccineTypes.slice().sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-  const bar = `<div class="card" style="background:#fff8e1"><div class="li-sub">${LIB_DISCLAIMER}</div></div><div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px"><button class="btn sm outline" id="vt_plan">🗓️ برنامج التطعيم الموصى به</button>${can('vaccines', 'edit') ? '<button class="btn sm outline" id="vt_import">📚 استيراد المكتبة الموصى بها</button><button class="btn sm outline" id="vt_dedup">🧹 كشف وحذف المكرر</button>' : ''}</div>`;
+  const bar = `<div class="card" style="background:#fff8e1"><div class="li-sub">${LIB_DISCLAIMER}</div></div><div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px"><button class="btn sm outline" id="vt_plan">🗓️ برنامج التطعيم الموصى به</button>${can('vaccines', 'edit') ? '<button class="btn sm outline" id="vt_import">📚 استيراد المكتبة الموصى بها</button><button class="btn sm outline" id="vt_dedup">🧹 كشف وحذف المكرر</button><button class="btn sm outline" id="vt_libupd">⬇️ تحديث من الإنترنت</button>' : ''}</div>`;
   view().innerHTML = bar + (list.length ? list.map(v => `<div class="card">
       <div class="li-title">${esc(v.name)}</div>
       <div class="li-sub">نوع البهيمة: ${esc(speciesLabel(v.species))}</div>
@@ -1219,6 +1274,7 @@ function screenVaccineTypes() {
     </div>`).join('') : '<div class="center-empty">عرّف أنواع التطعيمات مرة واحدة.</div>');
   { const p = document.getElementById('vt_plan'); if (p) p.addEventListener('click', () => setHash('#/vaccine-plan')); }
   { const im = document.getElementById('vt_import'); if (im) im.addEventListener('click', importVaccineLib); }
+  { const lu = document.getElementById('vt_libupd'); if (lu) lu.addEventListener('click', () => updateLibraryFromInternet(true)); }
   { const dd = document.getElementById('vt_dedup'); if (dd) dd.addEventListener('click', () => dedupeLibrary('vaccineTypes')); }
   view().querySelectorAll('[data-edit]').forEach(b => b.addEventListener('click', () => vaccineTypeModal(C.vaccineTypes.find(v => String(v.id) === b.dataset.edit))));
   view().querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', async () => {
@@ -1262,7 +1318,7 @@ function screenTreatmentTypes() {
     : `${t.withdrawal_days || 0} يوم`;
   view().innerHTML = `<div class="card" style="background:#fff8e1"><div class="li-sub">${LIB_DISCLAIMER}</div></div>`
     + `<div class="muted" style="margin-bottom:8px">عرّف العلاجات المتكررة مرة واحدة لاستخدامها بسرعة عند تسجيل علاج.</div>`
-    + `${can('treatments', 'edit') ? '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px"><button class="btn sm outline" id="tt_import">📚 استيراد المكتبة الموصى بها</button><button class="btn sm outline" id="tt_dedup">🧹 كشف وحذف المكرر</button></div>' : ''}`
+    + `${can('treatments', 'edit') ? '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px"><button class="btn sm outline" id="tt_import">📚 استيراد المكتبة الموصى بها</button><button class="btn sm outline" id="tt_dedup">🧹 كشف وحذف المكرر</button><button class="btn sm outline" id="tt_libupd">⬇️ تحديث من الإنترنت</button></div>' : ''}`
     + (list.length ? list.map(t => `<div class="card">
       <div class="li-title">${esc(t.name)} <span class="muted" style="font-weight:400">${t.form ? '• ' + arOf(TREAT_FORM, t.form) : ''}</span></div>
       ${t.dose ? `<div class="li-sub">الجرعة: ${esc(t.dose)}</div>` : ''}
@@ -1275,6 +1331,7 @@ function screenTreatmentTypes() {
       ${can('treatments', 'edit') ? `<div class="btn-row" style="margin-top:6px"><button class="btn sm outline" data-edit="${t.id}">تعديل</button><button class="btn sm danger" data-del="${t.id}">حذف</button></div>` : ''}
     </div>`).join('') : '<div class="center-empty">لا توجد أنواع علاج — أضِف نوعاً.</div>');
   { const im = document.getElementById('tt_import'); if (im) im.addEventListener('click', importTreatmentLib); }
+  { const lu = document.getElementById('tt_libupd'); if (lu) lu.addEventListener('click', () => updateLibraryFromInternet(true)); }
   { const dd = document.getElementById('tt_dedup'); if (dd) dd.addEventListener('click', () => dedupeLibrary('treatmentTypes')); }
   view().querySelectorAll('[data-edit]').forEach(b => b.addEventListener('click', () => treatmentTypeModal(C.treatmentTypes.find(t => String(t.id) === b.dataset.edit))));
   view().querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', async () => {
