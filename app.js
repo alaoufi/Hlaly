@@ -158,8 +158,8 @@ const isSys = () => !!(me && me.is_active && me.is_sysadmin);
 function mineHerdRow(r) { return !!(me && (me.role === 'admin' || r.owner_id === me.user_id)); }
 const animalById = (id) => C.animals.find(a => a.id === id);
 // المعرّف الخارجي (الوسم) إن وُجد، وإلا الاسم، وإلا الرقم الداخلي الثابت #id
-function display(a) { if (!a) return '—'; if (a.code) return esc(a.code) + (a.name ? ' • ' + esc(a.name) : ''); if (a.name) return esc(a.name); return a.id != null ? '#' + a.id : 'غير مرقّمة'; }
-const internalNo = (a) => (a && a.id != null) ? '#' + a.id : '—';
+function display(a) { if (!a) return '—'; if (a.code) return esc(a.code) + (a.name ? ' • ' + esc(a.name) : ''); if (a.name) return esc(a.name); return 'غير مرقّمة'; }
+const internalNo = () => '';   // الرقم الداخلي للنظام لا يُعرض في الواجهة (داخلي فقط)
 
 /* ===== طبقة البيانات ===== */
 async function loadAll() {
@@ -743,7 +743,7 @@ function animalCard(a) {
   const off = C.animals.filter(x => x.mother_id === a.id || x.father_id === a.id).length;   // عدد مواليدها
   const mother = a.mother_id ? animalById(a.mother_id) : null;
   return `<div class="card click" data-aid="${a.id}">
-    <div class="li-title">${display(a)}${!a.code ? ' <span class="muted" style="font-weight:400;font-size:.8rem">(غير مرقّمة — رقم داخلي)</span>' : ''}</div>
+    <div class="li-title">${display(a)}</div>
     <div class="li-sub">${arOf(TYPES, a.type)} • ${arOf(SEX, a.sex)}${a.sex === 'male' && a.purpose ? ' • ' + arOf(MALE_PURPOSE, a.purpose) : ''} • <span class="badge ${st}">${arOf(STATUS, a.status)}</span></div>
     ${a.pen ? `<div class="li-sub">الحظيرة: ${esc(a.pen)}</div>` : ''}
     ${off ? `<div class="li-sub link" data-off="${a.id}">👶 المواليد: ${off} — عرض</div>` : ''}
@@ -810,7 +810,7 @@ function screenAnimalEdit(arg) {
   view().innerHTML = `
     ${!a && lastAnimal ? '<button class="btn outline" id="cloneLast" style="margin-bottom:8px">📋 نسخ بيانات آخر إدخال</button>' : ''}
     <div class="card"><h3>البيانات الأساسية</h3>
-      ${a ? `<div class="muted" style="margin-bottom:8px">🔒 الرقم الداخلي ${internalNo(a)} — ثابت لا يتغيّر (هوية النظام).</div>` : '<div class="muted" style="margin-bottom:8px">🔒 سيُمنح رقم داخلي ثابت تلقائياً (لا يتغيّر مهما تغيّر الوسم).</div>'}
+      ${a ? '' : '<div class="muted" style="margin-bottom:8px">المعرّف الخارجي (الوسم) اختياري — يمكنك تركه فارغاً وترقيمها لاحقاً.</div>'}
       ${fSelect('نوع الحلال', 'f_type', TYPES, a ? a.type : (animalFilter || 'sheep'))}
       ${fInput('رقم الحظيرة', 'f_pen', a ? a.pen : lastPen)}
       ${fSelect('نوع المعرّف الخارجي', 'f_kind', IDKIND, a ? a.idkind : 'number')}
@@ -902,7 +902,6 @@ function screenAnimalDetail(arg) {
   view().innerHTML = summary + `
     <div class="card"><h3>البيانات الأساسية</h3>
       ${row('النوع', arOf(TYPES, a.type))}
-      ${row('🔒 الرقم الداخلي', internalNo(a) + ' (ثابت لا يتغيّر)')}
       ${row('المعرّف الخارجي (الوسم)', a.code ? esc(a.code) + ' • ' + arOf(IDKIND, a.idkind) : '— غير مرقّمة —')}
       ${(a.tag_color || a.tag_shape) ? row('🏷️ لون/شكل الوسم', [a.tag_color ? esc(a.tag_color) + colorDot(a.tag_color) : '', a.tag_shape ? esc(a.tag_shape) : ''].filter(Boolean).join(' • ')) : ''}
       ${a.name ? row('الاسم', esc(a.name)) : ''}
@@ -961,7 +960,7 @@ function addOffspringModal(mother) {
     ${fInput('تاريخ الميلاد', 'of_birth', todayStr(), 'date')}
     ${fInput('رقم الحظيرة', 'of_pen', mother.pen || lastPen)}
     <div class="chips"><span class="chip active" data-om="none">⭕ بدون ترقيم</span><span class="chip" data-om="num">🔢 بترقيم</span></div>
-    <div id="ofNone" class="muted" style="font-size:.82rem">تُضاف بلا رقم — لكلٍّ رقم داخلي ثابت. رقّمها لاحقاً عند الكبر.</div>
+    <div id="ofNone" class="muted" style="font-size:.82rem">تُضاف بلا رقم — رقّمها لاحقاً عند الكبر.</div>
     <div id="ofNum" class="hidden">
       ${fInput('بداية الترقيم', 'of_start', '', 'number', 'inputmode="numeric"')}
       ${fInput('بادئة قبل الرقم (اختياري)', 'of_prefix', '')}
@@ -1596,7 +1595,7 @@ function renderBulkBody() {
       ${fSelect('الجنس', 'bk_sex', SEX, 'female')}
       ${fInput('العدد', 'bk_count', '', 'number', 'min="1" inputmode="numeric"')}
       <div class="chips"><span class="chip active" data-bm="none">⭕ بدون ترقيم</span><span class="chip" data-bm="num">🔢 بترقيم</span></div>
-      <div id="bmNone" class="muted" style="font-size:.82rem">تُضاف بلا رقم — لكلٍّ رقم داخلي ثابت. رقّمها لاحقاً متى شئت (الصغار/الذكور غالباً لا تُرقَّم).</div>
+      <div id="bmNone" class="muted" style="font-size:.82rem">تُضاف بلا رقم — رقّمها لاحقاً متى شئت (الصغار/الذكور غالباً لا تُرقَّم).</div>
       <div id="bmNum" class="hidden">
         ${fInput('بداية الترقيم', 'bk_start', '', 'number', 'inputmode="numeric"')}
         ${fInput('بادئة قبل الرقم (اختياري)', 'bk_prefix', '')}
@@ -2224,7 +2223,7 @@ let inspectTab = 'stats';
 let lineageMode = 'flat';   // عرض الأنساب: قائمة (الأم ← مواليدها) أو شجرة متعدّدة الأجيال
 let afSex = 'male', afSrc = 'born', afCmp = 'gt', afMonths = 3;   // كشف بالعمر (الجنس/المصدر/المقارنة/الأشهر)
 const codeNumOf = (a) => { const m = String(a.code || '').match(/(\d+)/); return m ? parseInt(m[1], 10) : null; };
-const aMini = (a) => `<div class="card click" data-aid="${a.id}" style="margin:6px 0"><div class="li-title">${display(a)} <span class="muted" style="font-weight:400">${internalNo(a)}</span></div><div class="li-sub">${arOf(TYPES, a.type)} • ${arOf(SEX, a.sex)}${a.pen ? ' • ' + esc(a.pen) : ''}${a.status !== 'present' ? ' • ' + arOf(STATUS, a.status) : ''}</div></div>`;
+const aMini = (a) => `<div class="card click" data-aid="${a.id}" style="margin:6px 0"><div class="li-title">${display(a)}</div><div class="li-sub">${arOf(TYPES, a.type)} • ${arOf(SEX, a.sex)}${a.pen ? ' • ' + esc(a.pen) : ''}${a.status !== 'present' ? ' • ' + arOf(STATUS, a.status) : ''}</div></div>`;
 function screenInspect() {
   if (!can('animals', 'view')) { view().innerHTML = noPerm(); return; }
   const tabs = [
@@ -2285,7 +2284,7 @@ function renderInspect() {
   if (inspectTab === 'index') {
     const arr = present.slice().sort((a, b) => { const x = codeNumOf(a), y = codeNumOf(b); if (x == null && y == null) return a.id - b.id; if (x == null) return 1; if (y == null) return -1; return x - y; });
     body.innerHTML = `<div class="muted" style="margin:4px 0 8px">فهرس تسلسلي — ${arr.length} رأس في الحظيرة</div>`
-      + (arr.length ? arr.map((a, i) => `<div class="card click" data-aid="${a.id}"><div class="li-title">${i + 1}. ${display(a)} <span class="muted" style="font-weight:400">${internalNo(a)}</span></div><div class="li-sub">${arOf(TYPES, a.type)} • ${arOf(SEX, a.sex)}${a.pen ? ' • ' + esc(a.pen) : ''}</div></div>`).join('') : noItem());
+      + (arr.length ? arr.map((a, i) => `<div class="card click" data-aid="${a.id}"><div class="li-title">${i + 1}. ${display(a)}</div><div class="li-sub">${arOf(TYPES, a.type)} • ${arOf(SEX, a.sex)}${a.pen ? ' • ' + esc(a.pen) : ''}</div></div>`).join('') : noItem());
     bindCards(body); return;
   }
   if (inspectTab === 'dups') {
@@ -2300,7 +2299,7 @@ function renderInspect() {
     const cnt = {}; A.forEach(a => { if (a.mother_id) cnt[a.mother_id] = (cnt[a.mother_id] || 0) + 1; });
     const moms = Object.entries(cnt).map(([id, n]) => ({ a: animalById(parseInt(id, 10)), n })).filter(x => x.a).sort((x, y) => y.n - x.n);
     body.innerHTML = `<div class="muted" style="margin:4px 0 8px">الأمهات حسب عدد المواليد المسجّلة (${moms.length} أم منتِجة)</div>`
-      + (moms.length ? moms.map(({ a, n }) => `<div class="card click" data-aid="${a.id}"><div class="li-title">${display(a)} <span class="muted" style="font-weight:400">${internalNo(a)}</span></div><div class="li-sub">👶 ${n} مولود • ${arOf(TYPES, a.type)}${a.pen ? ' • ' + esc(a.pen) : ''}</div></div>`).join('') : noItem());
+      + (moms.length ? moms.map(({ a, n }) => `<div class="card click" data-aid="${a.id}"><div class="li-title">${display(a)}</div><div class="li-sub">👶 ${n} مولود • ${arOf(TYPES, a.type)}${a.pen ? ' • ' + esc(a.pen) : ''}</div></div>`).join('') : noItem());
     bindCards(body); return;
   }
   if (inspectTab === 'agefilter') {
@@ -2335,7 +2334,7 @@ function renderInspect() {
     const cn = (a) => { const n = codeNumOf(a); return n == null ? 1e15 : n; };
     const offBy = {}; A.forEach(a => { if (a.mother_id) (offBy[a.mother_id] = offBy[a.mother_id] || []).push(a); });
     const hasKids = (id) => offBy[id] && offBy[id].length;
-    const label = (a) => esc(a.code || ('#' + a.id));
+    const label = (a) => esc(a.code || 'غير مرقّمة');
     const clsOf = (a) => a.sex === 'male' ? 'male' : (hasKids(a.id) ? 'mother' : 'female');
     const chip = (a, cls) => `<span class="lin-chip ${cls}" data-aid="${a.id}">${label(a)}</span>`;
     const toggle = `<div class="chips" style="margin-bottom:6px"><span class="chip ${lineageMode === 'flat' ? 'active' : ''}" data-lm="flat">📋 قائمة</span><span class="chip ${lineageMode === 'tree' ? 'active' : ''}" data-lm="tree">🌳 شجرة</span></div>`;
