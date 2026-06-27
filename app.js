@@ -801,31 +801,37 @@ const tagShapes = () => TAG_SHAPES_DEF.concat(loadList('mrahi_tag_shapes'));
 const strOpts = (arr) => [{ k: '', ar: '— بدون —' }].concat(arr.map(s => ({ k: s, ar: s })));
 const colorDot = (name) => COLOR_HEX[name] ? `<span style="display:inline-block;width:11px;height:11px;border-radius:50%;background:${COLOR_HEX[name]};border:1px solid #bbb;vertical-align:middle;margin-inline-start:4px"></span>` : '';
 
-/* ===== الحظائر: قائمة منسدلة قابلة للإدارة (تُكتب مرة وتُختار لاحقاً) ===== */
-// تعبئة قائمة الحظائر من حظائر البهائم الموجودة مرّة واحدة (لتظهر بياناتك القديمة كخيارات)
+/* ===== الحظائر: مرتبطة بنوع الحلال، قائمة منسدلة قابلة للإدارة ===== */
+// كل حظيرة: { name, type } — type مفتاح نوع الحلال ('' = لأي نوع). تُخزَّن في mrahi_pens.
+function loadPens() {
+  return loadList('mrahi_pens').map(p => typeof p === 'string' ? { name: p.trim(), type: '' } : { name: String(p.name == null ? '' : p.name).trim(), type: p.type || '' }).filter(p => p.name);
+}
+function savePens(arr) { saveList('mrahi_pens', arr); }
+// تعبئة/ترقية القائمة من حظائر البهائم الموجودة مرّة واحدة (مع إسناد النوع)
 function ensurePensSeeded() {
-  let done = false; try { done = !!localStorage.getItem('mrahi_pens_seeded'); } catch (e) { /* تجاهل */ }
+  let done = false; try { done = !!localStorage.getItem('mrahi_pens_seeded2'); } catch (e) { /* تجاهل */ }
   if (done) return;
-  const l = loadList('mrahi_pens');
-  (C.animals || []).forEach(a => { const p = String(a.pen == null ? '' : a.pen).trim(); if (p && !l.includes(p)) l.push(p); });
-  saveList('mrahi_pens', l);
-  try { localStorage.setItem('mrahi_pens_seeded', '1'); } catch (e) { /* تجاهل */ }
+  const l = loadPens();
+  (C.animals || []).forEach(a => { const nm = String(a.pen == null ? '' : a.pen).trim(); if (!nm) return; const tk = a.type || ''; const ex = l.find(p => p.name === nm); if (ex) { if (!ex.type && tk) ex.type = tk; } else l.push({ name: nm, type: tk }); });
+  savePens(l);
+  try { localStorage.setItem('mrahi_pens_seeded2', '1'); } catch (e) { /* تجاهل */ }
 }
-function allPens() {
-  ensurePensSeeded();
-  return loadList('mrahi_pens').map(p => String(p == null ? '' : p).trim()).filter((p, i, a) => p && a.indexOf(p) === i).sort((a, b) => a.localeCompare(b, 'ar'));
+function allPens() { ensurePensSeeded(); return loadPens(); }
+// أسماء حظائر نوعٍ معيّن (+ الحظائر غير المخصّصة لنوع)
+function pensForType(typeKey) {
+  return allPens().filter(p => !p.type || p.type === typeKey).map(p => p.name).filter((p, i, a) => a.indexOf(p) === i).sort((a, b) => a.localeCompare(b, 'ar'));
 }
-function addPen(name) { name = String(name || '').trim(); if (!name) return; const l = loadList('mrahi_pens'); if (!l.includes(name)) { l.push(name); saveList('mrahi_pens', l); } }
-function penOptions(selected) {
-  const sel = String(selected == null ? '' : selected).trim(); const pens = allPens();
-  if (sel && !pens.includes(sel)) pens.unshift(sel);
-  return '<option value="">— اختر الحظيرة —</option>'
-    + pens.map(p => `<option value="${esc(p)}" ${p === sel ? 'selected' : ''}>${esc(p)}</option>`).join('')
+function addPen(name, type) { name = String(name || '').trim(); if (!name) return; const l = loadPens(); if (!l.some(p => p.name === name)) { l.push({ name, type: type || '' }); savePens(l); } }
+function penOptions(selected, typeKey) {
+  const sel = String(selected == null ? '' : selected).trim(); const names = pensForType(typeKey || '');
+  if (sel && !names.includes(sel)) names.unshift(sel);
+  return '<option value="">— حدّد الحظيرة —</option>'
+    + names.map(p => `<option value="${esc(p)}" ${p === sel ? 'selected' : ''}>${esc(p)}</option>`).join('')
     + '<option value="__new__">➕ حظيرة جديدة…</option>';
 }
-function penField(label, id, selected) {
-  return `<div class="field"><label>${label}</label>
-    <select id="${id}">${penOptions(selected)}</select>
+// حقل الحظيرة بلا عنوان (أول خيار «حدّد الحظيرة» يقوم مقام العنوان)
+function penField(id, selected, typeKey) {
+  return `<div class="field"><select id="${id}">${penOptions(selected, typeKey)}</select>
     <input id="${id}_new" type="text" placeholder="اكتب اسم الحظيرة الجديدة" style="display:none;margin-top:6px"></div>`;
 }
 function bindPenField(id) {
@@ -833,7 +839,9 @@ function bindPenField(id) {
   const upd = () => { const isNew = s.value === '__new__'; n.style.display = isNew ? '' : 'none'; if (isNew) setTimeout(() => n.focus(), 30); };
   s.addEventListener('change', upd); upd();
 }
-function penValue(id) { const s = val(id); if (s === '__new__') { const v = val(id + '_new').trim(); if (v) addPen(v); return v; } return s; }
+// إعادة بناء خيارات الحظيرة عند تغيير نوع الحلال
+function rebuildPen(penId, typeKey) { const s = document.getElementById(penId); if (!s) return; s.innerHTML = penOptions('', typeKey); bindPenField(penId); }
+function penValue(id, typeKey) { const s = val(id); if (s === '__new__') { const v = val(id + '_new').trim(); if (v) addPen(v, typeKey || ''); return v; } return s; }
 
 /* ===== إضافة/تعديل بهيمة ===== */
 function screenAnimalEdit(arg) {
@@ -847,7 +855,7 @@ function screenAnimalEdit(arg) {
     <div class="card"><h3>البيانات الأساسية</h3>
       ${a ? '' : '<div class="muted" style="margin-bottom:8px">المعرّف الخارجي (الوسم) اختياري — يمكنك تركه فارغاً وترقيمها لاحقاً.</div>'}
       ${fSelect('نوع الحلال', 'f_type', TYPES, a ? a.type : (animalFilter || 'sheep'))}
-      ${penField('الحظيرة', 'f_pen', a ? a.pen : lastPen)}
+      ${penField('f_pen', a ? a.pen : '', a ? a.type : (animalFilter || 'sheep'))}
       ${fSelect('نوع المعرّف الخارجي', 'f_kind', IDKIND, a ? a.idkind : 'number')}
       ${fInput('المعرّف الخارجي / الوسم (اختياري — قد يتغيّر أو يسقط)', 'f_code', a && a.code)}
       ${fSelect('لون الوسم', 'f_tagcolor', strOpts(tagColors()), a ? (a.tag_color || '') : '')}
@@ -877,16 +885,17 @@ function screenAnimalEdit(arg) {
   const syncPurpose = () => { const pb = document.getElementById('purposeBox'); if (pb) pb.style.display = val('f_sex') === 'male' ? '' : 'none'; };
   document.getElementById('f_sex').addEventListener('change', syncPurpose); syncPurpose();
   bindPenField('f_pen');
+  document.getElementById('f_type').addEventListener('change', () => rebuildPen('f_pen', val('f_type')));   // حظائر النوع المحدّد فقط
   // إدخال صوتي ومسح بالكاميرا للحقول المناسبة (تظهر الأزرار فقط إن دعمها الجهاز)
   attachMic('f_code', { digits: true }); attachScan('f_code');
   attachMic('f_name'); attachMic('f_color'); attachMic('f_father'); attachMic('f_notes', { append: true });
   // نسخ بيانات آخر إدخال (للبهائم الجديدة فقط)
-  { const cl = document.getElementById('cloneLast'); if (cl) cl.addEventListener('click', () => { const L = lastAnimal || {}; setVal('f_type', L.type); setVal('f_pen', L.pen); setVal('f_kind', L.idkind); setVal('f_sex', L.sex); setVal('f_source', L.source); setVal('f_color', L.color); setVal('f_tagcolor', L.tag_color || ''); setVal('f_tagshape', L.tag_shape || ''); setVal('f_father', L.father_name || ''); toast('نُسخت بيانات آخر إدخال'); }); }
+  { const cl = document.getElementById('cloneLast'); if (cl) cl.addEventListener('click', () => { const L = lastAnimal || {}; setVal('f_type', L.type); setVal('f_pen', L.pen); setVal('f_kind', L.idkind); setVal('f_sex', L.sex); setVal('f_source', L.source); setVal('f_color', L.color); setVal('f_tagcolor', L.tag_color || ''); setVal('f_tagshape', L.tag_shape || ''); setVal('f_father', L.father_name || ''); rebuildPen('f_pen', L.type || (animalFilter || 'sheep')); setVal('f_pen', L.pen || ''); toast('نُسخت بيانات آخر إدخال'); }); }
   document.getElementById('saveBtn').addEventListener('click', async () => {
     const code = val('f_code').trim(), name = val('f_name').trim();
     // المعرّف الخارجي اختياري — الرقم الداخلي الثابت يميّز البهيمة دائماً
     const status = val('f_status');
-    const obj = { type: val('f_type'), pen: penValue('f_pen'), idkind: val('f_kind'), code, name, tag_color: val('f_tagcolor'), tag_shape: val('f_tagshape'), sex: val('f_sex'), purpose: val('f_sex') === 'male' ? val('f_purpose') : '', source: val('f_source'), birth: val('f_birth') || null, color: val('f_color').trim(), status, mother_id: parseInt(val('f_mother'), 10) || null, father_name: val('f_father').trim(), notes: val('f_notes').trim(),
+    const obj = { type: val('f_type'), pen: penValue('f_pen', val('f_type')), idkind: val('f_kind'), code, name, tag_color: val('f_tagcolor'), tag_shape: val('f_tagshape'), sex: val('f_sex'), purpose: val('f_sex') === 'male' ? val('f_purpose') : '', source: val('f_source'), birth: val('f_birth') || null, color: val('f_color').trim(), status, mother_id: parseInt(val('f_mother'), 10) || null, father_name: val('f_father').trim(), notes: val('f_notes').trim(),
       sale_date: status === 'sold' ? (val('f_saledate') || null) : null,
       sale_price: status === 'sold' && val('f_saleprice') !== '' ? parseFloat(val('f_saleprice')) : null,
       dead_date: status === 'dead' ? (val('f_deaddate') || null) : null };
@@ -994,7 +1003,7 @@ function addOffspringModal(mother) {
     ${fSelect('الجنس', 'of_sex', SEX, 'female')}
     ${fInput('العدد', 'of_count', '', 'number', 'min="1" inputmode="numeric"')}
     ${fInput('تاريخ الميلاد', 'of_birth', todayStr(), 'date')}
-    ${penField('الحظيرة', 'of_pen', mother.pen || lastPen)}
+    ${penField('of_pen', mother.pen || '', mother.type)}
     <div class="chips"><span class="chip active" data-om="none">⭕ بدون ترقيم</span><span class="chip" data-om="num">🔢 بترقيم</span></div>
     <div id="ofNone" class="muted" style="font-size:.82rem">تُضاف بلا رقم — رقّمها لاحقاً عند الكبر.</div>
     <div id="ofNum" class="hidden">
@@ -1031,7 +1040,7 @@ function addOffspringModal(mother) {
         codes = new Array(n).fill('');   // بدون ترقيم
       }
       if (!await confirm2(`إضافة ${codes.length} مولوداً وربطها بـ${display(mother)}؟`)) return;
-      const pen = penValue('of_pen');
+      const pen = penValue('of_pen', mother.type);
       const base = { type: mother.type, pen, sex: val('of_sex'), source: 'born', status: 'present', color: '', birth: val('of_birth') || null, mother_id: mother.id, father_name: '', notes: '' };
       const ok = await guard(async () => { for (const code of codes) await dbInsert('animals', { ...base, idkind: idkindFor(code), code, name: '' }); });
       if (ok) { closeModal(); lastPen = pen; try { localStorage.setItem('mrahi_last_pen', pen); } catch (e) {} toast(`أُضيف ${codes.length} مولوداً`); await loadAll(); screenAnimalDetail(String(mother.id)); }
@@ -1623,7 +1632,7 @@ function renderBulkBody() {
   if (bulkOp === 'buy') {
     body.innerHTML = `<div class="card"><h3>حقول مشتركة لكل الرؤوس</h3>
       ${fSelect('نوع الحلال', 'bk_type', TYPES, animalFilter || 'sheep')}
-      ${penField('الحظيرة', 'bk_pen', lastPen)}
+      ${penField('bk_pen', '', animalFilter || 'sheep')}
       ${fSelect('المصدر', 'bk_source', SOURCE, 'born')}
       ${fInput('التاريخ (شراء/ميلاد)', 'bk_date', todayStr(), 'date')}
       ${fInput('اللون (اختياري)', 'bk_color', '')}
@@ -1675,6 +1684,7 @@ function renderBulkBody() {
       const bar = document.getElementById('bk_renumbar'); if (bar) bar.style.display = bulkRows.length ? 'flex' : 'none';
     };
     bindPenField('bk_pen');
+    { const bt = document.getElementById('bk_type'); if (bt) bt.addEventListener('change', () => rebuildPen('bk_pen', val('bk_type'))); }
     // ♻ رقّم الكل من رقم واحد بضغطة (يغيّر أرقام جميع الرؤوس دفعة واحدة)
     document.getElementById('bk_renumbtn').addEventListener('click', () => {
       if (!bulkRows.length) return;
@@ -1706,7 +1716,7 @@ function renderBulkBody() {
       const dups = bulkRows.filter(r => r.code && existing.has(r.code)).map(r => r.code);
       if (dups.length && !await confirm2(`${dups.length} معرّف مكرّر (${dups.slice(0, 4).join('، ')}${dups.length > 4 ? '…' : ''}). متابعة؟`)) return;
       if (!await confirm2(`حفظ ${bulkRows.length} رأساً؟`)) return;
-      const pen = penValue('bk_pen'), src = val('bk_source'), datev = val('bk_date') || null;
+      const pen = penValue('bk_pen', val('bk_type')), src = val('bk_source'), datev = val('bk_date') || null;
       const base = { type: val('bk_type'), pen, source: src, status: 'present', color: val('bk_color').trim(),
         birth: src === 'born' ? datev : null, buy_date: src === 'purchased' ? datev : null,
         buy_price: val('bk_price') !== '' ? parseFloat(val('bk_price')) : null };
@@ -1770,7 +1780,7 @@ async function bulkApply() {
 /* ===== المزيد ===== */
 const moreOpen = new Set(['herd']);   // التصنيفات المفتوحة (الشائع «الحلال» مفتوح افتراضياً)
 // لون خلفية خفيف لكل مجال في «المزيد» لتمييز الأقسام بصرياً
-const MORE_BG = { herd: '#e8f5e9', health: '#e3f2fd', ops: '#fff8e1', guides: '#f3e5f5', admin: '#ffebee', app: '#eceff1' };
+const MORE_BG = { herd: '#e8f5e9', health: '#e3f2fd', finance: '#fff3e0', ops: '#fff8e1', guides: '#f3e5f5', admin: '#ffebee', app: '#eceff1' };
 function screenMore() {
   const owner = me && me.account_type === 'owner';
   const I = (cond, label, hash) => cond ? [label, hash] : null;
@@ -1791,8 +1801,10 @@ function screenMore() {
       I(can('treatments', 'view'), '💊 أنواع العلاج', '#/treatment-types'),
       I(can('treatments', 'view'), '📦 مخزون الأدوية واللقاحات', '#/medstock'),
     ].filter(Boolean) },
-    { key: 'ops', title: '⚙️ عمليات وبيانات', items: [
+    { key: 'finance', title: '💰 المالية', items: [
       I(can('animals', 'view'), '💰 المصروفات والميزانية', '#/finance'),
+    ].filter(Boolean) },
+    { key: 'ops', title: '⚙️ العمليات والبيانات', items: [
       I(can('animals', 'add') || can('animals', 'edit') || can('vaccines', 'edit') || can('treatments', 'edit') || can('breeding', 'edit'), '⚙️ عمليات جماعية (تطعيم/علاج/بيع…)', '#/bulk'),
       I(can('backup', 'view'), '💾 النسخ الاحتياطي', '#/backup'),
       I(!window.MRAH_LOCAL && (can('animals', 'view') || sharesIn.length), `🤝 مشاركة الحلال${np ? ` (${np} دعوة)` : ''}`, '#/shares'),
@@ -2587,27 +2599,41 @@ function screenTagLists() {
 /* ===== إدارة الحظائر (إضافة/تعديل/حذف — تسمية حرّة حسب الرغبة) ===== */
 function screenPens() {
   if (!can('animals', 'edit')) { view().innerHTML = noPerm(); return; }
-  const pens = allPens();
-  const countFor = (p) => (C.animals || []).filter(a => (a.pen || '') === p).length;
-  view().innerHTML = `<div class="muted" style="margin-bottom:8px">سجّل حظائرك مرّة واحدة لتختار منها عند إضافة الحلال. سمّها كما تشاء (شبك الإبل ١، حوش الماعز، حظيرة النجدي…)، ولكل نوع حظائره.</div>
-    <div class="card"><div style="display:flex;gap:6px;margin-bottom:10px"><input id="np_name" placeholder="اسم حظيرة جديدة" style="flex:1"><button class="btn sm" id="np_add">➕ إضافة</button></div>
-    ${pens.length ? pens.map(p => `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #eee">
-        <span class="li-title" style="font-weight:600">🏠 ${esc(p)} <span class="muted" style="font-weight:400;font-size:.8rem">(${countFor(p)} بهيمة)</span></span>
-        <span style="display:flex;gap:6px"><button class="btn sm outline" data-penedit="${esc(p)}">تعديل</button><button class="btn sm danger" data-pendel="${esc(p)}">حذف</button></span></div>`).join('') : '<div class="muted">لا توجد حظائر بعد — أضِف أول حظيرة.</div>'}
-    </div>`;
-  document.getElementById('np_add').addEventListener('click', () => { const n = val('np_name').trim(); if (!n) { toast('اكتب اسم الحظيرة'); return; } if (allPens().includes(n)) { toast('موجودة مسبقاً'); return; } addPen(n); toast('أُضيفت'); screenPens(); });
+  const pens = allPens();   // [{name,type}]
+  const countFor = (nm) => (C.animals || []).filter(a => (a.pen || '') === nm).length;
+  const typeAr = (tk) => tk ? arOf(TYPES, tk) : 'أي نوع';
+  const groups = {}; pens.forEach(p => { (groups[p.type || ''] = groups[p.type || ''] || []).push(p); });
+  const typeSel = `<select id="np_type">${TYPES.map(t => `<option value="${t.k}">${t.ar}</option>`).join('')}<option value="">أي نوع</option></select>`;
+  let body = '';
+  TYPES.map(t => t.k).concat(['']).forEach(tk => {
+    const arr = groups[tk]; if (!arr || !arr.length) return;
+    body += `<div class="card"><h3>🐑 ${esc(typeAr(tk))}</h3>` + arr.slice().sort((a, b) => a.name.localeCompare(b.name, 'ar')).map(p => `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #eee">
+        <span class="li-title" style="font-weight:600">🏠 ${esc(p.name)} <span class="muted" style="font-weight:400;font-size:.8rem">(${countFor(p.name)} بهيمة)</span></span>
+        <span style="display:flex;gap:6px"><button class="btn sm outline" data-penedit="${esc(p.name)}">تعديل</button><button class="btn sm danger" data-pendel="${esc(p.name)}">حذف</button></span></div>`).join('') + '</div>';
+  });
+  view().innerHTML = `<div class="muted" style="margin-bottom:8px">حدّد نوع الحلال ثم اكتب اسم الحظيرة (شبك/حوش/حظيرة…). تظهر في الإدخال عند اختيار النوع، ولكل نوع حظائره.</div>
+    <div class="card"><h3>➕ إضافة حظيرة</h3><div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">${typeSel}<input id="np_name" placeholder="اسم الحظيرة" style="flex:1;min-width:140px"><button class="btn sm" id="np_add">إضافة</button></div></div>`
+    + (body || '<div class="muted">لا توجد حظائر بعد — أضِف أول حظيرة.</div>');
+  document.getElementById('np_add').addEventListener('click', () => { const n = val('np_name').trim(); if (!n) { toast('اكتب اسم الحظيرة'); return; } if (allPens().some(p => p.name === n)) { toast('الاسم موجود مسبقاً'); return; } addPen(n, val('np_type')); toast('أُضيفت'); screenPens(); });
   view().querySelectorAll('[data-penedit]').forEach(b => b.addEventListener('click', () => penRenameModal(b.dataset.penedit)));
   view().querySelectorAll('[data-pendel]').forEach(b => b.addEventListener('click', () => penDelete(b.dataset.pendel)));
 }
 function penRenameModal(oldName) {
-  openModal('تعديل اسم الحظيرة', `${fInput('الاسم الجديد', 'pe_name', oldName)}<div class="muted" style="font-size:.82rem;margin-bottom:6px">سيُحدَّث الاسم في القائمة وفي البهائم المسجّلة بهذه الحظيرة.</div><button class="btn" id="pe_save">حفظ</button>`, () => {
+  const cur = allPens().find(p => p.name === oldName) || { name: oldName, type: '' };
+  openModal('تعديل الحظيرة', `${fInput('الاسم', 'pe_name', oldName)}${fSelect('نوع الحلال', 'pe_type', TYPES, cur.type, 'أي نوع')}<div class="muted" style="font-size:.82rem;margin-bottom:6px">تغيير الاسم يُحدَّث في البهائم المسجّلة بهذه الحظيرة.</div><button class="btn" id="pe_save">حفظ</button>`, () => {
     document.getElementById('pe_save').addEventListener('click', async () => {
       const nn = val('pe_name').trim(); if (!nn) { toast('اكتب الاسم'); return; }
-      if (nn === oldName) { closeModal(); return; }
-      const l = loadList('mrahi_pens').map(p => p === oldName ? nn : p); saveList('mrahi_pens', l.filter((p, i, a) => p && a.indexOf(p) === i));
-      const affected = (C.animals || []).filter(a => (a.pen || '') === oldName);
-      const ok = await guard(async () => { for (const a of affected) await dbUpdate('animals', a.id, { pen: nn }); });
-      if (ok) { closeModal(); toast(`أُعيدت التسمية${affected.length ? ` (${affected.length} بهيمة)` : ''}`); await loadAll(); screenPens(); }
+      const nt = val('pe_type');
+      const l = loadPens().map(p => p.name === oldName ? { name: nn, type: nt } : p);
+      savePens(l.filter((p, i, a) => a.findIndex(q => q.name === p.name) === i));
+      let affected = [];
+      if (nn !== oldName) {
+        affected = (C.animals || []).filter(a => (a.pen || '') === oldName);
+        const ok = await guard(async () => { for (const a of affected) await dbUpdate('animals', a.id, { pen: nn }); });
+        if (!ok) { toast('تعذّر الحفظ'); return; }
+        await loadAll();
+      }
+      closeModal(); toast(`تم الحفظ${affected.length ? ` (${affected.length} بهيمة)` : ''}`); screenPens();
     });
   });
 }
@@ -2615,7 +2641,7 @@ async function penDelete(name) {
   const used = (C.animals || []).filter(a => (a.pen || '') === name).length;
   const msg = used ? `حذف «${name}» من القائمة؟ مستخدمة في ${used} بهيمة — تبقى عليها لكنها تختفي من الخيارات.` : `حذف «${name}» من القائمة؟`;
   if (!await confirm2(msg)) return;
-  saveList('mrahi_pens', loadList('mrahi_pens').filter(p => p !== name));
+  savePens(loadPens().filter(p => p.name !== name));
   toast('حُذفت'); screenPens();
 }
 
