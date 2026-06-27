@@ -514,8 +514,8 @@ const ROUTES = {
   vaccinate: { t: 'إعطاء تطعيم', back: true, fn: screenVaccinate },
   'treatment-types': { t: 'أنواع العلاج', back: true, fn: screenTreatmentTypes },
   'vaccine-plan': { t: 'برنامج التطعيم', back: true, fn: screenVaccinePlan },
-  medstock: { t: 'مخزون الأدوية', back: true, fn: screenMedStock },
-  treat: { t: 'إضافة علاج', back: true, fn: screenTreat },
+  medstock: { t: 'مخزون الأدوية واللقاحات', back: true, fn: screenMedStock },
+  treat: { t: 'إعطاء علاج', back: true, fn: screenTreat },
   bulk: { t: 'عمليات بالجملة', back: true, fn: screenBulk },
   backup: { t: 'النسخ الاحتياطي', back: true, fn: screenBackup },
   members: { t: 'المستخدمون والصلاحيات', back: true, fn: screenMembers },
@@ -668,7 +668,7 @@ function screenAlerts() {
     <div class="card" style="background:#ffebee"><h3>🚫 انتهاء مدة التحريم (علاجات جارية)</h3>${treats.length ? treats.map(t => row(display(animalById(t.animal_id)), `${esc(t.med_name || '')} • ينتهي ${fmtDate(t.withdrawal_end)} (بعد ${daysUntil(t.withdrawal_end)} يوم)`)).join('') : noItem()}</div>
     <div class="card" style="background:#e8f5e9"><h3>💊 جرعات علاج قادمة (١٤ يوماً)</h3>${doses.length ? doses.map(t => row(display(animalById(t.animal_id)), `${esc(t.med_name || '')} • ${fmtDate(t.next_due)} (بعد ${daysUntil(t.next_due)} يوم)`)).join('') : noItem()}</div>
     <div class="card" style="background:#e3f2fd"><h3>💉 مواعيد تطعيم قادمة (٣٠ يوماً)</h3>${vaccs.length ? vaccs.map(v => row(display(animalById(v.animal_id)), `${esc(vtName(v.type_id))} • ${fmtDate(v.next_due)} (بعد ${daysUntil(v.next_due)} يوم)`)).join('') : noItem()}</div>
-    ${showMeds ? `<div class="card click" style="background:#fff3e0" data-go="#/medstock"><h3>📦 مخزون الأدوية (تنبيه)</h3>${lowMeds.length ? `<div class="li-title" style="color:#c62828">نفد/قارب النفاد (${lowMeds.length})</div>${lowMeds.map(medLine).join('')}` : ''}${expMeds.length ? `<div class="li-title" style="color:#e65100;margin-top:6px">قارب/منتهي الصلاحية (${expMeds.length})</div>${expMeds.map(medLine).join('')}` : ''}</div>` : ''}`;
+    ${showMeds ? `<div class="card click" style="background:#fff3e0" data-go="#/medstock"><h3>📦 مخزون الأدوية واللقاحات (تنبيه)</h3>${lowMeds.length ? `<div class="li-title" style="color:#c62828">نفد/قارب النفاد (${lowMeds.length})</div>${lowMeds.map(medLine).join('')}` : ''}${expMeds.length ? `<div class="li-title" style="color:#e65100;margin-top:6px">قارب/منتهي الصلاحية (${expMeds.length})</div>${expMeds.map(medLine).join('')}` : ''}</div>` : ''}`;
   view().querySelectorAll('[data-go]').forEach(c => c.addEventListener('click', () => setHash(c.dataset.go)));
 }
 
@@ -876,7 +876,7 @@ function screenAnimalDetail(arg) {
       ${can('vaccines', 'edit') ? `<button class="btn outline" id="addVacc">إعطاء تطعيم</button>` : ''}
       ${vaccs.map(v => row(fmtDate(v.date) + ' — ' + vtName(v.type_id), 'تحريم حتى ' + fmtDate(v.withdrawal_end))).join('')}</div>` : ''}
     ${can('treatments', 'view') ? `<div class="card"><h3>العلاجات (${treats.length})</h3>
-      ${can('treatments', 'edit') ? `<button class="btn outline" id="addTreat">إضافة علاج</button>` : ''}
+      ${can('treatments', 'edit') ? `<button class="btn outline" id="addTreat">إعطاء علاج</button>` : ''}
       ${treats.map(t => row(esc(t.med_name) + ' (' + fmtDate(t.date) + ')', 'تحريم حتى ' + fmtDate(t.withdrawal_end))).join('')}</div>` : ''}
     <div style="height:30px"></div>`;
   bindCards(view());
@@ -1432,10 +1432,10 @@ function screenMedStock() {
     const ok = await guard(async () => { await dbDelete('medstock', parseInt(b.dataset.del, 10)); });
     if (ok) { toast('حُذف'); await loadAll(); screenMedStock(); }
   }));
-  if (can('treatments', 'edit')) addFab('+ دواء', () => medStockModal(null));
+  if (can('treatments', 'edit')) addFab('+ دواء/لقاح', () => medStockModal(null));
 }
 function medStockModal(m) {
-  openModal(m ? 'تعديل دواء' : 'دواء جديد', `
+  openModal(m ? 'تعديل دواء/لقاح' : 'دواء/لقاح جديد', `
     ${fInput('اسم الدواء/اللقاح', 'ms_name', m && m.name)}
     ${fInput('الكمية', 'ms_qty', m ? m.qty : '', 'number', 'min="0" step="any" inputmode="decimal"')}
     ${fInput('الوحدة (علبة/مل/جرعة)', 'ms_unit', m && m.unit)}
@@ -1685,9 +1685,9 @@ function screenMore() {
       I(can('vaccines', 'edit'), '💉 إعطاء تطعيم', '#/vaccinate/0'),
       I(can('vaccines', 'view'), '💉 أنواع التطعيمات', '#/vaccine-types'),
       I(can('vaccines', 'view'), '🗓️ برنامج التطعيم الموصى به', '#/vaccine-plan'),
-      I(can('treatments', 'edit'), '💊 إضافة علاج', '#/treat/0'),
+      I(can('treatments', 'edit'), '💊 إعطاء علاج', '#/treat/0'),
       I(can('treatments', 'view'), '💊 أنواع العلاج', '#/treatment-types'),
-      I(can('treatments', 'view'), '📦 مخزون الأدوية', '#/medstock'),
+      I(can('treatments', 'view'), '📦 مخزون الأدوية واللقاحات', '#/medstock'),
     ].filter(Boolean) },
     { key: 'ops', title: '⚙️ عمليات وبيانات', items: [
       I(can('animals', 'view'), '💰 المصروفات والميزانية', '#/finance'),
