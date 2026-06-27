@@ -9,6 +9,8 @@ let TYPES = [
 const SEX = [{ k: 'female', ar: 'أنثى' }, { k: 'male', ar: 'ذكر' }];
 const STATUS = [{ k: 'present', ar: 'موجودة' }, { k: 'sold', ar: 'مباعة' }, { k: 'dead', ar: 'نافقة' }];
 const SOURCE = [{ k: 'purchased', ar: 'مشترى' }, { k: 'born', ar: 'ولادة' }];
+// غرض الذكر: فحل يبقى للقطيع، أو معدّ للبيع/التسمين
+const MALE_PURPOSE = [{ k: 'sire', ar: '🐏 فحل للقطيع' }, { k: 'sale', ar: '💰 معدّ للبيع' }];
 const TREAT_FORM = [{ k: 'injection', ar: 'إبر' }, { k: 'oral', ar: 'تجريع' }, { k: 'spray', ar: 'رش' }, { k: 'topical', ar: 'دهن' }];
 const IDKIND = [{ k: 'number', ar: 'رقم' }, { k: 'tag', ar: 'وسم' }, { k: 'chip', ar: 'شريحة إلكترونية' }, { k: 'name', ar: 'اسم / مسمى' }, { k: 'color', ar: 'لون / علامة' }];
 const PREG = [{ k: 'monitoring', ar: 'تحت المتابعة' }, { k: 'born', ar: 'ولدت' }, { k: 'not_confirmed', ar: 'لم يثبت الحمل' }];
@@ -741,8 +743,8 @@ function animalCard(a) {
   const off = C.animals.filter(x => x.mother_id === a.id || x.father_id === a.id).length;   // عدد مواليدها
   const mother = a.mother_id ? animalById(a.mother_id) : null;
   return `<div class="card click" data-aid="${a.id}">
-    <div class="li-title">${display(a)}</div>
-    <div class="li-sub">${arOf(TYPES, a.type)} • ${arOf(SEX, a.sex)} • <span class="badge ${st}">${arOf(STATUS, a.status)}</span></div>
+    <div class="li-title">${display(a)}${!a.code ? ' <span class="muted" style="font-weight:400;font-size:.8rem">(غير مرقّمة — رقم داخلي)</span>' : ''}</div>
+    <div class="li-sub">${arOf(TYPES, a.type)} • ${arOf(SEX, a.sex)}${a.sex === 'male' && a.purpose ? ' • ' + arOf(MALE_PURPOSE, a.purpose) : ''} • <span class="badge ${st}">${arOf(STATUS, a.status)}</span></div>
     ${a.pen ? `<div class="li-sub">الحظيرة: ${esc(a.pen)}</div>` : ''}
     ${off ? `<div class="li-sub link" data-off="${a.id}">👶 المواليد: ${off} — عرض</div>` : ''}
     ${mother ? `<div class="li-sub link" data-momopen="${a.mother_id}">🤱 الأم: ${display(mother)}</div>` : ''}</div>`;
@@ -766,7 +768,7 @@ function screenAnimals() {
   const chips = `<div class="chips"><span class="chip ${!animalFilter ? 'active' : ''}" data-f="">الكل</span>${TYPES.map(t => `<span class="chip ${animalFilter === t.k ? 'active' : ''}" data-f="${t.k}">${t.ar}</span>`).join('')}</div>`;
   const stChips = `<div class="chips"><span class="chip ${animalStatusFilter === 'present' ? 'active' : ''}" data-s="present">في الحظيرة</span><span class="chip ${animalStatusFilter === 'sold' ? 'active' : ''}" data-s="sold">مباعة</span><span class="chip ${animalStatusFilter === 'dead' ? 'active' : ''}" data-s="dead">نافقة</span><span class="chip ${!animalStatusFilter ? 'active' : ''}" data-s="">الكل</span></div>`;
   const srcChips = `<div class="chips"><span class="chip ${!animalSourceFilter ? 'active' : ''}" data-src="">كل المصادر</span><span class="chip ${animalSourceFilter === 'born' ? 'active' : ''}" data-src="born">👶 مواليد</span><span class="chip ${animalSourceFilter === 'purchased' ? 'active' : ''}" data-src="purchased">🛒 مشترى</span></div>`;
-  const sexBanner = animalSexFilter ? `<div class="card hl" style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px"><span>الجنس: ${arOf(SEX, animalSexFilter)}</span><button class="btn sm outline" id="clrSex">✕ إلغاء</button></div>` : '';
+  const sexChips = `<div class="chips"><span class="chip ${!animalSexFilter ? 'active' : ''}" data-sex="">الجنسان</span>${SEX.map(s => `<span class="chip ${animalSexFilter === s.k ? 'active' : ''}" data-sex="${s.k}">${s.k === 'male' ? '♂ ' : '♀ '}${s.ar}</span>`).join('')}</div>`;
   const list = C.animals.filter(a => (!animalFilter || a.type === animalFilter) && (!animalStatusFilter || a.status === animalStatusFilter) && (!animalSourceFilter || (a.source || 'purchased') === animalSourceFilter) && (!animalSexFilter || a.sex === animalSexFilter)).sort((a, b) => b.id - a.id);
   const canEdit = can('animals', 'edit');
   // عند خلو الحلال كلياً: حالة ترحيبية بزرّ إضافة واضح. وعند خلو التصنيف فقط: رسالة عادية.
@@ -776,11 +778,11 @@ function screenAnimals() {
   const countRow = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
       <span class="muted">العدد: ${list.length}</span>
       ${canEdit ? '<button class="btn sm outline" id="bulkAddBtn">📋 إضافة جماعية</button>' : ''}</div>`;
-  view().innerHTML = chips + stChips + srcChips + sexBanner + countRow + (list.length ? list.map(animalCard).join('') : empty);
+  view().innerHTML = chips + stChips + srcChips + sexChips + countRow + (list.length ? list.map(animalCard).join('') : empty);
   view().querySelectorAll('[data-f]').forEach(c => c.addEventListener('click', () => { animalFilter = c.dataset.f; screenAnimals(); }));
   view().querySelectorAll('[data-s]').forEach(c => c.addEventListener('click', () => { animalStatusFilter = c.dataset.s; screenAnimals(); }));
   view().querySelectorAll('[data-src]').forEach(c => c.addEventListener('click', () => { animalSourceFilter = c.dataset.src; screenAnimals(); }));
-  { const cs = document.getElementById('clrSex'); if (cs) cs.addEventListener('click', () => { animalSexFilter = ''; screenAnimals(); }); }
+  view().querySelectorAll('[data-sex]').forEach(c => c.addEventListener('click', () => { animalSexFilter = c.dataset.sex; screenAnimals(); }));
   bindCards(view());
   { const af = document.getElementById('add_first'); if (af) af.addEventListener('click', () => setHash('#/animal-edit/0')); }
   { const bb = document.getElementById('bulkAddBtn'); if (bb) bb.addEventListener('click', () => setHash('#/bulk/buy')); }
@@ -817,6 +819,7 @@ function screenAnimalEdit(arg) {
       ${fSelect('شكل الوسم', 'f_tagshape', strOpts(tagShapes()), a ? (a.tag_shape || '') : '')}
       ${fInput('الاسم/المسمى (اختياري)', 'f_name', a && a.name)}
       ${fSelect('الجنس', 'f_sex', SEX, a ? a.sex : 'female')}
+      <div id="purposeBox">${fSelect('غرض الذكر', 'f_purpose', MALE_PURPOSE, a ? (a.purpose || '') : '', '— غير محدّد —')}</div>
       ${fSelect('المصدر', 'f_source', SOURCE, a ? (a.source || 'purchased') : 'purchased')}
       ${fInput('تاريخ الميلاد (اختياري للمشترى)', 'f_birth', a && a.birth, 'date')}
       ${fInput('اللون', 'f_color', a && a.color)}
@@ -835,6 +838,9 @@ function screenAnimalEdit(arg) {
     document.getElementById('deadBox').style.display = s === 'dead' ? '' : 'none';
   };
   document.getElementById('f_status').addEventListener('change', syncExit); syncExit();
+  // غرض الذكر يظهر للذكور فقط
+  const syncPurpose = () => { const pb = document.getElementById('purposeBox'); if (pb) pb.style.display = val('f_sex') === 'male' ? '' : 'none'; };
+  document.getElementById('f_sex').addEventListener('change', syncPurpose); syncPurpose();
   // إدخال صوتي ومسح بالكاميرا للحقول المناسبة (تظهر الأزرار فقط إن دعمها الجهاز)
   attachMic('f_code', { digits: true }); attachScan('f_code');
   attachMic('f_name'); attachMic('f_color'); attachMic('f_father'); attachMic('f_notes', { append: true });
@@ -844,7 +850,7 @@ function screenAnimalEdit(arg) {
     const code = val('f_code').trim(), name = val('f_name').trim();
     // المعرّف الخارجي اختياري — الرقم الداخلي الثابت يميّز البهيمة دائماً
     const status = val('f_status');
-    const obj = { type: val('f_type'), pen: val('f_pen').trim(), idkind: val('f_kind'), code, name, tag_color: val('f_tagcolor'), tag_shape: val('f_tagshape'), sex: val('f_sex'), source: val('f_source'), birth: val('f_birth') || null, color: val('f_color').trim(), status, mother_id: parseInt(val('f_mother'), 10) || null, father_name: val('f_father').trim(), notes: val('f_notes').trim(),
+    const obj = { type: val('f_type'), pen: val('f_pen').trim(), idkind: val('f_kind'), code, name, tag_color: val('f_tagcolor'), tag_shape: val('f_tagshape'), sex: val('f_sex'), purpose: val('f_sex') === 'male' ? val('f_purpose') : '', source: val('f_source'), birth: val('f_birth') || null, color: val('f_color').trim(), status, mother_id: parseInt(val('f_mother'), 10) || null, father_name: val('f_father').trim(), notes: val('f_notes').trim(),
       sale_date: status === 'sold' ? (val('f_saledate') || null) : null,
       sale_price: status === 'sold' && val('f_saleprice') !== '' ? parseFloat(val('f_saleprice')) : null,
       dead_date: status === 'dead' ? (val('f_deaddate') || null) : null };
@@ -901,6 +907,7 @@ function screenAnimalDetail(arg) {
       ${(a.tag_color || a.tag_shape) ? row('🏷️ لون/شكل الوسم', [a.tag_color ? esc(a.tag_color) + colorDot(a.tag_color) : '', a.tag_shape ? esc(a.tag_shape) : ''].filter(Boolean).join(' • ')) : ''}
       ${a.name ? row('الاسم', esc(a.name)) : ''}
       ${row('الجنس', arOf(SEX, a.sex))}
+      ${a.sex === 'male' && a.purpose ? row('غرض الذكر', arOf(MALE_PURPOSE, a.purpose)) : ''}
       ${row('الحظيرة', esc(a.pen) || '—')}
       ${row('المصدر', arOf(SOURCE, a.source || 'purchased'))}
       ${row('تاريخ الميلاد', fmtDate(a.birth))}
