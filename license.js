@@ -1,11 +1,17 @@
 /* حلالي — التحقّق من ترخيص التفعيل (Ed25519، مطابق لآلية mdk_keygen).
    التطبيق يحمل المفتاح العامّ فقط ويتحقّق محلياً؛ البذرة السرّية تبقى في الـkeygen.
-   النصّ المُوقَّع: "MRHL1|<معرّف الجهاز>|<المدّة بالأيام>". المدّة 0 = ترخيص دائم.
+   النصّ المُوقَّع: "UNIV1|<معرّف الجهاز>|<المدّة بالأيام>". المدّة 0 = ترخيص دائم.
+   يقبل المفتاح العالميّ (UNIV1) ويبقى متوافقاً مع أكواد حلالي القديمة (MRHL1).
    يتطلّب تحميل nacl.min.js (tweetnacl) قبله. يعمل في تطبيق الجوال فقط. */
 (function () {
   'use strict';
-  var PUB_B64 = 'q6t0BfdSs/AF9EAHkRAwAoaqRwHFp7m052uCRxlwKw4=';   // المفتاح العامّ لحلالي (عامّ — آمن)
-  var PREFIX = 'MRHL1';                                            // بادئة حلالي (تطابق الـkeygen)
+  var PUB_B64 = '0JXPjbbPjczfYbYxl+jy1vOVcsEJT+CPbUIQgXNCStU=';   // المفتاح العامّ العالميّ (عامّ — آمن)
+  var PREFIX = 'UNIV1';                                            // بادئة النظام العالميّ (تطابق المولّد العام)
+  // مجموعات مفاتيح مقبولة: العالميّة أولاً ثم القديمة (توافق رجعيّ مع أكواد حلالي السابقة)
+  var KEYSETS = [
+    { pub: PUB_B64, prefix: PREFIX },
+    { pub: 'q6t0BfdSs/AF9EAHkRAwAoaqRwHFp7m052uCRxlwKw4=', prefix: 'MRHL1' },
+  ];
   var B32 = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
   function b32e(bytes) { var bits = 0, v = 0, o = ''; for (var i = 0; i < bytes.length; i++) { v = (v << 8) | bytes[i]; bits += 8; while (bits >= 5) { o += B32[(v >>> (bits - 5)) & 31]; bits -= 5; } v &= (1 << bits) - 1; } if (bits > 0) o += B32[(v << (5 - bits)) & 31]; return o; }
@@ -37,8 +43,11 @@
     if (pkt.length !== 66) return null;
     var dur = (pkt[0] << 8) | pkt[1];
     var sig = pkt.slice(2);
-    var msg = enc(PREFIX + '|' + deviceId() + '|' + dur);
-    try { return nacl.sign.detached.verify(msg, sig, b64ToBytes(PUB_B64)) ? dur : null; } catch (e) { return null; }
+    var dev = norm(deviceId());
+    for (var i = 0; i < KEYSETS.length; i++) {
+      try { var msg = enc(KEYSETS[i].prefix + '|' + dev + '|' + dur); if (nacl.sign.detached.verify(msg, sig, b64ToBytes(KEYSETS[i].pub))) return dur; } catch (e) {}
+    }
+    return null;
   }
   function writeRecord(dur) { var now = Date.now(); lss('mrahi_lic', JSON.stringify({ d: dur, a: now, s: now })); }
   function deactivate() { try { localStorage.removeItem('mrahi_lic'); } catch (e) {} }   // يُعيد القفل (لا يحذف البيانات)
@@ -62,7 +71,7 @@
     var h = String(seedHex || '').trim().toLowerCase().replace(/[^0-9a-f]/g, '');
     if (h.length !== 64) return false;
     var seed = new Uint8Array(32); for (var i = 0; i < 32; i++) seed[i] = parseInt(h.substr(i * 2, 2), 16);
-    try { var kp = nacl.sign.keyPair.fromSeed(seed); if (bytesToB64(kp.publicKey) === PUB_B64) { writeRecord(0); return true; } } catch (e) {}
+    try { var kp = nacl.sign.keyPair.fromSeed(seed); var pub = bytesToB64(kp.publicKey); for (var i = 0; i < KEYSETS.length; i++) { if (pub === KEYSETS[i].pub) { writeRecord(0); return true; } } } catch (e) {}
     return false;
   }
   window.MrahiLicense = { deviceId: deviceId, deviceIdPretty: deviceIdPretty, state: state, tryActivate: tryActivate, recoverWithSeed: recoverWithSeed, deactivate: deactivate };

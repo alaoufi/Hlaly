@@ -12,6 +12,7 @@ on:
       - "guide.js"
       - "local-db.js"
       - "updater.js"
+      - "license.js"
       - "index.local.html"
       - "capacitor.config.json"
       - "package.json"
