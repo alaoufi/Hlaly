@@ -746,7 +746,7 @@ function animalCard(a) {
   return `<div class="card click" data-aid="${a.id}">
     <div class="li-title">${display(a)}</div>
     <div class="li-sub">${arOf(TYPES, a.type)} • ${arOf(SEX, a.sex)}${a.sex === 'male' && a.purpose ? ' • ' + arOf(MALE_PURPOSE, a.purpose) : ''} • <span class="badge ${st}">${arOf(STATUS, a.status)}</span></div>
-    ${a.pen ? `<div class="li-sub">الحظيرة: ${esc(a.pen)}</div>` : ''}
+    ${a.pen ? `<div class="li-sub">🏠 ${esc(a.pen)}</div>` : ''}
     ${off ? `<div class="li-sub link" data-off="${a.id}">👶 المواليد: ${off} — عرض</div>` : ''}
     ${mother ? `<div class="li-sub link" data-momopen="${a.mother_id}">🤱 الأم: ${display(mother)}</div>` : ''}</div>`;
 }
@@ -943,7 +943,7 @@ function screenAnimalDetail(arg) {
       ${a.name ? row('الاسم', esc(a.name)) : ''}
       ${row('الجنس', arOf(SEX, a.sex))}
       ${a.sex === 'male' && a.purpose ? row('غرض الذكر', arOf(MALE_PURPOSE, a.purpose)) : ''}
-      ${row('الحظيرة', esc(a.pen) || '—')}
+      ${row('🏠 المكان', esc(a.pen) || '—')}
       ${row('المصدر', arOf(SOURCE, a.source || 'purchased'))}
       ${row('تاريخ الميلاد', fmtDate(a.birth))}
       ${a.birth ? row('🎂 العمر', ageText(a.birth)) : ''}
@@ -1164,7 +1164,7 @@ function startPregBulkModal() {
     applyFilter(); updCount();
   };
   const typeChips = typesUsed.length > 1 ? `النوع: <div class="chips"><span class="chip active" data-typef="">الكل</span>${typesUsed.map(t => `<span class="chip" data-typef="${t.k}">${t.ar}</span>`).join('')}</div>` : '';
-  const penChips = pens.length > 1 ? `الحظيرة: <div class="chips"><span class="chip active" data-penf="">الكل</span>${pens.map(p => `<span class="chip" data-penf="${esc(p)}">${esc(p)}</span>`).join('')}</div>` : '';
+  const penChips = pens.length > 1 ? `🏠 <div class="chips"><span class="chip active" data-penf="">الكل</span>${pens.map(p => `<span class="chip" data-penf="${esc(p)}">${esc(p)}</span>`).join('')}</div>` : '';
   openModal('🔊 متابعة الحمل بالسونار', `
     ${fInput('تاريخ السونار', 'pp_date', todayStr(), 'date')}
     ${typeChips}
@@ -1966,7 +1966,7 @@ function screenSharedHerd() {
     let arr = present;
     if (term) { const t = term.toLowerCase(); arr = present.filter(a => [a.code, a.name, a.pen].some(x => (x || '').toLowerCase().includes(t))); }
     arr = arr.slice().sort((a, b) => b.id - a.id);
-    listEl.innerHTML = arr.length ? arr.map(a => `<div class="card click" data-sa="${a.id}"><div class="li-title">${display(a)}</div><div class="li-sub">${arOf(TYPES, a.type)} • ${arOf(SEX, a.sex)}${a.pen ? ' • الحظيرة: ' + esc(a.pen) : ''}</div></div>`).join('') : noItem();
+    listEl.innerHTML = arr.length ? arr.map(a => `<div class="card click" data-sa="${a.id}"><div class="li-title">${display(a)}</div><div class="li-sub">${arOf(TYPES, a.type)} • ${arOf(SEX, a.sex)}${a.pen ? ' • 🏠 ' + esc(a.pen) : ''}</div></div>`).join('') : noItem();
     listEl.querySelectorAll('[data-sa]').forEach(c => c.addEventListener('click', () => sharedAnimalModal(parseInt(c.dataset.sa, 10), ownerId)));
   };
   drawList('');
