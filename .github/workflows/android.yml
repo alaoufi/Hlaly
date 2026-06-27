@@ -54,6 +54,11 @@ jobs:
           printf '{"version":"%s","url":"https://github.com/${{ github.repository }}/releases/download/apk-latest/hlaly.apk"}\n' "$APP_VERSION" > version.json
           cat version.json
 
+      - name: توليد مكتبة الأدوية واللقاحات (library.json) للتحديث من الإنترنت
+        run: |
+          node scripts/gen-library.mjs
+          head -c 200 library.json; echo
+
       - name: إضافة منصّة أندرويد
         run: |
           rm -rf android          # تُولّد من جديد كل بناء (تفادي «android platform already exists»)
@@ -114,6 +119,7 @@ jobs:
           files: |
             hlaly.apk
             version.json
+            library.json
 
       - name: حذف ملفات APK القديمة (mrahi.apk / mrah.apk) إن وُجدت
         env:
