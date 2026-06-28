@@ -779,7 +779,15 @@ function screenAnimals() {
   const countRow = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
       <span class="muted">العدد: ${list.length}</span>
       ${canEdit ? '<button class="btn sm outline" id="bulkAddBtn">📋 إضافة جماعية</button>' : ''}</div>`;
-  view().innerHTML = chips + stChips + srcChips + sexChips + countRow + (list.length ? list.map(animalCard).join('') : empty);
+  // عند عرض «الكل»: تُجمَّع البطاقات حسب النوع (كل نوع مستقلّ بعنوانه)؛ وعند تحديد نوع تُعرض مباشرةً
+  let listHtml;
+  if (!animalFilter) {
+    const known = new Set(TYPES.map(t => t.k));
+    listHtml = TYPES.map(t => { const g = list.filter(a => a.type === t.k); return g.length ? `<div class="li-title" style="margin:12px 2px 6px;color:var(--green)">🐑 ${esc(t.ar)} (${g.length})</div>` + g.map(animalCard).join('') : ''; }).join('');
+    const other = list.filter(a => !known.has(a.type));
+    if (other.length) listHtml += `<div class="li-title" style="margin:12px 2px 6px">أخرى (${other.length})</div>` + other.map(animalCard).join('');
+  } else { listHtml = list.map(animalCard).join(''); }
+  view().innerHTML = chips + stChips + srcChips + sexChips + countRow + (list.length ? listHtml : empty);
   view().querySelectorAll('[data-f]').forEach(c => c.addEventListener('click', () => { animalFilter = c.dataset.f; screenAnimals(); }));
   view().querySelectorAll('[data-s]').forEach(c => c.addEventListener('click', () => { animalStatusFilter = c.dataset.s; screenAnimals(); }));
   view().querySelectorAll('[data-src]').forEach(c => c.addEventListener('click', () => { animalSourceFilter = c.dataset.src; screenAnimals(); }));
@@ -2271,6 +2279,7 @@ function adminAddUser() {
 
 /* ===== تفقد الحلال وإحصائيات ===== */
 let inspectTab = 'stats';
+let inspType = '';   // نوع الحلال المعروض في الإحصائيات (كل نوع مستقلّ)
 let lineageMode = 'flat';   // عرض الأنساب: قائمة (الأم ← مواليدها) أو شجرة متعدّدة الأجيال
 let afSex = 'male', afSrc = 'born', afCmp = 'gt', afMonths = 3;   // كشف بالعمر (الجنس/المصدر/المقارنة/الأشهر)
 const codeNumOf = (a) => { const m = String(a.code || '').match(/(\d+)/); return m ? parseInt(m[1], 10) : null; };
@@ -2290,46 +2299,50 @@ function renderInspect() {
   const A = C.animals;
   const present = A.filter(a => a.status === 'present');
   if (inspectTab === 'stats') {
-    const byType = TYPES.map(t => ({ ar: t.ar, n: present.filter(a => a.type === t.k).length })).filter(x => x.n);
-    const f = present.filter(a => a.sex === 'female').length, m = present.filter(a => a.sex === 'male').length;
-    const sold = A.filter(a => a.status === 'sold').length, dead = A.filter(a => a.status === 'dead').length;
-    const bornAll = present.filter(a => a.source === 'born');
-    const boughtAll = present.filter(a => (a.source || 'purchased') === 'purchased');
+    const TK = inspType || (TYPES[0] && TYPES[0].k) || '';
+    const typeChips = `<div class="chips">${TYPES.map(t => `<span class="chip ${TK === t.k ? 'active' : ''}" data-itype="${t.k}">${t.ar}</span>`).join('')}</div>`;
+    const At = C.animals.filter(a => a.type === TK);          // النوع المحدّد فقط (كل نوع مستقلّ)
+    const presentT = At.filter(a => a.status === 'present');
+    const f = presentT.filter(a => a.sex === 'female').length, m = presentT.filter(a => a.sex === 'male').length;
+    const sold = At.filter(a => a.status === 'sold').length, dead = At.filter(a => a.status === 'dead').length;
+    const bornAll = presentT.filter(a => a.source === 'born');
+    const boughtAll = presentT.filter(a => (a.source || 'purchased') === 'purchased');
     const bM = bornAll.filter(a => a.sex === 'male').length, bF = bornAll.filter(a => a.sex === 'female').length;
     const pM = boughtAll.filter(a => a.sex === 'male').length, pF = boughtAll.filter(a => a.sex === 'female').length;
-    const pens = {}; present.forEach(a => { const p = a.pen || '— بلا حظيرة'; pens[p] = (pens[p] || 0) + 1; });
+    const sire = presentT.filter(a => a.sex === 'male' && a.purpose === 'sire').length;
+    const forSale = presentT.filter(a => a.sex === 'male' && a.purpose === 'sale').length;
+    const pens = {}; presentT.forEach(a => { const p = a.pen || '— بلا حظيرة'; pens[p] = (pens[p] || 0) + 1; });
     const penList = Object.entries(pens).sort((x, y) => y[1] - x[1]);
-    // توزيع الأعمار (في الحظيرة، حسب الميلاد)
-    const withBirth = present.filter(a => a.birth);
-    const noBirth = present.length - withBirth.length;
+    const withBirth = presentT.filter(a => a.birth);
+    const noBirth = presentT.length - withBirth.length;
     const young = withBirth.filter(a => ageMonths(a.birth) < 6).length;
     const sub = withBirth.filter(a => { const mo = ageMonths(a.birth); return mo >= 6 && mo < 12; }).length;
     const adult = withBirth.filter(a => ageMonths(a.birth) >= 12).length;
-    // معدّل التوائم ومتوسط المواليد لكل أم
-    const groups = {}; A.forEach(a => { if (a.mother_id && a.birth) { const k = a.mother_id + '|' + a.birth; groups[k] = (groups[k] || 0) + 1; } });
+    const groups = {}; At.forEach(a => { if (a.mother_id && a.birth) { const k = a.mother_id + '|' + a.birth; groups[k] = (groups[k] || 0) + 1; } });
     const gv = Object.values(groups); const multiG = gv.filter(n => n >= 2).length;
     const twinRate = gv.length ? Math.round((multiG / gv.length) * 100) : 0;
-    const dams = {}; A.forEach(a => { if (a.mother_id) dams[a.mother_id] = (dams[a.mother_id] || 0) + 1; });
+    const dams = {}; At.forEach(a => { if (a.mother_id) dams[a.mother_id] = (dams[a.mother_id] || 0) + 1; });
     const damCount = Object.keys(dams).length;
     const avgOff = damCount ? (Object.values(dams).reduce((s, n) => s + n, 0) / damCount).toFixed(1) : '0';
-    // تحت التحريم الآن (بهائم لها علاج/تطعيم تحريمه سارٍ)
     const underSet = new Set();
     [...C.treatments, ...C.vaccinations].forEach(r => { if (r.withdrawal_end && daysUntil(r.withdrawal_end) >= 0) underSet.add(r.animal_id); });
-    const underNow = present.filter(a => underSet.has(a.id)).length;
-    body.innerHTML = `
+    const underNow = presentT.filter(a => underSet.has(a.id)).length;
+    body.innerHTML = typeChips
+      + `<div class="muted" style="margin:4px 0 8px">إحصائيات <b>${esc(arOf(TYPES, TK))}</b> — كل نوع مستقلّ</div>
       <div class="stats">
-        <div class="stat green"><div class="n">${present.length}</div><div class="l">في الحظيرة</div></div>
+        <div class="stat green"><div class="n">${presentT.length}</div><div class="l">في الحظيرة</div></div>
         <div class="stat blue"><div class="n">${f}</div><div class="l">إناث</div></div>
         <div class="stat amber"><div class="n">${m}</div><div class="l">ذكور</div></div>
       </div>
-      <div class="card"><h3>حسب النوع</h3>${byType.length ? byType.map(x => row(x.ar, x.n)).join('') : noItem()}</div>
+      ${(sire || forSale) ? `<div class="card"><h3>♂ الذكور حسب الغرض</h3>${row('🐏 فحول للقطيع', sire)}${row('💰 معدّ للبيع', forSale)}</div>` : ''}
       <div class="card"><h3>👶 الإنتاج (مواليد) — في الحظيرة</h3>${row('ذكور', bM)}${row('إناث', bF)}${row('المجموع', bM + bF)}</div>
       <div class="card"><h3>🛒 المشترى — في الحظيرة</h3>${row('ذكور', pM)}${row('إناث', pF)}${row('المجموع', pM + pF)}</div>
       <div class="card"><h3>🎂 توزيع الأعمار (في الحظيرة)</h3>${row('صغار (أقل من ٦ أشهر)', young)}${row('من ٦ لـ ١٢ شهر', sub)}${row('بالغة (سنة فأكثر)', adult)}${noBirth ? row('بلا تاريخ ميلاد', noBirth) : ''}</div>
       <div class="card"><h3>📈 مؤشّرات الإنتاج</h3>${row('معدّل التوائم', twinRate + '%')}${row('متوسط المواليد لكل أم', avgOff)}${row('عدد الأمهات المنتِجة', damCount)}</div>
       <div class="card"><h3>⛔ تحت التحريم الآن</h3>${row('عدد البهائم', underNow)}</div>
-      <div class="card"><h3>الحالة (الكل)</h3>${row('في الحظيرة', present.length)}${row('مباعة', sold)}${row('نافقة', dead)}${row('الإجمالي', A.length)}</div>
+      <div class="card"><h3>الحالة (${esc(arOf(TYPES, TK))})</h3>${row('في الحظيرة', presentT.length)}${row('مباعة', sold)}${row('نافقة', dead)}${row('الإجمالي', At.length)}</div>
       <div class="card"><h3>حسب الحظيرة</h3>${penList.length ? penList.map(([p, n]) => row(p, n)).join('') : noItem()}</div>`;
+    body.querySelectorAll('[data-itype]').forEach(c => c.addEventListener('click', () => { inspType = c.dataset.itype; renderInspect(); }));
     return;
   }
   if (inspectTab === 'index') {
