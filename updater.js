@@ -9,7 +9,8 @@
 (function () {
   'use strict';
   var VERSION_JSON = 'https://github.com/alaoufi/marahi/releases/download/apk-latest/version.json';
-  var APK_URL = 'https://github.com/alaoufi/marahi/releases/download/apk-latest/hlaly.apk';
+  var APK_URL = 'https://github.com/alaoufi/marahi/releases/download/apk-latest/hlaly.apk';   // ثابت (احتياطي)
+  var latestUrl = null;   // رابط النسخة المرقّمة من version.json (يحمل رقم النسخة)
 
   function buildNum(v) { var m = String(v || '').match(/(\d+)\s*$/); return m ? parseInt(m[1], 10) : 0; }
   function say(msg) { try { if (typeof toast === 'function') toast(msg); } catch (e) {} }
@@ -22,17 +23,20 @@
     if (P && P.CapacitorHttp) {
       var r = await P.CapacitorHttp.get({ url: VERSION_JSON, headers: { 'Cache-Control': 'no-cache' } });
       var m = typeof r.data === 'string' ? JSON.parse(r.data) : r.data;
+      if (m && m.url) latestUrl = m.url;
       return (m && m.version) ? m : null;
     }
     var resp = await fetch(VERSION_JSON, { cache: 'no-store' });
     var j = await resp.json();
+    if (j && j.url) latestUrl = j.url;
     return (j && j.version) ? j : null;
   }
 
   // فتح صفحة تنزيل APK في متصفّح النظام (يُثبَّت فوق الحالي ويحفظ البيانات)
   function openDownload() {
-    try { window.open(APK_URL, '_system'); }
-    catch (e) { try { window.open(APK_URL, '_blank'); } catch (_) {} }
+    var u = latestUrl || APK_URL;   // النسخة المرقّمة إن توفّرت، وإلا الرابط الثابت
+    try { window.open(u, '_system'); }
+    catch (e) { try { window.open(u, '_blank'); } catch (_) {} }
   }
   window.mrahiOpenDownload = openDownload;
 
