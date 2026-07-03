@@ -52,7 +52,7 @@ jobs:
 
       - name: ملف رقم النسخة (version.json) للتحقق من التحديث
         run: |
-          printf '{"version":"%s","url":"https://github.com/${{ github.repository }}/releases/download/apk-latest/hlaly.apk"}\n' "$APP_VERSION" > version.json
+          printf '{"version":"%s","url":"https://github.com/${{ github.repository }}/releases/download/apk-latest/hlaly-%s.apk"}\n' "$APP_VERSION" "$APP_VERSION" > version.json
           cat version.json
 
       - name: توليد مكتبة الأدوية واللقاحات (library.json) للتحديث من الإنترنت
@@ -96,6 +96,7 @@ jobs:
             --ks release.keystore --ks-pass pass:MrahiRelease2026 --key-pass pass:MrahiRelease2026 \
             --out hlaly.apk app-aligned.apk
           "$BT/apksigner" verify --print-certs hlaly.apk
+          cp hlaly.apk "hlaly-$APP_VERSION.apk"   # نسخة باسم يحمل رقم النسخة (للتنزيل ورؤية النسخة)
 
       - name: رفع ملف APK (أثر داخلي)
         uses: actions/upload-artifact@v4
@@ -111,22 +112,25 @@ jobs:
           name: حلالي — تطبيق أندرويد (أحدث نسخة)
           body: |
             تطبيق حلالي لأندرويد (النسخة ${{ env.APP_VERSION }}).
-            نزّل **hlaly.apk** مباشرة وثبّته. عند أول فتح تختار: محلي (بلا إنترنت) أو مشترك (Supabase).
+            نزّل **hlaly-${{ env.APP_VERSION }}.apk** (يحمل رقم النسخة) أو **hlaly.apk** (الأحدث دائماً) وثبّته.
 
             **إن ظهر تحذير «Play Protect — تم حظر التطبيق»:** هذا تنبيه عادي لأي تطبيق خارج المتجر.
             اضغط **«مزيد من التفاصيل»** ثم **«التثبيت على أي حال / بدون فحص»** ليُكمل التثبيت. (التطبيق آمن وموقّع بمفتاح ثابت.)
 
             للتحديث لاحقاً: من «المزيد ← تحقق من وجود تحديث»، يفتح تنزيل النسخة الجديدة وتُثبَّت فوق الحالية مع حفظ بياناتك.
           files: |
-            hlaly.apk
+            hlaly*.apk
             version.json
             library.json
 
-      - name: حذف ملفات APK القديمة (mrahi.apk / mrah.apk) إن وُجدت
+      - name: تنظيف ملفات APK القديمة (إبقاء الحالية فقط)
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          for old in mrahi.apk mrah.apk; do
-            id=$(gh api repos/${{ github.repository }}/releases/tags/apk-latest --jq ".assets[] | select(.name==\"$old\") | .id" || true)
-            if [ -n "$id" ]; then gh api -X DELETE repos/${{ github.repository }}/releases/assets/$id && echo "حُذف $old القديم"; else echo "لا يوجد $old"; fi
+          CUR="hlaly-${APP_VERSION}.apk"
+          gh api repos/${{ github.repository }}/releases/tags/apk-latest --jq '.assets[] | "\(.id)|\(.name)"' | while IFS='|' read -r id name; do
+            case "$name" in
+              mrah.apk|mrahi.apk) gh api -X DELETE repos/${{ github.repository }}/releases/assets/$id && echo "حُذف $name" ;;
+              hlaly-*.apk) if [ "$name" != "$CUR" ]; then gh api -X DELETE repos/${{ github.repository }}/releases/assets/$id && echo "حُذف $name"; fi ;;
+            esac
           done
