@@ -160,6 +160,20 @@ const animalById = (id) => C.animals.find(a => a.id === id);
 // المعرّف الخارجي (الوسم) إن وُجد، وإلا الاسم، وإلا الرقم الداخلي الثابت #id
 function display(a) { if (!a) return '—'; if (a.code) return esc(a.code) + (a.name ? ' • ' + esc(a.name) : ''); if (a.name) return esc(a.name); return 'غير مرقّمة'; }
 const internalNo = () => '';   // الرقم الداخلي للنظام لا يُعرض في الواجهة (داخلي فقط)
+// مصطلحات الذكر/الأنثى حسب النوع والعمر (قابلة للتخصيص من الإعدادات؛ العمر غير المعروف = بالغ «أكثر من الحدّ»)
+let _terms = null;
+function loadTerms() { try { return JSON.parse(localStorage.getItem('mrahi_terms') || '{}') || {}; } catch (e) { return {}; } }
+function termsMap() { if (_terms === null) _terms = loadTerms(); return _terms; }
+function saveTerms(o) { try { localStorage.setItem('mrahi_terms', JSON.stringify(o)); } catch (e) {} _terms = null; }
+function sexTerm(a) {
+  const gen = arOf(SEX, a.sex);
+  const T = termsMap()[a.type]; if (!T) return gen;
+  const thr = parseInt(T.age, 10) || 0;
+  const mo = a.birth ? ageMonths(a.birth) : null;
+  const young = mo != null && thr > 0 && mo < thr;
+  const term = a.sex === 'male' ? (young ? T.ym : T.om) : (young ? T.yf : T.of);
+  return (term && String(term).trim()) ? String(term).trim() : gen;
+}
 
 /* ===== طبقة البيانات ===== */
 async function loadAll() {
@@ -581,6 +595,7 @@ const ROUTES = {
   finance: { t: 'المصروفات والميزانية', back: false, fn: screenFinance },
   fincats: { t: 'أنواع البنود', back: true, fn: screenFinCats },
   taglists: { t: 'شكل ولون الرقم', back: true, fn: screenTagLists },
+  terms: { t: 'مصطلحات الذكر والأنثى', back: true, fn: screenTerms },
   pens: { t: 'الحظائر', back: true, fn: screenPens },
   trash: { t: 'سلة المحذوفات', back: true, fn: screenTrash },
   tips: { t: 'النصائح والمعلومات', back: true, fn: screenTips },
@@ -745,7 +760,7 @@ function animalCard(a) {
   const mother = a.mother_id ? animalById(a.mother_id) : null;
   return `<div class="card click" data-aid="${a.id}">
     <div class="li-title">${display(a)}</div>
-    <div class="li-sub">${arOf(TYPES, a.type)} • ${arOf(SEX, a.sex)}${a.sex === 'male' && a.purpose ? ' • ' + arOf(MALE_PURPOSE, a.purpose) : ''} • <span class="badge ${st}">${arOf(STATUS, a.status)}</span></div>
+    <div class="li-sub">${arOf(TYPES, a.type)} • ${esc(sexTerm(a))}${a.sex === 'male' && a.purpose ? ' • ' + arOf(MALE_PURPOSE, a.purpose) : ''} • <span class="badge ${st}">${arOf(STATUS, a.status)}</span></div>
     ${a.pen ? `<div class="li-sub">🏠 ${esc(a.pen)}</div>` : ''}
     ${off ? `<div class="li-sub link" data-off="${a.id}">👶 المواليد: ${off} — عرض</div>` : ''}
     ${mother ? `<div class="li-sub link" data-momopen="${a.mother_id}">🤱 الأم: ${display(mother)}</div>` : ''}</div>`;
@@ -761,7 +776,7 @@ function offspringListModal(motherId) {
   const off = C.animals.filter(x => x.mother_id === motherId || x.father_id === motherId).sort((a, b) => (b.birth || '').localeCompare(a.birth || ''));
   openModal('مواليد ' + (mother ? display(mother) : ''),
     `<div class="muted" style="margin-bottom:6px">${off.length} مولود</div>`
-    + (off.length ? off.map(o => `<div class="card click" data-aid="${o.id}" style="margin:6px 0"><div class="li-title">${display(o)}</div><div class="li-sub">${arOf(SEX, o.sex)} • ${fmtDate(o.birth)}${o.pen ? ' • ' + esc(o.pen) : ''}</div></div>`).join('') : noItem()),
+    + (off.length ? off.map(o => `<div class="card click" data-aid="${o.id}" style="margin:6px 0"><div class="li-title">${display(o)}</div><div class="li-sub">${esc(sexTerm(o))} • ${fmtDate(o.birth)}${o.pen ? ' • ' + esc(o.pen) : ''}</div></div>`).join('') : noItem()),
     () => { document.querySelectorAll('#modalRoot [data-aid]').forEach(c => c.addEventListener('click', () => { closeModal(); setHash('#/animal/' + c.dataset.aid); })); });
 }
 function screenAnimals() {
@@ -946,7 +961,7 @@ function screenAnimalDetail(arg) {
   const withItems = [...treats, ...vaccs].filter(r => r.withdrawal_end && daysUntil(r.withdrawal_end) >= 0).sort((x, y) => (y.withdrawal_end || '').localeCompare(x.withdrawal_end || ''));
   const summary = `<div class="card" style="display:flex;flex-wrap:wrap;gap:6px">
       ${a.birth ? `<span class="badge">🎂 ${ageText(a.birth)}</span>` : ''}
-      <span class="badge">${arOf(SEX, a.sex)}</span>
+      <span class="badge">${esc(sexTerm(a))}</span>
       ${offCount ? `<span class="badge">👶 ${offCount} مولود</span>` : ''}
       ${monPreg ? `<span class="badge">🤰 حامل • ولادة ${fmtDate(monPreg.expected)}</span>` : ''}
       ${withItems.length ? `<span class="badge off">⛔ تحت التحريم حتى ${fmtDate(withItems[0].withdrawal_end)}</span>` : ''}
@@ -958,7 +973,7 @@ function screenAnimalDetail(arg) {
       ${row('المعرّف الخارجي (الوسم)', a.code ? esc(a.code) + ' • ' + arOf(IDKIND, a.idkind) : '— غير مرقّمة —')}
       ${(a.tag_color || a.tag_shape) ? row('🏷️ لون/شكل الوسم', [a.tag_color ? esc(a.tag_color) + colorDot(a.tag_color) : '', a.tag_shape ? esc(a.tag_shape) : ''].filter(Boolean).join(' • ')) : ''}
       ${a.name ? row('الاسم', esc(a.name)) : ''}
-      ${row('الجنس', arOf(SEX, a.sex))}
+      ${row('الجنس', (function () { var s = sexTerm(a), g = arOf(SEX, a.sex); return esc(s) + (s !== g ? ' <span class="muted">(' + g + ')</span>' : ''); })())}
       ${a.sex === 'male' && a.purpose ? row('غرض الذكر', arOf(MALE_PURPOSE, a.purpose)) : ''}
       ${row('🏠 المكان', esc(a.pen) || '—')}
       ${row('المصدر', arOf(SOURCE, a.source || 'purchased'))}
@@ -980,7 +995,7 @@ function screenAnimalDetail(arg) {
       ${a.notes ? row('ملاحظات', esc(a.notes)) : ''}</div>
     <div class="card"><h3>أنتجت (${offspring.length})</h3>
       ${can('animals', 'edit') && a.sex === 'female' ? `<button class="btn outline" id="addOffspring">➕ إضافة مواليد (نتاج)</button>` : ''}
-      ${offspring.length ? offspring.map(o => `<div class="card click" data-aid="${o.id}" style="margin:6px 0"><div class="li-title">${display(o)}</div><div class="li-sub">${arOf(SEX, o.sex)} • ${fmtDate(o.birth)}</div></div>`).join('') : noItem()}</div>
+      ${offspring.length ? offspring.map(o => `<div class="card click" data-aid="${o.id}" style="margin:6px 0"><div class="li-title">${display(o)}</div><div class="li-sub">${esc(sexTerm(o))} • ${fmtDate(o.birth)}</div></div>`).join('') : noItem()}</div>
     ${can('breeding', 'view') ? `<div class="card"><h3>التلقيح والحمل</h3>
       ${can('breeding', 'edit') ? `<button class="btn outline" id="addMating">إضافة تلقيح / متابعة حمل</button>` : ''}
       ${can('breeding', 'edit') && a.sex === 'female' && a.status === 'present' ? `<button class="btn outline" id="addSonar" style="margin-top:6px">🔊 فحص حمل بالسونار</button>` : ''}
@@ -1799,6 +1814,7 @@ function screenMore() {
       I(can('animals', 'add'), '📋 إضافة جماعية (دفعة)', '#/bulk/buy'),
       I(can('breeding', 'view'), '🤰 الحمل والمتابعة', '#/pregnancies'),
       I(can('animals', 'edit'), '🏠 الحظائر (إضافة/تعديل)', '#/pens'),
+      I(can('animals', 'edit'), '🔤 مصطلحات الذكر والأنثى', '#/terms'),
       I(can('animals', 'edit'), '🏷️ شكل ولون الرقم (إعداد)', '#/taglists'),
     ].filter(Boolean) },
     { key: 'health', title: '💉 الصحة (تطعيم وعلاج)', items: [
@@ -1986,7 +2002,7 @@ function screenSharedHerd() {
     let arr = present;
     if (term) { const t = term.toLowerCase(); arr = present.filter(a => [a.code, a.name, a.pen].some(x => (x || '').toLowerCase().includes(t))); }
     arr = arr.slice().sort((a, b) => b.id - a.id);
-    listEl.innerHTML = arr.length ? arr.map(a => `<div class="card click" data-sa="${a.id}"><div class="li-title">${display(a)}</div><div class="li-sub">${arOf(TYPES, a.type)} • ${arOf(SEX, a.sex)}${a.pen ? ' • 🏠 ' + esc(a.pen) : ''}</div></div>`).join('') : noItem();
+    listEl.innerHTML = arr.length ? arr.map(a => `<div class="card click" data-sa="${a.id}"><div class="li-title">${display(a)}</div><div class="li-sub">${arOf(TYPES, a.type)} • ${esc(sexTerm(a))}${a.pen ? ' • 🏠 ' + esc(a.pen) : ''}</div></div>`).join('') : noItem();
     listEl.querySelectorAll('[data-sa]').forEach(c => c.addEventListener('click', () => sharedAnimalModal(parseInt(c.dataset.sa, 10), ownerId)));
   };
   drawList('');
@@ -2005,7 +2021,7 @@ function sharedAnimalModal(id, ownerId) {
   const vtName = (tid) => { const v = C.vaccineTypes.find(x => x.id === tid); return v ? esc(v.name) : 'تطعيم'; };
   const sec = (title, html) => `<div class="card" style="margin:6px 0"><h3>${title}</h3>${html}</div>`;
   openModal('سجل ' + (a.code || 'البهيمة'), `
-    <div class="muted" style="margin-bottom:8px">${arOf(TYPES, a.type)} • ${arOf(SEX, a.sex)}${a.birth ? ' • مواليد ' + fmtDate(a.birth) : ''}${a.color ? ' • ' + esc(a.color) : ''}</div>
+    <div class="muted" style="margin-bottom:8px">${arOf(TYPES, a.type)} • ${esc(sexTerm(a))}${a.birth ? ' • مواليد ' + fmtDate(a.birth) : ''}${a.color ? ' • ' + esc(a.color) : ''}</div>
     ${sec('🤰 التلقيح والحمل', (mts.length || prg.length)
       ? (matingRows(mts) + prg.map(p => row('حمل (' + arOf(PREG, p.status) + ')', p.expected ? 'متوقّع ' + fmtDate(p.expected) : '—')).join(''))
       : noItem())}
@@ -2283,7 +2299,7 @@ let inspType = '';   // نوع الحلال المعروض في الإحصائي
 let lineageMode = 'flat';   // عرض الأنساب: قائمة (الأم ← مواليدها) أو شجرة متعدّدة الأجيال
 let afSex = 'male', afSrc = 'born', afCmp = 'gt', afMonths = 3;   // كشف بالعمر (الجنس/المصدر/المقارنة/الأشهر)
 const codeNumOf = (a) => { const m = String(a.code || '').match(/(\d+)/); return m ? parseInt(m[1], 10) : null; };
-const aMini = (a) => `<div class="card click" data-aid="${a.id}" style="margin:6px 0"><div class="li-title">${display(a)}</div><div class="li-sub">${arOf(TYPES, a.type)} • ${arOf(SEX, a.sex)}${a.pen ? ' • ' + esc(a.pen) : ''}${a.status !== 'present' ? ' • ' + arOf(STATUS, a.status) : ''}</div></div>`;
+const aMini = (a) => `<div class="card click" data-aid="${a.id}" style="margin:6px 0"><div class="li-title">${display(a)}</div><div class="li-sub">${arOf(TYPES, a.type)} • ${esc(sexTerm(a))}${a.pen ? ' • ' + esc(a.pen) : ''}${a.status !== 'present' ? ' • ' + arOf(STATUS, a.status) : ''}</div></div>`;
 function screenInspect() {
   if (!can('animals', 'view')) { view().innerHTML = noPerm(); return; }
   const tabs = [
@@ -2348,7 +2364,7 @@ function renderInspect() {
   if (inspectTab === 'index') {
     const arr = present.slice().sort((a, b) => { const x = codeNumOf(a), y = codeNumOf(b); if (x == null && y == null) return a.id - b.id; if (x == null) return 1; if (y == null) return -1; return x - y; });
     body.innerHTML = `<div class="muted" style="margin:4px 0 8px">فهرس تسلسلي — ${arr.length} رأس في الحظيرة</div>`
-      + (arr.length ? arr.map((a, i) => `<div class="card click" data-aid="${a.id}"><div class="li-title">${i + 1}. ${display(a)}</div><div class="li-sub">${arOf(TYPES, a.type)} • ${arOf(SEX, a.sex)}${a.pen ? ' • ' + esc(a.pen) : ''}</div></div>`).join('') : noItem());
+      + (arr.length ? arr.map((a, i) => `<div class="card click" data-aid="${a.id}"><div class="li-title">${i + 1}. ${display(a)}</div><div class="li-sub">${arOf(TYPES, a.type)} • ${esc(sexTerm(a))}${a.pen ? ' • ' + esc(a.pen) : ''}</div></div>`).join('') : noItem());
     bindCards(body); return;
   }
   if (inspectTab === 'dups') {
@@ -2385,7 +2401,7 @@ function renderInspect() {
       const noB = present.filter(a => !a.birth && (afSex === 'all' || a.sex === afSex) && (afSrc === 'all' || (a.source || 'purchased') === afSrc)).length;
       const res = document.getElementById('af_result');
       res.innerHTML = `<div class="card hl"><div class="li-title">النتيجة: ${arr.length} رأس</div><div class="li-sub">${afSex === 'male' ? 'ذكور' : afSex === 'female' ? 'إناث' : 'الكل'} • ${afSrc === 'born' ? 'مواليد' : afSrc === 'purchased' ? 'مشترى' : 'كل المصادر'} • ${afCmp === 'gt' ? 'أكبر من' : 'أصغر من'} ${afMonths} شهر${noB ? ` • (${noB} بلا ميلاد غير محسوبة)` : ''}</div></div>`
-        + (arr.length ? arr.map(a => `<div class="card click" data-aid="${a.id}"><div class="li-title">${display(a)} <span class="muted" style="font-weight:400">🎂 ${ageText(a.birth)}</span></div><div class="li-sub">${arOf(TYPES, a.type)} • ${arOf(SEX, a.sex)}${a.pen ? ' • ' + esc(a.pen) : ''}</div></div>`).join('') : noItem());
+        + (arr.length ? arr.map(a => `<div class="card click" data-aid="${a.id}"><div class="li-title">${display(a)} <span class="muted" style="font-weight:400">🎂 ${ageText(a.birth)}</span></div><div class="li-sub">${arOf(TYPES, a.type)} • ${esc(sexTerm(a))}${a.pen ? ' • ' + esc(a.pen) : ''}</div></div>`).join('') : noItem());
       bindCards(res);
     };
     body.querySelectorAll('[data-afs]').forEach(c => c.addEventListener('click', () => { afSex = c.dataset.afs; body.querySelectorAll('[data-afs]').forEach(x => x.classList.toggle('active', x.dataset.afs === afSex)); compute(); }));
@@ -2543,7 +2559,7 @@ function screenFinance() {
         <div class="li-title" style="color:#c62828;margin-top:8px">➖ المصروفات</div>${expRows || noItem()}${row('إجمالي المصروفات', money(expTotal) + ' ريال')}
         <div style="border-top:2px solid #e0d8b8;margin-top:8px;padding-top:6px">${row(net >= 0 ? '✅ صافي الربح' : '⚠️ صافي الخسارة', money(net) + ' ريال')}</div></div>
       ${entryCard('💵 كشف الإيرادات المُدخلة', incomeEntries, '#e8f5e9')}
-      <div class="card" style="background:#e3f2fd"><h3>🐑 كشف مبيعات الحلال (${sales.length})</h3>${sales.length ? sales.slice().sort((a, b) => (b.sale_date || '').localeCompare(a.sale_date || '')).map(a => `<div class="card click" data-aid="${a.id}" style="margin:6px 0"><div class="li-title">${display(a)} — ${money(a.sale_price)} ريال</div><div class="li-sub">${fmtDate(a.sale_date)} • ${arOf(SEX, a.sex)}</div></div>`).join('') : noItem()}</div>
+      <div class="card" style="background:#e3f2fd"><h3>🐑 كشف مبيعات الحلال (${sales.length})</h3>${sales.length ? sales.slice().sort((a, b) => (b.sale_date || '').localeCompare(a.sale_date || '')).map(a => `<div class="card click" data-aid="${a.id}" style="margin:6px 0"><div class="li-title">${display(a)} — ${money(a.sale_price)} ريال</div><div class="li-sub">${fmtDate(a.sale_date)} • ${esc(sexTerm(a))}</div></div>`).join('') : noItem()}</div>
       ${entryCard('💸 كشف المصروفات', expenseEntries, '#ffebee')}
       <div class="card" style="background:#f5f5f5"><h3>📈 الإيراد/المصروف الشهري</h3><div style="display:flex;gap:6px;overflow-x:auto;align-items:flex-end;padding-top:6px">${mt.map(d => `<div style="display:flex;flex-direction:column;align-items:center;min-width:40px"><div style="display:flex;gap:2px;align-items:flex-end;height:110px"><div style="width:11px;background:var(--green);height:${Math.round(d.inc / cmax * 110)}px;border-radius:3px 3px 0 0"></div><div style="width:11px;background:#e53935;height:${Math.round(d.exp / cmax * 110)}px;border-radius:3px 3px 0 0"></div></div><div class="muted" style="font-size:.64rem;margin-top:4px;white-space:nowrap">${d.short}</div></div>`).join('')}</div><div class="muted" style="font-size:.72rem;margin-top:6px"><span style="color:var(--green)">▮</span> إيراد &nbsp;&nbsp; <span style="color:#e53935">▮</span> مصروف</div></div>`;
   view().querySelectorAll('[data-fp]').forEach(c => c.addEventListener('click', () => { financePeriod = c.dataset.fp; screenFinance(); }));
@@ -2656,6 +2672,31 @@ async function penDelete(name) {
   if (!await confirm2(msg)) return;
   savePens(loadPens().filter(p => p.name !== name));
   toast('حُذفت'); screenPens();
+}
+
+/* ===== مصطلحات الذكر/الأنثى حسب النوع والعمر ===== */
+function screenTerms() {
+  if (!can('animals', 'edit')) { view().innerHTML = noPerm(); return; }
+  const T = loadTerms();
+  view().innerHTML = `<div class="muted" style="margin-bottom:8px">حدّد مصطلح الذكر والأنثى لكل نوع حسب العمر (مثل ماعز: تيس/عنز، وأقل من الحدّ: جدي/جفرة). اترك الحقل فارغاً لاستخدام «ذكر/أنثى». والعمر غير المعروف يُعامَل «أكثر من الحدّ» (بالغ) في جميع الأنواع.</div>`
+    + TYPES.map((t, i) => { const c = T[t.k] || {}; return `<div class="card"><h3>🐑 ${esc(t.ar)}</h3>
+        ${fInput('الحدّ العمري (بالأشهر)', 'tm_age_' + i, c.age || '', 'number', 'min="0" inputmode="numeric"')}
+        <div class="muted" style="margin:6px 0 2px">أقل من الحدّ (صغار):</div>
+        ${fInput('الذكر', 'tm_ym_' + i, c.ym || '')}
+        ${fInput('الأنثى', 'tm_yf_' + i, c.yf || '')}
+        <div class="muted" style="margin:6px 0 2px">أكثر من الحدّ (بالغ / عمر غير معروف):</div>
+        ${fInput('الذكر', 'tm_om_' + i, c.om || '')}
+        ${fInput('الأنثى', 'tm_of_' + i, c.of || '')}
+      </div>`; }).join('')
+    + `<button class="btn" id="tm_save">💾 حفظ المصطلحات</button>`;
+  document.getElementById('tm_save').addEventListener('click', () => {
+    const o = {};
+    TYPES.forEach((t, i) => {
+      const age = asciiDigits(val('tm_age_' + i)).replace(/\D/g, ''), ym = val('tm_ym_' + i).trim(), yf = val('tm_yf_' + i).trim(), om = val('tm_om_' + i).trim(), of = val('tm_of_' + i).trim();
+      if (age || ym || yf || om || of) o[t.k] = { age: age, ym: ym, yf: yf, om: om, of: of };
+    });
+    saveTerms(o); toast('تم حفظ المصطلحات'); goBack();
+  });
 }
 
 /* ===== أنواع الحلال (للمدير) ===== */
