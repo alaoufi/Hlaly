@@ -174,6 +174,18 @@ function sexTerm(a) {
   const term = a.sex === 'male' ? (young ? T.ym : T.om) : (young ? T.yf : T.of);
   return (term && String(term).trim()) ? String(term).trim() : gen;
 }
+// تنبيهات مخصّصة: شرط (عمر بالأشهر و/أو تاريخ) + نطاق (نوع أو بهائم محدّدة) + رسالة
+function loadReminders() { try { return JSON.parse(localStorage.getItem('mrahi_reminders') || '[]') || []; } catch (e) { return []; } }
+function saveReminders(a) { try { localStorage.setItem('mrahi_reminders', JSON.stringify(a)); } catch (e) {} }
+function reminderMatches(r) {
+  let list = C.animals.filter(a => a.status === 'present');
+  if (r.type) list = list.filter(a => a.type === r.type);
+  if (r.animals && r.animals.length) { const s = new Set(r.animals); list = list.filter(a => s.has(a.id)); }
+  if (r.months) list = list.filter(a => { const mo = a.birth ? ageMonths(a.birth) : null; return mo != null && mo >= r.months; });
+  if (r.date && todayStr() < r.date) list = [];   // تاريخ لم يحن بعد
+  return list;
+}
+function activeReminders() { return loadReminders().filter(r => r.on !== false); }
 
 /* ===== طبقة البيانات ===== */
 async function loadAll() {
@@ -596,6 +608,7 @@ const ROUTES = {
   fincats: { t: 'أنواع البنود', back: true, fn: screenFinCats },
   taglists: { t: 'شكل ولون الرقم', back: true, fn: screenTagLists },
   terms: { t: 'مصطلحات الذكر والأنثى', back: true, fn: screenTerms },
+  reminders: { t: 'تنبيهات مخصّصة', back: true, fn: screenReminders },
   pens: { t: 'الحظائر', back: true, fn: screenPens },
   trash: { t: 'سلة المحذوفات', back: true, fn: screenTrash },
   tips: { t: 'النصائح والمعلومات', back: true, fn: screenTips },
@@ -736,13 +749,17 @@ function screenAlerts() {
   const vtName = (id) => { const t = C.vaccineTypes.find(x => x.id === id); return t ? t.name : 'تطعيم'; };
   const medLine = (m) => { const dl = m.expiry ? daysUntil(m.expiry) : null; const ex = dl !== null && dl < 0; return row('💊 ' + esc(m.name), `${m.qty == null ? '' : esc(String(m.qty)) + ' ' + esc(m.unit || '')}${m.expiry ? ` • ${ex ? '⛔ منتهٍ' : 'ينتهي'} ${fmtDate(m.expiry)}` : ''}`); };
   const showMeds = can('treatments', 'view') && (lowMeds.length || expMeds.length);
-  view().innerHTML = `
+  // تنبيهات مخصّصة أنشأها المستخدم (تُعرض أولاً)
+  const rems = activeReminders().map(r => ({ r, mt: reminderMatches(r) })).filter(x => x.mt.length);
+  const remCards = rems.map(({ r, mt }) => `<div class="card" style="background:#ede7f6"><h3>🔔 ${esc(r.title || 'تنبيه')} <span class="muted" style="font-weight:400">(${mt.length})</span></h3>${mt.map(a => `<div class="row click" data-goa="${a.id}"><span class="k">${display(a)}</span><span class="v">${esc(sexTerm(a))}${a.birth ? ' • ' + (ageText(a.birth) || '') : ''}${a.pen ? ' • 🏠 ' + esc(a.pen) : ''}</span></div>`).join('')}</div>`).join('');
+  view().innerHTML = remCards + `
     <div class="card" style="background:#fff8e1"><h3>🤰 ولادة متوقعة خلال ٧ أيام</h3>${births.length ? births.map(p => row(display(animalById(p.animal_id)), `${fmtDate(p.expected)} • ${daysUntil(p.expected)} يوم`)).join('') : noItem()}</div>
     <div class="card" style="background:#ffebee"><h3>🚫 انتهاء مدة التحريم (علاجات جارية)</h3>${treats.length ? treats.map(t => row(display(animalById(t.animal_id)), `${esc(t.med_name || '')} • ينتهي ${fmtDate(t.withdrawal_end)} (بعد ${daysUntil(t.withdrawal_end)} يوم)`)).join('') : noItem()}</div>
     <div class="card" style="background:#e8f5e9"><h3>💊 جرعات علاج قادمة (١٤ يوماً)</h3>${doses.length ? doses.map(t => row(display(animalById(t.animal_id)), `${esc(t.med_name || '')} • ${fmtDate(t.next_due)} (بعد ${daysUntil(t.next_due)} يوم)`)).join('') : noItem()}</div>
     <div class="card" style="background:#e3f2fd"><h3>💉 مواعيد تطعيم قادمة (٣٠ يوماً)</h3>${vaccs.length ? vaccs.map(v => row(display(animalById(v.animal_id)), `${esc(vtName(v.type_id))} • ${fmtDate(v.next_due)} (بعد ${daysUntil(v.next_due)} يوم)`)).join('') : noItem()}</div>
     ${showMeds ? `<div class="card click" style="background:#fff3e0" data-go="#/medstock"><h3>📦 مخزون الأدوية واللقاحات (تنبيه)</h3>${lowMeds.length ? `<div class="li-title" style="color:#c62828">نفد/قارب النفاد (${lowMeds.length})</div>${lowMeds.map(medLine).join('')}` : ''}${expMeds.length ? `<div class="li-title" style="color:#e65100;margin-top:6px">قارب/منتهي الصلاحية (${expMeds.length})</div>${expMeds.map(medLine).join('')}` : ''}</div>` : ''}`;
   view().querySelectorAll('[data-go]').forEach(c => c.addEventListener('click', () => setHash(c.dataset.go)));
+  view().querySelectorAll('[data-goa]').forEach(c => c.addEventListener('click', () => setHash('#/animal/' + c.dataset.goa)));
 }
 
 /* ===== الحلال ===== */
@@ -1814,6 +1831,7 @@ function screenMore() {
       I(can('animals', 'add'), '📋 إضافة جماعية (دفعة)', '#/bulk/buy'),
       I(can('breeding', 'view'), '🤰 الحمل والمتابعة', '#/pregnancies'),
       I(can('animals', 'edit'), '🏠 الحظائر (إضافة/تعديل)', '#/pens'),
+      I(can('animals', 'edit'), '🔔 تنبيهات مخصّصة (للبيع/التطعيم…)', '#/reminders'),
       I(can('animals', 'edit'), '🔤 مصطلحات الذكر والأنثى', '#/terms'),
       I(can('animals', 'edit'), '🏷️ شكل ولون الرقم (إعداد)', '#/taglists'),
     ].filter(Boolean) },
@@ -2672,6 +2690,70 @@ async function penDelete(name) {
   if (!await confirm2(msg)) return;
   savePens(loadPens().filter(p => p.name !== name));
   toast('حُذفت'); screenPens();
+}
+
+/* ===== تنبيهات مخصّصة (تذكيرات حسب شرط) ===== */
+function condText(r) {
+  const parts = [];
+  if (r.months) parts.push('عند بلوغ ' + r.months + ' شهر');
+  if (r.date) parts.push('من تاريخ ' + fmtDate(r.date));
+  return parts.join(' + ') || 'دائماً';
+}
+function scopeText(r) {
+  if (r.animals && r.animals.length) return r.animals.length + ' بهيمة محدّدة';
+  return r.type ? arOf(TYPES, r.type) : 'كل الأنواع';
+}
+function screenReminders() {
+  if (!can('animals', 'view')) { view().innerHTML = noPerm(); return; }
+  const rs = loadReminders();
+  view().innerHTML = `<div class="muted" style="margin-bottom:8px">أنشئ تنبيهات مخصّصة: حدّد الرسالة (للبيع/للتطعيم/الفطام…)، والنطاق (نوع كامل أو بهائم تختارها بأرقامها)، والشرط (عند بلوغ عمر معيّن أو من تاريخ). تظهر البهائم المعنيّة في «🔔 التنبيهات».</div>`
+    + (rs.length ? rs.map(r => {
+      const n = reminderMatches(r).length;
+      return `<div class="card"><div class="li-title">🔔 ${esc(r.title || 'تنبيه')} ${r.on === false ? '<span class="muted" style="font-weight:400">(موقوف)</span>' : ''}</div>
+        <div class="li-sub">النطاق: ${esc(scopeText(r))}</div>
+        <div class="li-sub">الشرط: ${esc(condText(r))}</div>
+        <div class="li-sub" style="color:${n ? '#c62828' : 'var(--muted)'}">مطابق الآن: ${n} بهيمة</div>
+        ${can('animals', 'edit') ? `<div class="btn-row" style="margin-top:6px"><button class="btn sm outline" data-redit="${r.id}">تعديل</button><button class="btn sm outline" data-rtog="${r.id}">${r.on === false ? 'تفعيل' : 'إيقاف'}</button><button class="btn sm danger" data-rdel="${r.id}">حذف</button></div>` : ''}
+      </div>`;
+    }).join('') : '<div class="center-empty">لا توجد تنبيهات مخصّصة بعد.</div>');
+  view().querySelectorAll('[data-redit]').forEach(b => b.addEventListener('click', () => reminderModal(loadReminders().find(x => String(x.id) === b.dataset.redit))));
+  view().querySelectorAll('[data-rtog]').forEach(b => b.addEventListener('click', () => { const l = loadReminders(); const r = l.find(x => String(x.id) === b.dataset.rtog); if (r) { r.on = r.on === false; saveReminders(l); screenReminders(); } }));
+  view().querySelectorAll('[data-rdel]').forEach(b => b.addEventListener('click', async () => { if (!await confirm2('حذف هذا التنبيه؟')) return; saveReminders(loadReminders().filter(x => String(x.id) !== b.dataset.rdel)); toast('حُذف'); screenReminders(); }));
+  if (can('animals', 'edit')) addFab('+ تنبيه', () => reminderModal(null));
+}
+function remAnimalRows(typeKey, selected) {
+  const sel = selected || [];
+  const list = C.animals.filter(a => a.status === 'present' && (!typeKey || a.type === typeKey)).sort((a, b) => (a.pen || '').localeCompare(b.pen || ''));
+  return list.length ? list.map(a => `<label class="bulk-row"><input type="checkbox" data-rid="${a.id}" ${sel.includes(a.id) ? 'checked' : ''}><span>${display(a)} <span class="muted">${esc(sexTerm(a))}${a.pen ? ' • 🏠 ' + esc(a.pen) : ''}</span></span></label>`).join('') : '<div class="muted" style="padding:6px">لا بهائم مطابقة.</div>';
+}
+function reminderModal(r) {
+  const isEdit = !!r; r = r || {};
+  openModal(isEdit ? 'تعديل تنبيه' : 'تنبيه جديد', `
+    ${fInput('الرسالة (مثال: للبيع، للتطعيم، الفطام)', 'rem_title', r.title || '')}
+    ${fSelect('النوع', 'rem_type', TYPES, r.type || '', '— كل الأنواع —')}
+    ${fInput('عند بلوغ العمر (أشهر) — اختياري', 'rem_months', r.months || '', 'number', 'min="0" inputmode="numeric"')}
+    ${fInput('أو من تاريخ (اختياري)', 'rem_date', r.date || '', 'date')}
+    <div class="check" style="margin:4px 0"><input type="checkbox" id="rem_specific" ${(r.animals && r.animals.length) ? 'checked' : ''}><label for="rem_specific" style="margin:0">تحديد بهائم بعينها (بدل كل النوع)</label></div>
+    <div id="rem_box" style="display:${(r.animals && r.animals.length) ? '' : 'none'}"><div class="muted" style="font-size:.82rem;margin-bottom:4px">اختر البهائم:</div><div id="rem_list" style="max-height:220px;overflow:auto">${remAnimalRows(r.type || '', r.animals || [])}</div></div>
+    <button class="btn" id="rem_save" style="margin-top:8px">💾 حفظ التنبيه</button>`, () => {
+    const box = document.getElementById('rem_box');
+    const rebuild = () => { document.getElementById('rem_list').innerHTML = remAnimalRows(val('rem_type'), collectRem()); };
+    const collectRem = () => [...document.querySelectorAll('#rem_list [data-rid]:checked')].map(c => parseInt(c.dataset.rid, 10));
+    document.getElementById('rem_specific').addEventListener('change', (e) => { box.style.display = e.target.checked ? '' : 'none'; });
+    document.getElementById('rem_type').addEventListener('change', rebuild);
+    document.getElementById('rem_save').addEventListener('click', () => {
+      const title = val('rem_title').trim(); if (!title) { toast('اكتب الرسالة'); return; }
+      const months = parseInt(asciiDigits(val('rem_months')), 10) || 0;
+      const date = asciiDigits(val('rem_date')).slice(0, 10) || '';
+      const specific = document.getElementById('rem_specific').checked;
+      const animals = specific ? collectRem() : [];
+      if (!months && !date && !specific) { toast('حدّد شرطاً (عمر/تاريخ) أو بهائم بعينها'); return; }
+      const list = loadReminders();
+      const obj = { id: r.id || (Date.now() + Math.floor(Math.random() * 1000)), title, type: val('rem_type'), months, date, animals, on: r.on !== false };
+      if (isEdit) { const i = list.findIndex(x => x.id === r.id); if (i >= 0) list[i] = obj; else list.push(obj); } else list.push(obj);
+      saveReminders(list); closeModal(); toast('تم الحفظ'); screenReminders();
+    });
+  });
 }
 
 /* ===== مصطلحات الذكر/الأنثى حسب النوع والعمر ===== */
