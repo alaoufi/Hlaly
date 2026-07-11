@@ -2723,8 +2723,12 @@ function screenReminders() {
 }
 function remAnimalRows(typeKey, selected) {
   const sel = selected || [];
-  const list = C.animals.filter(a => a.status === 'present' && (!typeKey || a.type === typeKey)).sort((a, b) => (a.pen || '').localeCompare(b.pen || ''));
-  return list.length ? list.map(a => `<label class="bulk-row"><input type="checkbox" data-rid="${a.id}" ${sel.includes(a.id) ? 'checked' : ''}><span>${display(a)} <span class="muted">${esc(sexTerm(a))}${a.pen ? ' • 🏠 ' + esc(a.pen) : ''}</span></span></label>`).join('') : '<div class="muted" style="padding:6px">لا بهائم مطابقة.</div>';
+  const list = C.animals.filter(a => a.status === 'present' && (!typeKey || a.type === typeKey)).sort((a, b) => (b.birth || '').localeCompare(a.birth || ''));
+  return list.length ? list.map(a => {
+    const mom = a.mother_id ? animalById(a.mother_id) : null;
+    const extra = [esc(sexTerm(a)), a.birth ? 'مواليد ' + fmtDate(a.birth) : '', mom ? '🤱 أم: ' + display(mom) : '', a.pen ? '🏠 ' + esc(a.pen) : ''].filter(Boolean).join(' • ');
+    return `<label class="bulk-row"><input type="checkbox" data-rid="${a.id}" ${sel.includes(a.id) ? 'checked' : ''}><span>${display(a)} <span class="muted" style="font-size:.85rem">${extra}</span></span></label>`;
+  }).join('') : '<div class="muted" style="padding:6px">لا بهائم مطابقة.</div>';
 }
 function reminderModal(r) {
   const isEdit = !!r; r = r || {};
@@ -2734,13 +2738,14 @@ function reminderModal(r) {
     ${fInput('عند بلوغ العمر (أشهر) — اختياري', 'rem_months', r.months || '', 'number', 'min="0" inputmode="numeric"')}
     ${fInput('أو من تاريخ (اختياري)', 'rem_date', r.date || '', 'date')}
     <div class="check" style="margin:4px 0"><input type="checkbox" id="rem_specific" ${(r.animals && r.animals.length) ? 'checked' : ''}><label for="rem_specific" style="margin:0">تحديد بهائم بعينها (بدل كل النوع)</label></div>
-    <div id="rem_box" style="display:${(r.animals && r.animals.length) ? '' : 'none'}"><div class="muted" style="font-size:.82rem;margin-bottom:4px">اختر البهائم:</div><div id="rem_list" style="max-height:220px;overflow:auto">${remAnimalRows(r.type || '', r.animals || [])}</div></div>
+    <div id="rem_box" style="display:${(r.animals && r.animals.length) ? '' : 'none'}"><div class="muted" style="font-size:.82rem;margin-bottom:4px">اختر البهائم (المواليد غير المرقّمة تُعرَّف بأمّها):</div><input id="rem_search" placeholder="🔍 بحث (رقم/أم/حظيرة)" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:8px;font:inherit;margin-bottom:6px"><div id="rem_list" style="max-height:240px;overflow:auto">${remAnimalRows(r.type || '', r.animals || [])}</div></div>
     <button class="btn" id="rem_save" style="margin-top:8px">💾 حفظ التنبيه</button>`, () => {
     const box = document.getElementById('rem_box');
     const rebuild = () => { document.getElementById('rem_list').innerHTML = remAnimalRows(val('rem_type'), collectRem()); };
     const collectRem = () => [...document.querySelectorAll('#rem_list [data-rid]:checked')].map(c => parseInt(c.dataset.rid, 10));
     document.getElementById('rem_specific').addEventListener('change', (e) => { box.style.display = e.target.checked ? '' : 'none'; });
     document.getElementById('rem_type').addEventListener('change', rebuild);
+    { const se = document.getElementById('rem_search'); if (se) se.addEventListener('input', () => { const t = se.value.trim().toLowerCase(); document.querySelectorAll('#rem_list .bulk-row').forEach(rw => { rw.style.display = (!t || rw.textContent.toLowerCase().includes(t)) ? '' : 'none'; }); }); }
     document.getElementById('rem_save').addEventListener('click', () => {
       const title = val('rem_title').trim(); if (!title) { toast('اكتب الرسالة'); return; }
       const months = parseInt(asciiDigits(val('rem_months')), 10) || 0;
