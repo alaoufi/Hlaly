@@ -69,6 +69,16 @@ const noItem = () => '<div class="muted">لا يوجد</div>';
 
 /* ===== مساعدات إدخال متقدّمة: إدخال صوتي + مسح بالكاميرا ===== */
 const setVal = (id, v) => { const el = document.getElementById(id); if (el) { el.value = (v == null ? '' : v); el.dispatchEvent(new Event('change', { bubbles: true })); } };
+// موارد الوسائط النشطة (كاميرا/ميكروفون) — تُحرَّر بصرامة عند التنقّل أو الخروج أو الخلفية (منع تسريب الذاكرة/تعليق الجهاز)
+const _media = { stream: null, rec: null, scanStop: true };
+function releaseMedia() {
+  _media.scanStop = true;
+  try { if (_media.stream) _media.stream.getTracks().forEach(t => { try { t.stop(); } catch (e) {} }); } catch (e) {}
+  _media.stream = null;
+  try { if (_media.rec) { _media.rec.onresult = _media.rec.onerror = _media.rec.onend = null; _media.rec.abort(); } } catch (e) {}
+  _media.rec = null;
+  try { const mr = document.getElementById('modalRoot'); if (mr && mr.querySelector('#scanVid')) { const v = mr.querySelector('#scanVid'); try { v.pause(); v.srcObject = null; } catch (e) {} mr.innerHTML = ''; } } catch (e) {}
+}
 const speechAvail = () => !!(window.SpeechRecognition || window.webkitSpeechRecognition);
 // يضيف زر 🎤 بجانب حقل ويملؤه بالتعرّف الصوتي العربي (إن توفّر في الجهاز)
 function attachMic(inputId, opts = {}) {
@@ -78,10 +88,13 @@ function attachMic(inputId, opts = {}) {
   btn.type = 'button'; btn.className = 'aux-btn mic-btn'; btn.textContent = '🎤'; btn.title = 'إدخال صوتي';
   inp.insertAdjacentElement('afterend', btn);
   btn.addEventListener('click', () => {
+    releaseMedia();   // أوقف أي تسجيل/كاميرا سابق
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     let rec; try { rec = new SR(); } catch (e) { toast('التعرّف الصوتي غير متاح'); return; }
     rec.lang = 'ar-SA'; rec.interimResults = false; rec.maxAlternatives = 1;
+    _media.rec = rec;
     btn.classList.add('listening'); toast('🎤 تحدّث الآن…');
+    const done = () => { btn.classList.remove('listening'); if (_media.rec === rec) _media.rec = null; };
     rec.onresult = (e) => {
       let t = ((e.results[0][0].transcript) || '').trim();
       if (opts.digits) { const dd = asciiDigits(t).replace(/[^\d]/g, ''); if (dd) t = dd; }
@@ -89,9 +102,10 @@ function attachMic(inputId, opts = {}) {
       inp.dispatchEvent(new Event('input', { bubbles: true }));
       inp.dispatchEvent(new Event('change', { bubbles: true }));
     };
-    rec.onerror = () => { btn.classList.remove('listening'); toast('تعذّر التعرّف الصوتي (تحقّق من إذن الميكروفون)'); };
-    rec.onend = () => btn.classList.remove('listening');
-    try { rec.start(); } catch (e) { btn.classList.remove('listening'); }
+    rec.onerror = () => { done(); toast('تعذّر التعرّف الصوتي (تحقّق من إذن الميكروفون)'); };
+    rec.onend = done;
+    try { rec.start(); } catch (e) { done(); }
+    setTimeout(() => { try { if (_media.rec === rec) rec.stop(); } catch (e) {} }, 15000);   // أمان: أوقف بعد ١٥ث
   });
 }
 const scanAvail = () => ('BarcodeDetector' in window) && !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
@@ -105,25 +119,25 @@ function attachScan(inputId) {
   btn.addEventListener('click', () => openScanner(v => { inp.value = v; inp.dispatchEvent(new Event('input', { bubbles: true })); inp.dispatchEvent(new Event('change', { bubbles: true })); toast('تم مسح الوسم: ' + v); }));
 }
 async function openScanner(onCode) {
+  releaseMedia();   // أغلق أي كاميرا/تسجيل سابق
   const root = document.getElementById('modalRoot');
   root.innerHTML = `<div class="modal-bg"><div class="modal"><h3>📷 مسح الوسم</h3>
     <video id="scanVid" playsinline muted style="width:100%;border-radius:10px;background:#000;max-height:60vh"></video>
     <div class="muted" style="margin-top:6px">وجّه الكاميرا نحو الباركود/الرمز على الوسم</div>
     <button class="btn outline" id="scanClose" style="margin-top:10px">إلغاء</button></div></div>`;
   const vid = document.getElementById('scanVid');
-  let stream = null, stopped = false, det = null;
-  const cleanup = () => { stopped = true; try { if (stream) stream.getTracks().forEach(t => t.stop()); } catch (e) {} root.innerHTML = ''; };
-  document.getElementById('scanClose').addEventListener('click', cleanup);
-  root.querySelector('.modal-bg').addEventListener('click', e => { if (e.target.classList.contains('modal-bg')) cleanup(); });
+  let det = null; _media.scanStop = false;
+  document.getElementById('scanClose').addEventListener('click', releaseMedia);
+  root.querySelector('.modal-bg').addEventListener('click', e => { if (e.target.classList.contains('modal-bg')) releaseMedia(); });
   try {
-    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } } });
-    vid.srcObject = stream; await vid.play();
+    _media.stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } } });
+    vid.srcObject = _media.stream; await vid.play();
     det = new window.BarcodeDetector();
-  } catch (e) { cleanup(); toast('تعذّر فتح الكاميرا (تحقّق من الإذن)'); return; }
+  } catch (e) { releaseMedia(); toast('تعذّر فتح الكاميرا (تحقّق من الإذن)'); return; }
   const tick = async () => {
-    if (stopped) return;
-    try { const codes = await det.detect(vid); if (codes && codes.length) { const v = (codes[0].rawValue || '').trim(); if (v) { onCode(v); cleanup(); return; } } } catch (e) { /* تجاهل إطاراً */ }
-    if (!stopped) requestAnimationFrame(tick);
+    if (_media.scanStop) return;
+    try { const codes = await det.detect(vid); if (codes && codes.length) { const v = (codes[0].rawValue || '').trim(); if (v) { releaseMedia(); onCode(v); return; } } } catch (e) { /* تجاهل إطاراً */ }
+    if (!_media.scanStop) requestAnimationFrame(tick);
   };
   requestAnimationFrame(tick);
 }
@@ -632,6 +646,7 @@ function render() {
   document.querySelectorAll('.nav-item').forEach(b => b.classList.toggle('active', b.dataset.route === '#/' + navName));
   document.querySelectorAll('.fab').forEach(f => f.remove());
   teardownForumRealtime();   // أغلق أي اشتراك لحظي عند تغيير الشاشة
+  releaseMedia();            // حرّر الكاميرا/الميكروفون عند أي تنقّل (منع تسريب الموارد)
   window.scrollTo(0, 0);
   r.fn(arg);
 }
@@ -3700,6 +3715,11 @@ async function init() {
   const onUpdSignal = () => { if (!me || !me.is_active) return; buildNav(); if (parseHash().name === 'more') render(); };
   window.addEventListener('mrahi-update-available', onUpdSignal);
   window.addEventListener('mrahi-update-applied', onUpdSignal);
+  // تحرير موارد الوسائط (كاميرا/ميكروفون) عند الخلفية أو الخروج — تنظيف عميق للذاكرة
+  document.addEventListener('visibilitychange', () => { if (document.hidden) releaseMedia(); });
+  window.addEventListener('pagehide', releaseMedia);
+  window.addEventListener('freeze', releaseMedia);   // WebView bfcache
+  try { const P = window.Capacitor && window.Capacitor.Plugins; if (P && P.App && P.App.addListener) P.App.addListener('appStateChange', s => { if (s && s.isActive === false) releaseMedia(); }); } catch (e) {}
 
   // تطبيق الأندرويد (APK): بوابة التفعيل أولاً (ترخيص مربوط بالجهاز)
   if (window.MRAH_APK) {
