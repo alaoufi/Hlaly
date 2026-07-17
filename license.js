@@ -11,6 +11,7 @@
   var KEYSETS = [
     { pub: PUB_B64, prefix: PREFIX },
     { pub: 'q6t0BfdSs/AF9EAHkRAwAoaqRwHFp7m052uCRxlwKw4=', prefix: 'MRHL1' },
+    { pub: 'W5Kc9hRB7lb9xSh/VqdR4T8GT6VaDznEwYQgXZpLZz0=', prefix: 'UNI3' },   // مفتاح المولّد الخاصّ الجديد (UNI3)
   ];
   var B32 = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
