@@ -1122,8 +1122,9 @@ function screenAnimalDetail(arg) {
       ${row('الأب / الفحل', esc(a.father_name) || '—')}
       ${a.notes ? row('ملاحظات', esc(a.notes)) : ''}</div>
     <div class="card"><h3>أنتجت (${offspring.length})</h3>
+      ${offspring.length ? `<div class="muted" style="margin:2px 0 6px;font-size:.85rem">🟢 في الحظيرة ${offspring.filter(o => o.status === 'present').length} • 💰 مباعة ${offspring.filter(o => o.status === 'sold').length} • 📉 نافقة ${offspring.filter(o => o.status === 'dead').length} • 🎁 اهداء ${offspring.filter(o => o.status === 'given').length}</div>` : ''}
       ${can('animals', 'edit') && a.sex === 'female' ? `<button class="btn outline" id="addOffspring">➕ إضافة مواليد (نتاج)</button>` : ''}
-      ${offspring.length ? offspring.map(o => `<div class="card click" data-aid="${o.id}" style="margin:6px 0"><div class="li-title">${display(o)}</div><div class="li-sub">${esc(sexTerm(o))} • ${fmtDate(o.birth)}</div></div>`).join('') : noItem()}</div>
+      ${offspring.length ? offspring.map(o => { const ic = { present: '🟢', sold: '💰', dead: '📉', given: '🎁' }[o.status] || ''; return `<div class="card click" data-aid="${o.id}" style="margin:6px 0"><div class="li-title">${display(o)}</div><div class="li-sub">${esc(sexTerm(o))} • ${fmtDate(o.birth)} • ${ic} ${arOf(STATUS, o.status)}</div></div>`; }).join('') : noItem()}</div>
     ${can('breeding', 'view') ? `<div class="card"><h3>التلقيح والحمل</h3>
       ${can('breeding', 'edit') ? `<button class="btn outline" id="addMating">إضافة تلقيح / متابعة حمل</button>` : ''}
       ${can('breeding', 'edit') && a.sex === 'female' && a.status === 'present' ? `<button class="btn outline" id="addSonar" style="margin-top:6px">🔊 فحص حمل بالسونار</button>` : ''}
