@@ -7,8 +7,11 @@ let TYPES = [
   { k: 'goat', ar: 'ماعز', gest: 150, puberty: 7, weaning: 3 }, { k: 'cattle', ar: 'بقر', gest: 283, puberty: 15, weaning: 7 },
 ];
 const SEX = [{ k: 'female', ar: 'أنثى' }, { k: 'male', ar: 'ذكر' }];
-const STATUS = [{ k: 'present', ar: 'موجودة' }, { k: 'sold', ar: 'مباعة' }, { k: 'dead', ar: 'نافقة' }];
-const SOURCE = [{ k: 'purchased', ar: 'مشترى' }, { k: 'born', ar: 'ولادة' }];
+const STATUS = [{ k: 'present', ar: 'موجودة' }, { k: 'sold', ar: 'مباعة' }, { k: 'dead', ar: 'نافقة' }, { k: 'given', ar: 'اهداء' }];
+// حالات الإضافة (كيف دخلت): ولادة/شراء/اهداء
+const SOURCE = [{ k: 'born', ar: 'ولادة' }, { k: 'purchased', ar: 'شراء' }, { k: 'gift', ar: 'اهداء' }];
+// حالات الإجراء (كيف خرجت): مباعة/نافقة/اهداء (تُعرض عند التعديل فقط)
+const EXIT = [{ k: 'sold', ar: 'مباعة' }, { k: 'dead', ar: 'نافقة' }, { k: 'given', ar: 'اهداء' }];
 // غرض الذكر: فحل يبقى للقطيع، أو معدّ للبيع/التسمين
 const MALE_PURPOSE = [{ k: 'sire', ar: '🐏 فحل للقطيع' }, { k: 'sale', ar: '💰 معدّ للبيع' }];
 // الغرض العامّ لأي بهيمة (مواليد أو مشترى): تربية أو للبيع
@@ -824,8 +827,8 @@ function screenAnimals() {
   // مربّع اختيار (☐/☑) ليوضّح أنها متعدّدة الاختيار
   const cb = (on) => (on ? '☑' : '☐') + ' ';
   // بلا زرّ «الكل» — إلغاء تحديد الجميع (أو تحديدهم كلهم) يعرض الكل
-  const stChips = `<div class="chips"><span class="chip ${animalStatusSel.includes('present') ? 'active' : ''}" data-s="present">${cb(animalStatusSel.includes('present'))}في الحظيرة</span><span class="chip ${animalStatusSel.includes('sold') ? 'active' : ''}" data-s="sold">${cb(animalStatusSel.includes('sold'))}مباعة</span><span class="chip ${animalStatusSel.includes('dead') ? 'active' : ''}" data-s="dead">${cb(animalStatusSel.includes('dead'))}نافقة</span></div>`;
-  const srcChips = `<div class="chips"><span class="chip ${animalSourceSel.includes('born') ? 'active' : ''}" data-src="born">${cb(animalSourceSel.includes('born'))}👶 مواليد</span><span class="chip ${animalSourceSel.includes('purchased') ? 'active' : ''}" data-src="purchased">${cb(animalSourceSel.includes('purchased'))}🛒 مشترى</span><span class="chip ${animalSourceSel.includes('sale') ? 'active' : ''}" data-src="sale">${cb(animalSourceSel.includes('sale'))}💰 للبيع (المعدّ للبيع)</span></div>`;
+  const stChips = `<div class="chips"><span class="chip ${animalStatusSel.includes('present') ? 'active' : ''}" data-s="present">${cb(animalStatusSel.includes('present'))}في الحظيرة</span><span class="chip ${animalStatusSel.includes('sold') ? 'active' : ''}" data-s="sold">${cb(animalStatusSel.includes('sold'))}مباعة</span><span class="chip ${animalStatusSel.includes('dead') ? 'active' : ''}" data-s="dead">${cb(animalStatusSel.includes('dead'))}نافقة</span><span class="chip ${animalStatusSel.includes('given') ? 'active' : ''}" data-s="given">${cb(animalStatusSel.includes('given'))}🎁 اهداء</span></div>`;
+  const srcChips = `<div class="chips"><span class="chip ${animalSourceSel.includes('born') ? 'active' : ''}" data-src="born">${cb(animalSourceSel.includes('born'))}👶 مواليد</span><span class="chip ${animalSourceSel.includes('purchased') ? 'active' : ''}" data-src="purchased">${cb(animalSourceSel.includes('purchased'))}🛒 شراء</span><span class="chip ${animalSourceSel.includes('gift') ? 'active' : ''}" data-src="gift">${cb(animalSourceSel.includes('gift'))}🎁 اهداء</span><span class="chip ${animalSourceSel.includes('sale') ? 'active' : ''}" data-src="sale">${cb(animalSourceSel.includes('sale'))}💰 للبيع (المعدّ للبيع)</span></div>`;
   const sexChips = `<div class="chips">${SEX.map(s => `<span class="chip ${animalSexSel.includes(s.k) ? 'active' : ''}" data-sex="${s.k}">${cb(animalSexSel.includes(s.k))}${s.k === 'male' ? '♂ ' : '♀ '}${s.ar}</span>`).join('')}</div>`;
   const list = C.animals.filter(a => (!animalFilter || a.type === animalFilter) && (!animalStatusSel.length || animalStatusSel.includes(a.status)) && (!animalSourceSel.length || animalSourceSel.some(s => s === 'sale' ? (a.designation === 'sale' || a.purpose === 'sale') : (a.source || 'purchased') === s)) && (!animalSexSel.length || animalSexSel.includes(a.sex))).sort((a, b) => b.id - a.id);
   const canEdit = can('animals', 'edit');
@@ -934,9 +937,10 @@ function screenAnimalEdit(arg) {
       <div id="buypriceBox">${fInput('سعر الشراء (اختياري)', 'f_buyprice', a && a.buy_price, 'number', 'min="0" step="any" inputmode="decimal"')}</div>
       ${fInput('تاريخ الميلاد (اختياري للمشترى)', 'f_birth', a && a.birth, 'date')}
       ${fInput('اللون', 'f_color', a && a.color)}
-      ${fSelect('الحالة', 'f_status', STATUS, a ? a.status : 'present')}
-      <div id="saleBox">${fInput('تاريخ البيع', 'f_saledate', a && a.sale_date, 'date')}${fInput('سعر البيع', 'f_saleprice', a && a.sale_price, 'number', 'min="0" step="any" inputmode="decimal"')}</div>
-      <div id="deadBox">${fInput('تاريخ النفوق', 'f_deaddate', a && a.dead_date, 'date')}</div></div>
+      ${a && a.status !== 'present' ? `${fSelect('الإجراء', 'f_status', EXIT, a.status)}
+      <div id="saleBox">${fInput('تاريخ البيع', 'f_saledate', a.sale_date, 'date')}${fInput('سعر البيع', 'f_saleprice', a.sale_price, 'number', 'min="0" step="any" inputmode="decimal"')}</div>
+      <div id="deadBox">${fInput('تاريخ النفوق', 'f_deaddate', a.dead_date, 'date')}</div>
+      <div id="giftBox">${fInput('تاريخ الإهداء', 'f_giftdate', a.gift_date, 'date')}${fInput('أُهديت إلى (اختياري)', 'f_giftto', a.gift_to)}</div>` : ''}</div>
     <div id="bornRows"></div>
     <div class="card"><h3>النسب</h3>
       ${fAnimalSelect('الأم', 'f_mother', a && a.mother_id, females, '— بدون —')}
@@ -946,10 +950,11 @@ function screenAnimalEdit(arg) {
     ${id ? '<button class="btn danger" id="delBtn">حذف البهيمة</button>' : ''}`;
   const syncExit = () => {
     const s = val('f_status');
-    document.getElementById('saleBox').style.display = s === 'sold' ? '' : 'none';
-    document.getElementById('deadBox').style.display = s === 'dead' ? '' : 'none';
+    const sb = document.getElementById('saleBox'); if (sb) sb.style.display = s === 'sold' ? '' : 'none';
+    const db = document.getElementById('deadBox'); if (db) db.style.display = s === 'dead' ? '' : 'none';
+    const gb = document.getElementById('giftBox'); if (gb) gb.style.display = s === 'given' ? '' : 'none';
   };
-  document.getElementById('f_status').addEventListener('change', syncExit); syncExit();
+  { const fs = document.getElementById('f_status'); if (fs) { fs.addEventListener('change', syncExit); syncExit(); } }
   // غرض الذكر يظهر للذكور فقط
   const syncPurpose = () => { const pb = document.getElementById('purposeBox'); if (pb) pb.style.display = val('f_sex') === 'male' ? '' : 'none'; };
   document.getElementById('f_sex').addEventListener('change', syncPurpose); syncPurpose();
@@ -1004,11 +1009,13 @@ function screenAnimalEdit(arg) {
   document.getElementById('saveBtn').addEventListener('click', async () => {
     const code = val('f_code').trim(), name = val('f_name').trim();
     // المعرّف الخارجي اختياري — الرقم الداخلي الثابت يميّز البهيمة دائماً
-    const status = val('f_status');
+    const status = a ? (val('f_status') || a.status || 'present') : 'present';   // الإضافة دائماً «موجودة»؛ الخروج (بيع/نفوق/اهداء) من الإجراء
     const obj = { type: val('f_type'), pen: penValue('f_pen', val('f_type')), idkind: val('f_kind'), code, name, tag_color: val('f_tagcolor'), tag_shape: val('f_tagshape'), sex: val('f_sex'), purpose: val('f_sex') === 'male' ? val('f_purpose') : '', source: val('f_source'), designation: val('f_design'), buy_price: val('f_source') === 'purchased' && val('f_buyprice') !== '' ? parseFloat(val('f_buyprice')) : null, birth: val('f_birth') || null, color: val('f_color').trim(), status, mother_id: parseInt(val('f_mother'), 10) || null, father_name: val('f_father').trim(), notes: val('f_notes').trim(),
       sale_date: status === 'sold' ? (val('f_saledate') || null) : null,
       sale_price: status === 'sold' && val('f_saleprice') !== '' ? parseFloat(val('f_saleprice')) : null,
-      dead_date: status === 'dead' ? (val('f_deaddate') || null) : null };
+      dead_date: status === 'dead' ? (val('f_deaddate') || null) : null,
+      gift_date: status === 'given' ? (val('f_giftdate') || null) : null,
+      gift_to: status === 'given' ? (val('f_giftto').trim() || null) : null };
     // نظّف الحقول غير المناسبة لنوع المعرّف («بدون» لا يحفظ رقماً/وسماً)
     if (!['number', 'tag', 'chip', 'name'].includes(obj.idkind)) obj.code = '';
     if (!['tag', 'color'].includes(obj.idkind)) obj.tag_color = '';
@@ -1075,7 +1082,7 @@ function screenAnimalDetail(arg) {
       ${offCount ? `<span class="badge">👶 ${offCount} مولود</span>` : ''}
       ${monPreg ? `<span class="badge">🤰 حامل • ولادة ${fmtDate(monPreg.expected)}</span>` : ''}
       ${withItems.length ? `<span class="badge off">⛔ تحت التحريم حتى ${fmtDate(withItems[0].withdrawal_end)}</span>` : ''}
-      ${a.status !== 'present' ? `<span class="badge ${a.status === 'sold' ? 'sold' : 'dead'}">${arOf(STATUS, a.status)}</span>` : ''}
+      ${a.status !== 'present' ? `<span class="badge ${a.status === 'sold' ? 'sold' : a.status === 'dead' ? 'dead' : ''}">${arOf(STATUS, a.status)}</span>` : ''}
     </div>`;
   view().innerHTML = summary + `
     <div class="card"><h3>البيانات الأساسية</h3>
@@ -1098,8 +1105,9 @@ function screenAnimalDetail(arg) {
       ${(a.source || 'purchased') === 'purchased' && a.buy_price != null ? row('سعر الشراء', a.buy_price) : ''}
       ${a.status === 'sold' ? row('تاريخ البيع', fmtDate(a.sale_date)) + row('سعر البيع', a.sale_price != null ? a.sale_price : '—') : ''}
       ${a.status === 'dead' ? row('تاريخ النفوق', fmtDate(a.dead_date)) : ''}
+      ${a.status === 'given' ? row('تاريخ الإهداء', fmtDate(a.gift_date)) + (a.gift_to ? row('أُهديت إلى', esc(a.gift_to)) : '') : ''}
       ${can('animals', 'edit') ? `<div class="btn-row" style="margin-top:8px">${a.status === 'present'
-        ? `<button class="btn sm" id="qSell">💰 تسجيل بيع</button><button class="btn sm danger" id="qDead">📉 تسجيل نفوق</button>`
+        ? `<button class="btn sm" id="qSell">💰 تسجيل بيع</button><button class="btn sm danger" id="qDead">📉 تسجيل نفوق</button><button class="btn sm" id="qGift">🎁 تسجيل إهداء</button>`
         : `<button class="btn sm outline" id="qBack">↩ إعادة للحظيرة</button>`}</div>` : ''}</div>
     <div class="card"><h3>النسب</h3>
       ${row('الأم', mother ? display(mother) : '—')}
@@ -1123,6 +1131,7 @@ function screenAnimalDetail(arg) {
   bindCards(view());
   const qs = document.getElementById('qSell'); if (qs) qs.addEventListener('click', () => quickSell(a));
   const qd = document.getElementById('qDead'); if (qd) qd.addEventListener('click', () => quickDead(a));
+  const qg = document.getElementById('qGift'); if (qg) qg.addEventListener('click', () => quickGift(a));
   const qb = document.getElementById('qBack'); if (qb) qb.addEventListener('click', () => quickRevert(a));
   const ao = document.getElementById('addOffspring'); if (ao) ao.addEventListener('click', () => addOffspringModal(a));
   const am = document.getElementById('addMating'); if (am) am.addEventListener('click', () => setHash('#/mating/' + id));
@@ -1708,7 +1717,7 @@ function quickSell(a) {
       const msg = wd ? `⚠️ هذه البهيمة تحت تحريم دواء حتى ${fmtDate(wd)} (لا يُنصح ببيعها/ذبحها قبله). تسجيل البيع وإخراجها من الحظيرة؟` : 'تسجيل بيع هذه البهيمة وإخراجها من الحظيرة؟';
       if (!await confirm2(msg, wd ? { danger: true } : {})) return;
       const price = val('qs_price') !== '' ? parseFloat(val('qs_price')) : null;
-      const ok = await guard(async () => { await dbUpdate('animals', a.id, { status: 'sold', sale_date: val('qs_date') || null, sale_price: price, dead_date: null }); });
+      const ok = await guard(async () => { await dbUpdate('animals', a.id, { status: 'sold', sale_date: val('qs_date') || null, sale_price: price, dead_date: null, gift_date: null, gift_to: null }); });
       if (ok) { closeModal(); toast('تم تسجيل البيع'); await loadAll(); screenAnimalDetail(String(a.id)); }
     });
   });
@@ -1719,14 +1728,26 @@ function quickDead(a) {
     <button class="btn danger" id="qd_save">حفظ النفوق</button>`, () => {
     document.getElementById('qd_save').addEventListener('click', async () => {
       if (!await confirm2('تسجيل نفوق هذه البهيمة وإخراجها من الحظيرة؟')) return;
-      const ok = await guard(async () => { await dbUpdate('animals', a.id, { status: 'dead', dead_date: val('qd_date') || null, sale_date: null, sale_price: null }); });
+      const ok = await guard(async () => { await dbUpdate('animals', a.id, { status: 'dead', dead_date: val('qd_date') || null, sale_date: null, sale_price: null, gift_date: null, gift_to: null }); });
       if (ok) { closeModal(); toast('تم تسجيل النفوق'); await loadAll(); screenAnimalDetail(String(a.id)); }
     });
   });
 }
+function quickGift(a) {
+  openModal('تسجيل إهداء', `
+    ${fInput('تاريخ الإهداء', 'qg_date', todayStr(), 'date')}
+    ${fInput('أُهديت إلى (اختياري)', 'qg_to', '')}
+    <button class="btn" id="qg_save">حفظ الإهداء</button>`, () => {
+    document.getElementById('qg_save').addEventListener('click', async () => {
+      if (!await confirm2('تسجيل إهداء هذه البهيمة وإخراجها من الحظيرة؟')) return;
+      const ok = await guard(async () => { await dbUpdate('animals', a.id, { status: 'given', gift_date: val('qg_date') || null, gift_to: val('qg_to').trim() || null, sale_date: null, sale_price: null, dead_date: null }); });
+      if (ok) { closeModal(); toast('تم تسجيل الإهداء'); await loadAll(); screenAnimalDetail(String(a.id)); }
+    });
+  });
+}
 async function quickRevert(a) {
-  if (!await confirm2('إعادة هذه البهيمة إلى الحظيرة؟ ستُلغى بيانات البيع/النفوق.')) return;
-  const ok = await guard(async () => { await dbUpdate('animals', a.id, { status: 'present', sale_date: null, sale_price: null, dead_date: null }); });
+  if (!await confirm2('إعادة هذه البهيمة إلى الحظيرة؟ ستُلغى بيانات البيع/النفوق/الإهداء.')) return;
+  const ok = await guard(async () => { await dbUpdate('animals', a.id, { status: 'present', sale_date: null, sale_price: null, dead_date: null, gift_date: null, gift_to: null }); });
   if (ok) { toast('أُعيدت للحظيرة'); await loadAll(); screenAnimalDetail(String(a.id)); }
 }
 
