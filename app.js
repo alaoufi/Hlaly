@@ -2771,6 +2771,7 @@ function screenTagLists() {
 function screenHerdSettings() {
   if (!can('animals', 'edit')) { view().innerHTML = noPerm(); return; }
   const items = [
+    ['🐑', 'أنواع الحلال (إبل/بقر/ماعز/نجدي/حري…) — إضافة/تعديل/حذف', '#/types'],
     ['🏠', 'الحظائر (إضافة/تعديل)', '#/pens'],
     ['📅', 'عمر احتساب المولود في الحظيرة', '#/countage'],
     ['🔤', 'مصطلحات الذكر والأنثى', '#/terms'],
@@ -2837,8 +2838,8 @@ function penRenameModal(oldName) {
 }
 async function penDelete(name) {
   const used = (C.animals || []).filter(a => (a.pen || '') === name).length;
-  const msg = used ? `حذف «${name}» من القائمة؟ مستخدمة في ${used} بهيمة — تبقى عليها لكنها تختفي من الخيارات.` : `حذف «${name}» من القائمة؟`;
-  if (!await confirm2(msg)) return;
+  if (used) { await confirm2(`لا يمكن حذف «${name}» — عليها ${used} بهيمة. انقل البهائم لحظيرة أخرى أو أخرِجها أولاً.`, { title: 'تعذّر الحذف', okText: 'حسناً' }); return; }
+  if (!await confirm2(`حذف «${name}» من القائمة؟`)) return;
   savePens(loadPens().filter(p => p.name !== name));
   toast('حُذفت'); screenPens();
 }
@@ -2939,7 +2940,7 @@ function screenTerms() {
 
 /* ===== أنواع الحلال (للمدير) ===== */
 function screenTypes() {
-  if (!isAdmin()) { view().innerHTML = noPerm(); return; }
+  if (!can('animals', 'edit')) { view().innerHTML = noPerm(); return; }
   const list = (C.types || []).slice().sort((a, b) => (a.sort || 0) - (b.sort || 0));
   view().innerHTML = `<div class="muted" style="margin-bottom:8px">أنواع الحلال المستخدمة عند تسجيل البهائم. مدة الحمل (بالأيام) تُستخدم لحساب موعد الولادة المتوقّع، وسن البلوغ/الفطام (بالأشهر) للمتابعة.</div>`
     + (list.length ? list.map(t => `<div class="card">
@@ -2955,7 +2956,9 @@ function screenTypes() {
   view().querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', async () => {
     const t = (C.types || []).find(x => String(x.id) === b.dataset.del);   // المعرّف الحقيقي (رقم في المحلي)
     if (!t) { toast('النوع غير موجود'); return; }
-    if (!await confirm2('حذف هذا النوع؟ (البهائم المسجّلة مسبقاً لا تتأثر)')) return;
+    const cnt = (C.animals || []).filter(a => a.type === t.key).length;
+    if (cnt) { await confirm2(`لا يمكن حذف «${t.ar}» — عليه ${cnt} بهيمة. غيّر نوعها أو أخرِجها أولاً.`, { title: 'تعذّر الحذف', okText: 'حسناً' }); return; }
+    if (!await confirm2('حذف هذا النوع؟')) return;
     const ok = await guard(async () => { const { error } = await sb.from('mrahi_types').delete().eq('id', t.id); if (error) throw error; });
     if (ok) { toast('تم الحذف'); await loadAll(); screenTypes(); }
   }));
