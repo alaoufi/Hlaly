@@ -42,6 +42,12 @@ function daysUntil(d) { if (!d) return null; return Math.round((new Date(d + 'T0
 // عمر تقريبي نصّي من تاريخ الميلاد (سنة/شهر)
 function ageMonths(birth) { if (!birth) return null; const b = new Date(birth + 'T00:00:00'), n = new Date(todayStr() + 'T00:00:00'); let m = (n.getFullYear() - b.getFullYear()) * 12 + (n.getMonth() - b.getMonth()); if (n.getDate() < b.getDate()) m--; return m < 0 ? 0 : m; }
 function ageText(birth) { const m = ageMonths(birth); if (m == null) return null; const y = Math.floor(m / 12), mo = m % 12; if (y && mo) return `${y} سنة و${mo} شهر`; if (y) return `${y} سنة`; return `${mo} شهر`; }
+// عمر احتساب المولود في الحظيرة (لكل نوع، بالأشهر): أصغر منه «يتبع أمّه» ولا يُعدّ في «في الحظيرة» (لكن يبقى ظاهراً)
+function loadCountAge() { try { const v = JSON.parse(localStorage.getItem('mrahi_count_age')); return (v && typeof v === 'object') ? v : {}; } catch (e) { return {}; } }
+function saveCountAge(o) { try { localStorage.setItem('mrahi_count_age', JSON.stringify(o || {})); } catch (e) {} }
+// قاعدة الاحتساب لكل نوع: { age: أشهر, sex: 'both'|'male'|'female' } (تدعم القيمة القديمة كرقم)
+function countRuleFor(type) { const v = loadCountAge()[type]; if (v == null) return { age: 0, sex: 'both' }; if (typeof v === 'number') { return { age: v > 0 ? v : 0, sex: 'both' }; } const age = parseInt(v.age, 10); return { age: age > 0 ? age : 0, sex: (v.sex === 'male' || v.sex === 'female') ? v.sex : 'both' }; }
+function inHerdCount(a) { if (!a || a.status !== 'present') return false; const c = countRuleFor(a.type); if (!c.age) return true; if (c.sex !== 'both' && a.sex !== c.sex) return true; if (!a.birth) return true; return ageMonths(a.birth) >= c.age; }
 // أطول مدة تحريم لنوع التطعيم (الحليب أو اللحم، مع توافق عمود withdrawal_days القديم)
 const vtWithdrawDays = (t) => Math.max(t.milk_withdrawal_days || 0, t.meat_withdrawal_days || 0, t.withdrawal_days || 0);
 const fmtDate = (d) => d ? String(d).slice(0, 10).replace(/-/g, '/') : '—';
@@ -629,6 +635,8 @@ const ROUTES = {
   terms: { t: 'مصطلحات الذكر والأنثى', back: true, fn: screenTerms },
   reminders: { t: 'تنبيهات مخصّصة', back: true, fn: screenReminders },
   pens: { t: 'الحظائر', back: true, fn: screenPens },
+  countage: { t: 'عمر احتساب المولود', back: true, fn: screenCountAge },
+  herdsettings: { t: 'إعدادات الحظيرة', back: true, fn: screenHerdSettings },
   trash: { t: 'سلة المحذوفات', back: true, fn: screenTrash },
   tips: { t: 'النصائح والمعلومات', back: true, fn: screenTips },
   guide: { t: 'دليل الاستخدام', back: true, fn: screenGuide },
@@ -676,7 +684,7 @@ function withdrawalActiveOn(animalId, dateStr) {
 /* ===== الرئيسية ===== */
 function screenHome() {
   const pres = C.animals.filter(a => a.status === 'present');
-  const present = pres.length;
+  const present = pres.filter(inHerdCount).length;   // لا يُحتسب المولود أصغر من عمر الاحتساب لنوعه
   const sold = C.animals.filter(a => a.status === 'sold').length;
   const dead = C.animals.filter(a => a.status === 'dead').length;
   const born = pres.filter(a => a.source === 'born');
@@ -1946,10 +1954,7 @@ function screenMore() {
       I(can('animals', 'view'), '🔍 تفقد الحلال وإحصائيات', '#/inspect'),
       I(can('animals', 'add'), '📋 إضافة جماعية (دفعة)', '#/bulk/buy'),
       I(can('breeding', 'view'), '🤰 الحمل والمتابعة', '#/pregnancies'),
-      I(can('animals', 'edit'), '🏠 الحظائر (إضافة/تعديل)', '#/pens'),
-      I(can('animals', 'edit'), '🔔 تنبيهات مخصّصة (للبيع/التطعيم…)', '#/reminders'),
-      I(can('animals', 'edit'), '🔤 مصطلحات الذكر والأنثى', '#/terms'),
-      I(can('animals', 'edit'), '🏷️ شكل ولون الرقم (إعداد)', '#/taglists'),
+      I(can('animals', 'edit'), '⚙️ إعدادات الحظيرة', '#/herdsettings'),
     ].filter(Boolean) },
     { key: 'health', title: '💉 الصحة (تطعيم وعلاج)', items: [
       I(can('vaccines', 'edit'), '💉 إعطاء تطعيم', '#/vaccinate/0'),
@@ -2453,6 +2458,7 @@ function renderInspect() {
     const typeChips = `<div class="chips">${TYPES.map(t => `<span class="chip ${TK === t.k ? 'active' : ''}" data-itype="${t.k}">${t.ar}</span>`).join('')}</div>`;
     const At = C.animals.filter(a => a.type === TK);          // النوع المحدّد فقط (كل نوع مستقلّ)
     const presentT = At.filter(a => a.status === 'present');
+    const inHerdT = presentT.filter(inHerdCount).length;   // العدد المحتسَب (يستثني الصغار أصغر من عمر الاحتساب)
     const f = presentT.filter(a => a.sex === 'female').length, m = presentT.filter(a => a.sex === 'male').length;
     const sold = At.filter(a => a.status === 'sold').length, dead = At.filter(a => a.status === 'dead').length;
     const bornAll = presentT.filter(a => a.source === 'born');
@@ -2480,7 +2486,7 @@ function renderInspect() {
     body.innerHTML = typeChips
       + `<div class="muted" style="margin:4px 0 8px">إحصائيات <b>${esc(arOf(TYPES, TK))}</b> — كل نوع مستقلّ</div>
       <div class="stats">
-        <div class="stat green"><div class="n">${presentT.length}</div><div class="l">في الحظيرة</div></div>
+        <div class="stat green"><div class="n">${inHerdT}</div><div class="l">في الحظيرة</div></div>
         <div class="stat blue"><div class="n">${f}</div><div class="l">إناث</div></div>
         <div class="stat amber"><div class="n">${m}</div><div class="l">ذكور</div></div>
       </div>
@@ -2490,7 +2496,7 @@ function renderInspect() {
       <div class="card"><h3>🎂 توزيع الأعمار (في الحظيرة)</h3>${row('صغار (أقل من ٦ أشهر)', young)}${row('من ٦ لـ ١٢ شهر', sub)}${row('بالغة (سنة فأكثر)', adult)}${noBirth ? row('بلا تاريخ ميلاد', noBirth) : ''}</div>
       <div class="card"><h3>📈 مؤشّرات الإنتاج</h3>${row('معدّل التوائم', twinRate + '%')}${row('متوسط المواليد لكل أم', avgOff)}${row('عدد الأمهات المنتِجة', damCount)}</div>
       <div class="card"><h3>⛔ تحت التحريم الآن</h3>${row('عدد البهائم', underNow)}</div>
-      <div class="card"><h3>الحالة (${esc(arOf(TYPES, TK))})</h3>${row('في الحظيرة', presentT.length)}${row('مباعة', sold)}${row('نافقة', dead)}${row('الإجمالي', At.length)}</div>
+      <div class="card"><h3>الحالة (${esc(arOf(TYPES, TK))})</h3>${row('في الحظيرة (محتسَب)', inHerdT)}${presentT.length !== inHerdT ? row('صغار تتبع أمّها (غير محتسَبة)', presentT.length - inHerdT) : ''}${row('مباعة', sold)}${row('نافقة', dead)}${row('الإجمالي', At.length)}</div>
       <div class="card"><h3>حسب الحظيرة</h3>${penList.length ? penList.map(([p, n]) => row(p, n)).join('') : noItem()}</div>`;
     body.querySelectorAll('[data-itype]').forEach(c => c.addEventListener('click', () => { inspType = c.dataset.itype; renderInspect(); }));
     return;
@@ -2760,6 +2766,34 @@ function screenTagLists() {
 }
 
 /* ===== إدارة الحظائر (إضافة/تعديل/حذف — تسمية حرّة حسب الرغبة) ===== */
+// تبويب واحد يجمع كل إعدادات الحظيرة
+function screenHerdSettings() {
+  if (!can('animals', 'edit')) { view().innerHTML = noPerm(); return; }
+  const items = [
+    ['🏠', 'الحظائر (إضافة/تعديل)', '#/pens'],
+    ['📅', 'عمر احتساب المولود في الحظيرة', '#/countage'],
+    ['🔤', 'مصطلحات الذكر والأنثى', '#/terms'],
+    ['🏷️', 'شكل ولون الرقم', '#/taglists'],
+    ['🔔', 'تنبيهات مخصّصة (للبيع/التطعيم…)', '#/reminders'],
+  ];
+  view().innerHTML = `<div class="muted" style="margin-bottom:8px">كل إعدادات الحظيرة في مكان واحد.</div>`
+    + items.map(([ic, label, hash]) => `<div class="card click" data-h="${hash}"><div class="li-title">${ic} ${label}</div></div>`).join('');
+  view().querySelectorAll('[data-h]').forEach(c => c.addEventListener('click', () => setHash(c.dataset.h)));
+}
+// عمر احتساب المولود في الحظيرة (لكل نوع + لأي جنس تنطبق القاعدة)
+function screenCountAge() {
+  if (!can('animals', 'edit')) { view().innerHTML = noPerm(); return; }
+  const SEXSCOPE = [{ k: 'both', ar: 'كلاهما' }, { k: 'female', ar: 'الإناث' }, { k: 'male', ar: 'الذكور' }];
+  view().innerHTML = `
+    <div class="muted" style="margin-bottom:8px">لكل نوع: العمر (بالأشهر) الذي يُضاف عنده المولود لعدد الحظيرة، ولأي جنس تنطبق القاعدة. أصغر من العمر «يتبع أمّه» ولا يُحتسب في «في الحظيرة» (لكنه يبقى ظاهراً في القائمة). صفر = يُحتسب الجميع.</div>
+    ${TYPES.map(t => { const r = countRuleFor(t.k); return `<div class="card"><h3>${esc(t.ar)}</h3>${fInput('العمر (أشهر) — صفر = الجميع', 'ca_' + t.k, r.age || '', 'number', 'min="0" inputmode="numeric"')}${fSelect('تنطبق على', 'cas_' + t.k, SEXSCOPE, r.sex)}</div>`; }).join('')}
+    <button class="btn" id="ca_save">حفظ</button>`;
+  document.getElementById('ca_save').addEventListener('click', () => {
+    const o = {};
+    TYPES.forEach(t => { const n = parseInt(val('ca_' + t.k), 10); if (n > 0) o[t.k] = { age: n, sex: val('cas_' + t.k) || 'both' }; });
+    saveCountAge(o); toast('تم الحفظ'); goBack();
+  });
+}
 function screenPens() {
   if (!can('animals', 'edit')) { view().innerHTML = noPerm(); return; }
   const pens = allPens();   // [{name,type}]
