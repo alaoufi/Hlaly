@@ -957,6 +957,17 @@ function screenAnimalEdit(arg) {
   // عند «ولادة» وعدد > 1: تُفتح حقول كاملة مستقلّة لكل مولود (جنس/غرض/رقم مختلف لكل واحد)
   const identityFields = ['f_kind', 'f_code', 'f_tagcolor', 'f_tagshape', 'f_name', 'f_sex', 'f_design', 'f_color'];
   const fieldWrap = (fid) => { const el = document.getElementById(fid); return el ? el.closest('.field') : null; };
+  // حسب نوع المعرّف الخارجي تظهر الحقول المناسبة فقط («بدون» يخفي حقل المعرّف والوسم)
+  const KIND_LABEL = { number: 'الرقم', tag: 'الوسم', chip: 'رقم الشريحة', name: 'الاسم/المسمى' };
+  const syncKind = () => {
+    const k = val('f_kind');
+    const setW = (fid, show) => { const w = fieldWrap(fid); if (w) w.style.display = show ? '' : 'none'; };
+    const showCode = ['number', 'tag', 'chip', 'name'].includes(k);
+    setW('f_code', showCode);
+    setW('f_tagcolor', ['tag', 'color'].includes(k));
+    setW('f_tagshape', k === 'tag');
+    if (showCode && KIND_LABEL[k]) { const el = document.getElementById('f_code'); const L = el && el.closest('.field').querySelector('label'); if (L) L.textContent = KIND_LABEL[k] + ' (اختياري — قد يتغيّر أو يسقط)'; }
+  };
   const renderBornRows = () => {
     const box = document.getElementById('bornRows'); if (!box) return;
     const isBorn = val('f_source') === 'born';
@@ -964,7 +975,7 @@ function screenAnimalEdit(arg) {
     const multi = !a && isBorn && n > 1;
     identityFields.forEach(fid => { const w = fieldWrap(fid); if (w) w.style.display = multi ? 'none' : ''; });
     const pb = document.getElementById('purposeBox'); if (pb) pb.style.display = multi ? 'none' : (val('f_sex') === 'male' ? '' : 'none');
-    if (!multi) { box.innerHTML = ''; return; }
+    if (!multi) { syncKind(); box.innerHTML = ''; return; }
     const defSex = val('f_sex') || 'female';
     let html = '';
     for (let i = 1; i <= n; i++) {
@@ -980,6 +991,7 @@ function screenAnimalEdit(arg) {
   };
   const syncSource = () => { const s = val('f_source'); const bb = document.getElementById('bcountBox'); if (bb) bb.style.display = s === 'born' ? '' : 'none'; const yb = document.getElementById('buypriceBox'); if (yb) yb.style.display = s === 'purchased' ? '' : 'none'; renderBornRows(); };
   document.getElementById('f_source').addEventListener('change', syncSource);
+  document.getElementById('f_kind').addEventListener('change', syncKind);
   { const bc = document.getElementById('f_bcount'); if (bc) bc.addEventListener('input', renderBornRows); }
   syncSource();
   bindPenField('f_pen');
@@ -988,7 +1000,7 @@ function screenAnimalEdit(arg) {
   attachMic('f_code', { digits: true }); attachScan('f_code');
   attachMic('f_name'); attachMic('f_color'); attachMic('f_father'); attachMic('f_notes', { append: true });
   // نسخ بيانات آخر إدخال (للبهائم الجديدة فقط)
-  { const cl = document.getElementById('cloneLast'); if (cl) cl.addEventListener('click', () => { const L = lastAnimal || {}; setVal('f_type', L.type); setVal('f_pen', L.pen); setVal('f_kind', L.idkind); setVal('f_sex', L.sex); setVal('f_source', L.source); setVal('f_color', L.color); setVal('f_tagcolor', L.tag_color || ''); setVal('f_tagshape', L.tag_shape || ''); setVal('f_father', L.father_name || ''); rebuildPen('f_pen', L.type || (animalFilter || 'sheep')); setVal('f_pen', L.pen || ''); toast('نُسخت بيانات آخر إدخال'); }); }
+  { const cl = document.getElementById('cloneLast'); if (cl) cl.addEventListener('click', () => { const L = lastAnimal || {}; setVal('f_type', L.type); setVal('f_pen', L.pen); setVal('f_kind', L.idkind); setVal('f_sex', L.sex); setVal('f_source', L.source); setVal('f_color', L.color); setVal('f_tagcolor', L.tag_color || ''); setVal('f_tagshape', L.tag_shape || ''); setVal('f_father', L.father_name || ''); rebuildPen('f_pen', L.type || (animalFilter || 'sheep')); setVal('f_pen', L.pen || ''); syncKind(); toast('نُسخت بيانات آخر إدخال'); }); }
   document.getElementById('saveBtn').addEventListener('click', async () => {
     const code = val('f_code').trim(), name = val('f_name').trim();
     // المعرّف الخارجي اختياري — الرقم الداخلي الثابت يميّز البهيمة دائماً
@@ -997,6 +1009,10 @@ function screenAnimalEdit(arg) {
       sale_date: status === 'sold' ? (val('f_saledate') || null) : null,
       sale_price: status === 'sold' && val('f_saleprice') !== '' ? parseFloat(val('f_saleprice')) : null,
       dead_date: status === 'dead' ? (val('f_deaddate') || null) : null };
+    // نظّف الحقول غير المناسبة لنوع المعرّف («بدون» لا يحفظ رقماً/وسماً)
+    if (!['number', 'tag', 'chip', 'name'].includes(obj.idkind)) obj.code = '';
+    if (!['tag', 'color'].includes(obj.idkind)) obj.tag_color = '';
+    if (obj.idkind !== 'tag') obj.tag_shape = '';
     if (status === 'sold') { const wd = withdrawalActiveOn(id, obj.sale_date || todayStr()); if (wd && !await confirm2(`⚠️ هذه البهيمة تحت تحريم دواء حتى ${fmtDate(wd)} — لا يُنصح ببيعها/ذبحها قبله. متابعة الحفظ كمباعة؟`, { danger: true })) return; }
     if (a && !await confirm2('حفظ التعديل على هذه البهيمة؟ النسخة السابقة ستبقى في سلة المحذوفات.')) return;
     const ok = await guard(async () => {
