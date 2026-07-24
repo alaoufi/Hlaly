@@ -2000,7 +2000,6 @@ function screenMore() {
     ].filter(Boolean) },
     { key: 'app', title: '📱 التطبيق', items: [
       I(window.MRAH_APK, '🔄 تحقق من وجود تحديث', '__checkupdate'),
-      I(window.MRAH_APK && window.MrahiLicense && window.MrahiLicense.state().state === 'active', '🔐 إلغاء تفعيل هذا الجهاز', '__deactivate'),
     ].filter(Boolean) },
   ].filter(c => c.items.length);
 
