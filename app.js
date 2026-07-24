@@ -1128,7 +1128,7 @@ function screenAnimalDetail(arg) {
       ${a.status === 'dead' ? row('تاريخ النفوق', fmtDate(a.dead_date)) : ''}
       ${a.status === 'given' ? row('تاريخ الإهداء', fmtDate(a.gift_date)) + (a.gift_to ? row('أُهديت إلى', esc(a.gift_to)) : '') : ''}
       ${can('animals', 'edit') ? `<div class="btn-row" style="margin-top:8px">${a.status === 'present'
-        ? `<button class="btn sm" id="qSell">💰 تسجيل بيع</button><button class="btn sm danger" id="qDead">📉 تسجيل نفوق</button><button class="btn sm" id="qGift">🎁 تسجيل إهداء</button>${!inHerdCount(a) ? `<button class="btn sm outline" id="qCount">➕ احتسابها في الحظيرة</button>` : (a.counted === true ? `<button class="btn sm outline" id="qUncount">➖ إخراجها من العدّ</button>` : '')}`
+        ? `<button class="btn sm" id="qSell">💰 بيع</button><button class="btn sm danger" id="qDead">📉 نفوق</button><button class="btn sm" id="qGift">🎁 إهداء</button>${!inHerdCount(a) ? `<button class="btn sm outline" id="qCount">➕ احتساب</button>` : (a.counted === true ? `<button class="btn sm outline" id="qUncount">➖ إخراج</button>` : '')}`
         : `<button class="btn sm outline" id="qBack">↩ إعادة للحظيرة</button>`}</div>` : ''}</div>
     <div class="card"><h3>النسب</h3>
       ${row('الأم', mother ? display(mother) : '—')}
@@ -1138,7 +1138,7 @@ function screenAnimalDetail(arg) {
       ${offspring.length ? `<div class="muted" style="margin:2px 0 6px;font-size:.85rem">🟢 في الحظيرة ${offspring.filter(o => o.status === 'present').length} • 💰 مباعة ${offspring.filter(o => o.status === 'sold').length} • 📉 نافقة ${offspring.filter(o => o.status === 'dead').length} • 🎁 اهداء ${offspring.filter(o => o.status === 'given').length}</div>` : ''}
       ${can('animals', 'edit') && a.sex === 'female' ? `<button class="btn outline" id="addOffspring">➕ إضافة مواليد (نتاج)</button>` : ''}
       ${offspring.length ? offspring.map(o => { const ic = { present: '🟢', sold: '💰', dead: '📉', given: '🎁' }[o.status] || ''; return `<div class="card click" data-aid="${o.id}" style="margin:6px 0"><div class="li-title">${display(o)}</div><div class="li-sub">${esc(sexTerm(o))} • ${fmtDate(o.birth)} • ${ic} ${arOf(STATUS, o.status)}</div></div>`; }).join('') : noItem()}</div>
-    ${can('breeding', 'view') ? `<div class="card"><h3>التلقيح والحمل</h3>
+    ${can('breeding', 'view') && a.sex === 'female' && (!a.birth || !pubertyOf(a.type) || ageMonths(a.birth) >= pubertyOf(a.type)) ? `<div class="card"><h3>التلقيح والحمل</h3>
       ${can('breeding', 'edit') ? `<button class="btn outline" id="addMating">إضافة تلقيح / متابعة حمل</button>` : ''}
       ${can('breeding', 'edit') && a.sex === 'female' && a.status === 'present' ? `<button class="btn outline" id="addSonar" style="margin-top:6px">🔊 فحص حمل بالسونار</button>` : ''}
       ${matings.map(m => row('تلقيح ' + fmtDate(m.date), 'الفحل: ' + (esc(m.sire_name) || esc(m.sire_code) || '—'))).join('')}
