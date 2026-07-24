@@ -822,12 +822,14 @@ function animalCard(a) {
     <div class="li-sub">${arOf(TYPES, a.type)} • ${esc(sexTerm(a))}${a.sex === 'male' && a.purpose ? ' • ' + arOf(MALE_PURPOSE, a.purpose) : ''} • <span class="badge ${st}">${arOf(STATUS, a.status)}</span></div>
     ${a.pen ? `<div class="li-sub">🏠 ${esc(a.pen)}</div>` : ''}
     ${off ? `<div class="li-sub link" data-off="${a.id}">👶 المواليد: ${off} — عرض</div>` : ''}
-    ${mother ? `<div class="li-sub link" data-momopen="${a.mother_id}">🤱 الأم: ${display(mother)}</div>` : ''}</div>`;
+    ${mother ? `<div class="li-sub link" data-momopen="${a.mother_id}">🤱 الأم: ${display(mother)}</div>` : ''}
+    ${a.status === 'present' && !inHerdCount(a) && can('animals', 'edit') ? `<div class="li-sub link" data-count="${a.id}" style="color:var(--green);font-weight:700">➕ احتسابها في الحظيرة (تتبع أمّها)</div>` : ''}</div>`;
 }
 function bindCards(root) {
   root.querySelectorAll('[data-aid]').forEach(c => c.addEventListener('click', () => setHash('#/animal/' + c.dataset.aid)));
   root.querySelectorAll('[data-off]').forEach(el => el.addEventListener('click', (e) => { e.stopPropagation(); offspringListModal(parseInt(el.dataset.off, 10)); }));
   root.querySelectorAll('[data-momopen]').forEach(el => el.addEventListener('click', (e) => { e.stopPropagation(); setHash('#/animal/' + el.dataset.momopen); }));
+  root.querySelectorAll('[data-count]').forEach(el => el.addEventListener('click', async (e) => { e.stopPropagation(); const id = parseInt(el.dataset.count, 10); const ok = await guard(async () => { await dbUpdate('animals', id, { counted: true }); }); if (ok) { toast('أُضيفت لعدد الحظيرة'); await loadAll(); render(); } }));
 }
 // قائمة مواليد أمّ بعينها (من بطاقة البهيمة)
 function offspringListModal(motherId) {
