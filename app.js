@@ -46,8 +46,18 @@ function ageText(birth) { const m = ageMonths(birth); if (m == null) return null
 function loadCountAge() { try { const v = JSON.parse(localStorage.getItem('mrahi_count_age')); return (v && typeof v === 'object') ? v : {}; } catch (e) { return {}; } }
 function saveCountAge(o) { try { localStorage.setItem('mrahi_count_age', JSON.stringify(o || {})); } catch (e) {} }
 // قاعدة الاحتساب لكل نوع: { age: أشهر, sex: 'both'|'male'|'female' } (تدعم القيمة القديمة كرقم)
-function countRuleFor(type) { const v = loadCountAge()[type]; if (v == null) return { age: 0, sex: 'both' }; if (typeof v === 'number') { return { age: v > 0 ? v : 0, sex: 'both' }; } const age = parseInt(v.age, 10); return { age: age > 0 ? age : 0, sex: (v.sex === 'male' || v.sex === 'female') ? v.sex : 'both' }; }
-function inHerdCount(a) { if (!a || a.status !== 'present') return false; const c = countRuleFor(a.type); if (!c.age) return true; if (c.sex !== 'both' && a.sex !== c.sex) return true; if (!a.birth) return true; return ageMonths(a.birth) >= c.age; }
+function countRuleFor(type) { const v = loadCountAge()[type]; if (v == null) return { mode: 'age', age: 0, sex: 'both' }; if (typeof v === 'number') { return { mode: 'age', age: v > 0 ? v : 0, sex: 'both' }; } const age = parseInt(v.age, 10); return { mode: v.mode === 'manual' ? 'manual' : 'age', age: age > 0 ? age : 0, sex: (v.sex === 'male' || v.sex === 'female') ? v.sex : 'both' }; }
+function inHerdCount(a) {
+  if (!a || a.status !== 'present') return false;
+  if (a.counted === true) return true;    // أُضيفت يدوياً للعدّ
+  if (a.counted === false) return false;   // أُخرجت يدوياً من العدّ
+  const c = countRuleFor(a.type);
+  if (c.sex !== 'both' && a.sex !== c.sex) return true;   // القاعدة لا تنطبق على هذا الجنس
+  if (c.mode === 'manual') return a.source !== 'born';     // المواليد تُضاف يدوياً؛ المشترى/الاهداء يُحتسب
+  if (!c.age) return true;
+  if (!a.birth) return true;
+  return ageMonths(a.birth) >= c.age;
+}
 // أطول مدة تحريم لنوع التطعيم (الحليب أو اللحم، مع توافق عمود withdrawal_days القديم)
 const vtWithdrawDays = (t) => Math.max(t.milk_withdrawal_days || 0, t.meat_withdrawal_days || 0, t.withdrawal_days || 0);
 const fmtDate = (d) => d ? String(d).slice(0, 10).replace(/-/g, '/') : '—';
@@ -1088,6 +1098,7 @@ function screenAnimalDetail(arg) {
       ${a.birth ? `<span class="badge">🎂 ${ageText(a.birth)}</span>` : ''}
       <span class="badge">${esc(sexTerm(a))}</span>
       ${offCount ? `<span class="badge">👶 ${offCount} مولود</span>` : ''}
+      ${a.status === 'present' && !inHerdCount(a) ? `<span class="badge">👶 تتبع أمّها (غير محتسَبة)</span>` : ''}
       ${monPreg ? `<span class="badge">🤰 حامل • ولادة ${fmtDate(monPreg.expected)}</span>` : ''}
       ${withItems.length ? `<span class="badge off">⛔ تحت التحريم حتى ${fmtDate(withItems[0].withdrawal_end)}</span>` : ''}
       ${a.status !== 'present' ? `<span class="badge ${a.status === 'sold' ? 'sold' : a.status === 'dead' ? 'dead' : ''}">${arOf(STATUS, a.status)}</span>` : ''}
@@ -1115,7 +1126,7 @@ function screenAnimalDetail(arg) {
       ${a.status === 'dead' ? row('تاريخ النفوق', fmtDate(a.dead_date)) : ''}
       ${a.status === 'given' ? row('تاريخ الإهداء', fmtDate(a.gift_date)) + (a.gift_to ? row('أُهديت إلى', esc(a.gift_to)) : '') : ''}
       ${can('animals', 'edit') ? `<div class="btn-row" style="margin-top:8px">${a.status === 'present'
-        ? `<button class="btn sm" id="qSell">💰 تسجيل بيع</button><button class="btn sm danger" id="qDead">📉 تسجيل نفوق</button><button class="btn sm" id="qGift">🎁 تسجيل إهداء</button>`
+        ? `<button class="btn sm" id="qSell">💰 تسجيل بيع</button><button class="btn sm danger" id="qDead">📉 تسجيل نفوق</button><button class="btn sm" id="qGift">🎁 تسجيل إهداء</button>${!inHerdCount(a) ? `<button class="btn sm outline" id="qCount">➕ احتسابها في الحظيرة</button>` : (a.counted === true ? `<button class="btn sm outline" id="qUncount">➖ إخراجها من العدّ</button>` : '')}`
         : `<button class="btn sm outline" id="qBack">↩ إعادة للحظيرة</button>`}</div>` : ''}</div>
     <div class="card"><h3>النسب</h3>
       ${row('الأم', mother ? display(mother) : '—')}
@@ -1141,6 +1152,8 @@ function screenAnimalDetail(arg) {
   const qs = document.getElementById('qSell'); if (qs) qs.addEventListener('click', () => quickSell(a));
   const qd = document.getElementById('qDead'); if (qd) qd.addEventListener('click', () => quickDead(a));
   const qg = document.getElementById('qGift'); if (qg) qg.addEventListener('click', () => quickGift(a));
+  const qc = document.getElementById('qCount'); if (qc) qc.addEventListener('click', async () => { const ok = await guard(async () => { await dbUpdate('animals', a.id, { counted: true }); }); if (ok) { toast('أُضيفت لعدد الحظيرة'); await loadAll(); screenAnimalDetail(String(a.id)); } });
+  const qu = document.getElementById('qUncount'); if (qu) qu.addEventListener('click', async () => { const ok = await guard(async () => { await dbUpdate('animals', a.id, { counted: false }); }); if (ok) { toast('أُخرجت من عدد الحظيرة'); await loadAll(); screenAnimalDetail(String(a.id)); } });
   const qb = document.getElementById('qBack'); if (qb) qb.addEventListener('click', () => quickRevert(a));
   const ao = document.getElementById('addOffspring'); if (ao) ao.addEventListener('click', () => addOffspringModal(a));
   const am = document.getElementById('addMating'); if (am) am.addEventListener('click', () => setHash('#/mating/' + id));
@@ -2786,13 +2799,16 @@ function screenHerdSettings() {
 function screenCountAge() {
   if (!can('animals', 'edit')) { view().innerHTML = noPerm(); return; }
   const SEXSCOPE = [{ k: 'both', ar: 'كلاهما' }, { k: 'female', ar: 'الإناث' }, { k: 'male', ar: 'الذكور' }];
+  const MODES = [{ k: 'age', ar: 'يظهر مع المجموع عند عمر معيّن' }, { k: 'manual', ar: 'لا يظهر — يُضاف يدوياً' }];
   view().innerHTML = `
-    <div class="muted" style="margin-bottom:8px">لكل نوع: العمر (بالأشهر) الذي يُضاف عنده المولود لعدد الحظيرة، ولأي جنس تنطبق القاعدة. أصغر من العمر «يتبع أمّه» ولا يُحتسب في «في الحظيرة» (لكنه يبقى ظاهراً في القائمة). صفر = يُحتسب الجميع.</div>
-    ${TYPES.map(t => { const r = countRuleFor(t.k); return `<div class="card"><h3>${esc(t.ar)}</h3>${fInput('العمر (أشهر) — صفر = الجميع', 'ca_' + t.k, r.age || '', 'number', 'min="0" inputmode="numeric"')}${fSelect('تنطبق على', 'cas_' + t.k, SEXSCOPE, r.sex)}</div>`; }).join('')}
+    <div class="muted" style="margin-bottom:8px">لكل نوع: متى يُحتسب المولود ضمن «في الحظيرة». <b>عند عمر</b>: يُضاف تلقائياً عند بلوغه العمر. <b>يدوي</b>: لا يُحتسب حتى تضيفه بنفسك من سجل البهيمة. أصغر من ذلك «يتبع أمّه» ويبقى ظاهراً في القائمة. المشترى/الاهداء يُحتسب دائماً.</div>
+    ${TYPES.map(t => { const r = countRuleFor(t.k); return `<div class="card"><h3>${esc(t.ar)}</h3>${fSelect('طريقة الاحتساب', 'cm_' + t.k, MODES, r.mode)}<div id="cab_${t.k}">${fInput('العمر (أشهر) — صفر = يُحتسب الجميع', 'ca_' + t.k, r.age || '', 'number', 'min="0" inputmode="numeric"')}</div>${fSelect('تنطبق على', 'cas_' + t.k, SEXSCOPE, r.sex)}</div>`; }).join('')}
     <button class="btn" id="ca_save">حفظ</button>`;
+  // حقل العمر يظهر فقط في وضع «عند عمر»
+  TYPES.forEach(t => { const sel = document.getElementById('cm_' + t.k); const box = document.getElementById('cab_' + t.k); if (!sel) return; const sync = () => { if (box) box.style.display = sel.value === 'age' ? '' : 'none'; }; sel.addEventListener('change', sync); sync(); });
   document.getElementById('ca_save').addEventListener('click', () => {
     const o = {};
-    TYPES.forEach(t => { const n = parseInt(val('ca_' + t.k), 10); if (n > 0) o[t.k] = { age: n, sex: val('cas_' + t.k) || 'both' }; });
+    TYPES.forEach(t => { const mode = val('cm_' + t.k) === 'manual' ? 'manual' : 'age'; const n = parseInt(val('ca_' + t.k), 10) || 0; const sex = val('cas_' + t.k) || 'both'; if (mode === 'manual') o[t.k] = { mode: 'manual', age: 0, sex }; else if (n > 0) o[t.k] = { mode: 'age', age: n, sex }; });
     saveCountAge(o); toast('تم الحفظ'); goBack();
   });
 }
