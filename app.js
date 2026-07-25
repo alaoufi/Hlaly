@@ -2000,6 +2000,7 @@ function screenMore() {
     ].filter(Boolean) },
     { key: 'app', title: '📱 التطبيق', items: [
       I(window.MRAH_APK, '🔄 تحقق من وجود تحديث', '__checkupdate'),
+      I(true, '📧 ملاحظات ومقترحات', '__feedback'),
     ].filter(Boolean) },
   ].filter(c => c.items.length);
 
@@ -2029,6 +2030,7 @@ function screenMore() {
     const h = c.dataset.go;
     if (h === '__switch') return switchBackend();
     if (h === '__checkupdate') return (typeof window.mrahiCheckUpdate === 'function') ? window.mrahiCheckUpdate() : toast('التحديث متاح في تطبيق الجوال');
+    if (h === '__feedback') { const v = window.MRAH_VERSION || ''; const subj = encodeURIComponent('ملاحظات حلالي' + (v ? ' — نسخة ' + v : '')); const body = encodeURIComponent('اكتب ملاحظتك أو اقتراحك هنا:\n\n\n——————\nنسخة التطبيق: ' + v); location.href = 'mailto:alaoufi@gmail.com?subject=' + subj + '&body=' + body; return; }
     if (h === '__deactivate') return (async () => { if (await confirm2('إلغاء تفعيل هذا الجهاز؟ سيُعاد قفل التطبيق حتى تُدخل رمزاً جديداً. (بياناتك لا تُحذف)')) { window.MrahiLicense.deactivate(); location.reload(); } })();
     setHash(h);
   }));
