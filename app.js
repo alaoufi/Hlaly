@@ -55,7 +55,7 @@ function inHerdCount(a) {
   if (c.sex !== 'both' && a.sex !== c.sex) return true;   // القاعدة لا تنطبق على هذا الجنس
   if (c.mode === 'manual') return a.source !== 'born';     // المواليد تُضاف يدوياً؛ المشترى/الاهداء يُحتسب
   if (!c.age) return true;
-  if (!a.birth) return true;
+  if (!a.birth) return a.source !== 'born';   // مولود بلا تاريخ ميلاد = حديث الولادة، يتبع أمّه ولا يُحتسب حتى يبلغ عمر الاحتساب
   return ageMonths(a.birth) >= c.age;
 }
 // أطول مدة تحريم لنوع التطعيم (الحليب أو اللحم، مع توافق عمود withdrawal_days القديم)
@@ -1001,18 +1001,42 @@ function screenAnimalEdit(arg) {
     identityFields.forEach(fid => { const w = fieldWrap(fid); if (w) w.style.display = multi ? 'none' : ''; });
     const pb = document.getElementById('purposeBox'); if (pb) pb.style.display = multi ? 'none' : (val('f_sex') === 'male' ? '' : 'none');
     if (!multi) { syncKind(); box.innerHTML = ''; return; }
+    // كامل حقول الإضافة مستقلّة لكل مولود (نفس عدد المواليد المُدخل)
     const defSex = val('f_sex') || 'female';
+    const defBirth = val('f_birth') || todayStr();   // تاريخ ميلاد افتراضي لكل مولود (لتطبيق عمر الاحتساب)
     let html = '';
     for (let i = 1; i <= n; i++) {
       html += `<div class="card"><h3>👶 المولود ${i}</h3>`
+        + fSelect('نوع المعرّف الخارجي', 'b_kind_' + i, IDKIND, 'number')
+        + fInput('المعرّف الخارجي / الوسم (اختياري)', 'b_code_' + i, '')
+        + fSelect('لون الوسم', 'b_tagcolor_' + i, strOpts(tagColors()), '')
+        + fSelect('شكل الوسم', 'b_tagshape_' + i, strOpts(tagShapes()), '')
+        + fInput('الاسم / المسمى (اختياري)', 'b_name_' + i, '')
         + fSelect('الجنس', 'b_sex_' + i, SEX, defSex)
+        + `<div id="b_purposeBox_${i}">${fSelect('غرض الذكر', 'b_purpose_' + i, MALE_PURPOSE, '', '— غير محدّد —')}</div>`
         + fSelect('الغرض', 'b_des_' + i, DESIGN, '', '— غير محدّد —')
-        + fInput('المعرّف / الوسم (اختياري)', 'b_code_' + i, '')
-        + fInput('الاسم (اختياري)', 'b_name_' + i, '')
+        + fInput('تاريخ الميلاد', 'b_birth_' + i, defBirth, 'date')
         + fInput('اللون (اختياري)', 'b_color_' + i, '')
         + `</div>`;
     }
     box.innerHTML = html;
+    // ربط منطق نوع المعرّف وغرض الذكر لكل مولود على حدة (نفس منطق الحقول المشتركة)
+    for (let i = 1; i <= n; i++) {
+      const wrapOf = (fid) => { const el = document.getElementById(fid); return el ? el.closest('.field') : null; };
+      const syncBKind = () => {
+        const k = val('b_kind_' + i);
+        const setW = (fid, show) => { const w = wrapOf(fid); if (w) w.style.display = show ? '' : 'none'; };
+        const showCode = ['number', 'tag', 'chip', 'name'].includes(k);
+        setW('b_code_' + i, showCode);
+        setW('b_tagcolor_' + i, ['tag', 'color'].includes(k));
+        setW('b_tagshape_' + i, k === 'tag');
+        if (showCode && KIND_LABEL[k]) { const el = document.getElementById('b_code_' + i); const L = el && el.closest('.field').querySelector('label'); if (L) L.textContent = KIND_LABEL[k] + ' (اختياري — قد يتغيّر أو يسقط)'; }
+      };
+      const syncBPurpose = () => { const pb = document.getElementById('b_purposeBox_' + i); if (pb) pb.style.display = val('b_sex_' + i) === 'male' ? '' : 'none'; };
+      const ks = document.getElementById('b_kind_' + i); if (ks) ks.addEventListener('change', syncBKind);
+      const ss = document.getElementById('b_sex_' + i); if (ss) ss.addEventListener('change', syncBPurpose);
+      syncBKind(); syncBPurpose();
+    }
   };
   const syncSource = () => { const s = val('f_source'); const bb = document.getElementById('bcountBox'); if (bb) bb.style.display = s === 'born' ? '' : 'none'; const yb = document.getElementById('buypriceBox'); if (yb) yb.style.display = s === 'purchased' ? '' : 'none'; renderBornRows(); };
   document.getElementById('f_source').addEventListener('change', syncSource);
@@ -1047,15 +1071,24 @@ function screenAnimalEdit(arg) {
       let n = obj.source === 'born' ? (parseInt(val('f_bcount'), 10) || 1) : 1;   // عدد المواليد
       if (n < 1) n = 1;
       if (obj.source === 'born' && n > 1) {
-        // لكل مولود حقوله المستقلّة (جنس/غرض/رقم/اسم/لون) — الحقول المشتركة من الأعلى
+        // لكل مولود كامل حقوله المستقلّة — الحقول المشتركة (النوع/الحظيرة/المصدر/النسب) من الأعلى
         for (let i = 1; i <= n; i++) {
           const o = Object.assign({}, obj);
-          o.idkind = 'number'; o.tag_color = ''; o.tag_shape = ''; o.buy_price = null; o.purpose = '';
+          o.buy_price = null;
+          o.idkind = val('b_kind_' + i) || 'number';
           o.sex = val('b_sex_' + i) || 'female';
+          o.purpose = o.sex === 'male' ? val('b_purpose_' + i) : '';
           o.designation = val('b_des_' + i);
           o.code = val('b_code_' + i).trim();
           o.name = val('b_name_' + i).trim();
+          o.tag_color = val('b_tagcolor_' + i);
+          o.tag_shape = val('b_tagshape_' + i);
+          o.birth = val('b_birth_' + i) || null;
           o.color = val('b_color_' + i).trim();
+          // نظّف الحقول غير المناسبة لنوع المعرّف («بدون» لا يحفظ رقماً/وسماً)
+          if (!['number', 'tag', 'chip', 'name'].includes(o.idkind)) o.code = '';
+          if (!['tag', 'color'].includes(o.idkind)) o.tag_color = '';
+          if (o.idkind !== 'tag') o.tag_shape = '';
           await dbInsert('animals', o);
         }
         return;
