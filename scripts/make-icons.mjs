@@ -37,7 +37,7 @@ await transparent(1024, 'assets/icon-foreground.png');
 await splash(2732, 'assets/splash.png');
 await splash(2732, 'assets/splash-dark.png');
 
-// أيقونات الويب (PWA) — الصورة الكاملة (180 بحواف دائرية لأبل)
+// أيقونات التطبيق — الصورة الكاملة (180 بحواف دائرية)
 await photoIcon(512, false, 'icon-512.png');
 await photoIcon(192, false, 'icon-192.png');
 await photoIcon(512, true, 'icon-180.png');

@@ -4,26 +4,10 @@
 مع تطعيمات وعلاجات وتنبيهات. يعمل **بدون إنترنت** (وضع محلي عبر IndexedDB)، مع دعم
 **الوضع المشترك** عبر **Supabase** (سحابي، متعدّد المستخدمين بصلاحيات).
 
-> **تطبيق APK فقط** — لم تعد هناك نسخة ويب (PWA/Vercel). الواجهة تُغلَّف عبر Capacitor
-> في تطبيق أندرويد يُبنى بواسطة `npm run build:www` ثم Capacitor.
+> **تطبيق أندرويد (APK) فقط.** الواجهة تُغلَّف عبر Capacitor وتُبنى بواسطة
+> `npm run build:www` ثم Capacitor.
 
 > **مستقل تماماً.** كل ملفاته (التطبيق + قاعدة البيانات SQL) داخل هذا المجلد ولا يعتمد على أي شيء خارجه.
-
-## إنشاء مستودع GitHub خاص ودفعه (مرة واحدة)
-انسخ هذا المجلد إلى مكان مستقل وادفعه كمستودع جديد:
-```bash
-# 1) انسخ مجلد mrah-web خارج alaoufi.me ثم ادخله
-cp -r mrah-web ~/mrah && cd ~/mrah
-
-# 2) أنشئ المستودع وادفعه (يتطلب gh مُسجّل الدخول)
-git init -b main
-git add -A
-git commit -m "مراح — تطبيق ويب مستقل"
-gh repo create mrah --private --source=. --push
-# أو يدوياً: أنشئ مستودعاً فارغاً على GitHub ثم:
-#   git remote add origin https://github.com/<USER>/mrah.git
-#   git push -u origin main
-```
 
 ## بناء تطبيق أندرويد (APK)
 ```bash
@@ -69,7 +53,7 @@ HTML + CSS + JavaScript صِرف (بلا أطر عمل) مُغلَّف عبر **
 
 ## الملفات
 ```
-mrah-web/
+marahi/
 ├── index.local.html      مدخل تطبيق APK (يُغلَّف عبر Capacitor)
 ├── app.css               التنسيقات
 ├── app.js                كل المنطق
