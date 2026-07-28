@@ -1,4 +1,4 @@
-/* حلالي — تطبيق أندرويد متعدد المستخدمين (Supabase) — مزرعة واحدة مشتركة + صلاحيات تفصيلية */
+/* حلالي — تطبيق أندرويد محلّي بالكامل — قاعدة بيانات على الجهاز (IndexedDB)، بلا إنترنت ولا خادم */
 'use strict';
 
 /* ===== مسميات ===== */
@@ -164,7 +164,7 @@ async function openScanner(onCode) {
 }
 
 /* ===== الحالة العامة ===== */
-let sb = null;        // عميل Supabase
+let sb = null;        // عميل قاعدة البيانات المحلية (IndexedDB) — واجهة موحّدة from/rpc
 let me = null;        // صف العضو الحالي (الصلاحيات)
 let signupOpen = true; // هل التسجيل (حساب جديد) مفتوح؟ يتحكّم به المدير
 let forumEnabled = true;        // المنتدى مُفعّل؟ (يخفيه المدير كاملاً عند التعطيل)
@@ -662,6 +662,8 @@ function parseHash() { const raw = (location.hash || '#/home').replace(/^#\//, '
 function render() {
   if (!me || !me.is_active) { renderPending(); return; }
   const { name, arg } = parseHash();
+  // شاشات سحابية بحتة (مشاركة/مستخدمون/منتدى) لا معنى لها في التطبيق المحلي — تُحوَّل للرئيسية
+  if (window.MRAH_LOCAL && (name === 'members' || name === 'shares' || name.indexOf('forum') === 0)) { location.hash = '#/home'; return; }
   const r = ROUTES[name] || ROUTES.home;
   document.getElementById('screenTitle').textContent = r.t;
   document.getElementById('backBtn').classList.toggle('hidden', !r.back);
@@ -2048,7 +2050,7 @@ function screenMore() {
   if (window.MRAH_APK && window.MrahiLicense) { const s = window.MrahiLicense.state(); if (s.state === 'active') licLine = `<div>🔐 الترخيص: ${s.permanent ? 'دائم' : 'متبقّ ' + s.daysLeft + ' يوم'}</div>`; }
   const footer = `<div class="muted" style="text-align:center;margin-top:18px;font-size:.85rem">
     <div style="font-weight:700;color:var(--green)">✨ التسهيل · الحفظ · التخطيط</div>
-    ${window.MRAH_LOCAL ? 'حلالي — تطبيق محلّي • بياناتك على جهازك' : 'حلالي — مزرعة مشتركة'}${ver}${licLine}</div>`;
+    حلالي — تطبيق محلّي • بياناتك على جهازك${ver}${licLine}</div>`;
 
   view().innerHTML = topUpdate + cats.map(c => {
     const open = moreOpen.has(c.key);
@@ -2061,7 +2063,6 @@ function screenMore() {
   view().querySelectorAll('[data-cat]').forEach(h => h.addEventListener('click', () => { const k = h.dataset.cat; moreOpen.has(k) ? moreOpen.delete(k) : moreOpen.add(k); screenMore(); }));
   view().querySelectorAll('[data-go]').forEach(c => c.addEventListener('click', () => {
     const h = c.dataset.go;
-    if (h === '__switch') return switchBackend();
     if (h === '__checkupdate') return (typeof window.mrahiCheckUpdate === 'function') ? window.mrahiCheckUpdate() : toast('التحديث متاح في تطبيق الجوال');
     if (h === '__feedback') { const v = window.MRAH_VERSION || ''; const subj = encodeURIComponent('ملاحظات حلالي' + (v ? ' — نسخة ' + v : '')); const body = encodeURIComponent('اكتب ملاحظتك أو اقتراحك هنا:\n\n\n——————\nنسخة التطبيق: ' + v); location.href = 'mailto:alaoufi@gmail.com?subject=' + subj + '&body=' + body; return; }
     if (h === '__deactivate') return (async () => { if (await confirm2('إلغاء تفعيل هذا الجهاز؟ سيُعاد قفل التطبيق حتى تُدخل رمزاً جديداً. (بياناتك لا تُحذف)')) { window.MrahiLicense.deactivate(); location.reload(); } })();
@@ -3651,179 +3652,6 @@ function pinField(label, id) {
   </div>`;
 }
 
-function renderAuth() {
-  document.getElementById('app').classList.add('hidden');
-  const box = document.getElementById('auth'); box.classList.remove('hidden');
-  let mode = 'signin';
-  let acctType = 'owner';   // نوع الحساب عند التسجيل: صاحب حلال / زائر
-  function draw() {
-    const typeSel = `
-      <div class="acct-type">
-        <button type="button" id="ty_owner" class="${acctType === 'owner' ? 'active' : ''}">🐑 صاحب حلال</button>
-        <button type="button" id="ty_visitor" class="${acctType === 'visitor' ? 'active' : ''}">👤 زائر</button>
-      </div>
-      <div class="muted acct-hint">${acctType === 'owner'
-        ? 'تدير حلالك الخاص (بهائمك، تلقيحك، تطعيماتك…) بخصوصية تامة. يُفعّل حسابك بعد موافقة المدير.'
-        : 'تتصفّح وتشارك في المنتدى والنصائح. الدخول فوري بلا انتظار، دون إدارة حلال.'}</div>`;
-    box.innerHTML = `<div class="auth-box">
-      <div class="logo">🐪</div><h2>حلالي</h2><div class="sub">إدارة الحلال — دخول الفريق</div>
-      <div class="auth-tabs"><button id="t_in" class="${mode === 'signin' ? 'active' : ''}">دخول</button>${signupOpen ? `<button id="t_up" class="${mode === 'signup' ? 'active' : ''}">حساب جديد</button>` : ''}</div>
-      ${signupOpen ? '' : '<div class="muted" style="text-align:center;font-size:.85rem;margin:-4px 0 8px">التسجيل مغلق حالياً. راجع مدير النظام.</div>'}
-      ${mode === 'signup'
-        ? typeSel +
-          fInput('الاسم', 'a_name', '') +
-          fInput('رقم الجوال', 'a_phone', '', 'tel', 'inputmode="tel"') +
-          fInput('اسم المستخدم (اختياري)', 'a_user', '', 'text', 'autocomplete="off"') +
-          pinField('الرقم السري (٤ أرقام)', 'a_pin')
-        : fInput('الجوال أو اسم المستخدم', 'a_id', '') +
-          pinField('الرقم السري (٤ أرقام)', 'a_pin')}
-      <button class="btn" id="a_submit">${mode === 'signin' ? 'تسجيل الدخول' : 'إنشاء حساب'}</button>
-      <div class="auth-msg" id="a_msg"></div></div>`;
-    document.getElementById('t_in').addEventListener('click', () => { mode = 'signin'; draw(); });
-    { const up = document.getElementById('t_up'); if (up) up.addEventListener('click', () => { mode = 'signup'; draw(); }); }
-    { const o = document.getElementById('ty_owner'); if (o) o.addEventListener('click', () => { acctType = 'owner'; draw(); }); }
-    { const z = document.getElementById('ty_visitor'); if (z) z.addEventListener('click', () => { acctType = 'visitor'; draw(); }); }
-    if (!signupOpen && mode === 'signup') { mode = 'signin'; }
-    document.getElementById('a_submit').addEventListener('click', submit);
-    box.querySelectorAll('.eye').forEach(b => b.addEventListener('click', () => {
-      const inp = document.getElementById(b.dataset.eye);
-      const show = inp.type === 'password';
-      inp.type = show ? 'text' : 'password';
-      b.textContent = show ? '🙈' : '👁';
-    }));
-    box.querySelectorAll('input').forEach(inp => inp.addEventListener('keydown', e => { if (e.key === 'Enter') submit(); }));
-  }
-  async function submit() {
-    const msg = document.getElementById('a_msg'); msg.className = 'auth-msg';
-    const pin = val('a_pin').trim();
-    if (!PIN_RE.test(pin)) { msg.classList.add('err'); msg.textContent = 'الرقم السري يجب أن يكون ٤ أرقام'; return; }
-    msg.textContent = '… لحظة';
-    try {
-      if (mode === 'signin') {
-        const ident = val('a_id').trim();
-        if (!ident) { msg.classList.add('err'); msg.textContent = 'أدخل الجوال أو اسم المستخدم'; return; }
-        // المُعرّف قد يكون جوالاً أو اسم مستخدم → حوّله إلى البريد الداخلي
-        const digits = normPhone(ident);
-        const { data: email } = await sb.rpc('mrahi_resolve_login', { ident: digits || ident });
-        const loginEmail = email || (digits ? phoneToEmail(digits) : null);
-        if (!loginEmail) { msg.classList.add('err'); msg.textContent = 'بيانات الدخول غير صحيحة'; return; }
-        const { error } = await sb.auth.signInWithPassword({ email: loginEmail, password: pinToPass(pin) });
-        if (error) throw error;
-      } else {
-        const full_name = val('a_name').trim();
-        const phone = normPhone(val('a_phone'));
-        const username = val('a_user').trim();
-        if (!full_name) { msg.classList.add('err'); msg.textContent = 'أدخل الاسم'; return; }
-        if (phone.length < 7) { msg.classList.add('err'); msg.textContent = 'أدخل رقم جوال صحيح'; return; }
-        const { data, error } = await sb.auth.signUp({
-          email: phoneToEmail(phone), password: pinToPass(pin),
-          options: { data: { full_name, username, phone, app: 'mrahi', account_type: acctType } },
-        });
-        if (error) throw error;
-        // الزائر: دخول فوري. صاحب الحلال: بانتظار موافقة المدير.
-        if (!data.session) {
-          msg.classList.add('ok');
-          msg.textContent = acctType === 'visitor'
-            ? 'تم إنشاء حساب الزائر. سجّل الدخول للمشاركة في المنتدى.'
-            : 'تم إنشاء حسابك كصاحب حلال. ينتظر موافقة المدير، ثم سجّل الدخول.';
-          mode = 'signin'; return;
-        }
-      }
-    } catch (e) {
-      msg.classList.add('err'); msg.textContent = translateAuthError(e.message);
-    }
-  }
-  draw();
-}
-function translateAuthError(m) {
-  if (/Invalid login/i.test(m)) return 'بيانات الدخول غير صحيحة';
-  if (/already registered/i.test(m)) return 'رقم الجوال مسجّل مسبقاً';
-  if (/duplicate key|unique constraint/i.test(m)) return 'الجوال أو اسم المستخدم مستخدم مسبقاً';
-  if (/Database error saving/i.test(m)) return 'الجوال أو اسم المستخدم مستخدم مسبقاً';
-  if (/Password should be at least/i.test(m)) return 'الرقم السري قصير';
-  if (/Email not confirmed/i.test(m)) return 'أوقِف «تأكيد البريد» في إعدادات Supabase';
-  return m;
-}
-
-async function enterApp(session) {
-  document.getElementById('auth').classList.add('hidden');
-  document.getElementById('app').classList.remove('hidden');
-  showLoading(true);
-  // تحميل صف العضو الحالي
-  const { data: mem } = await sb.from('mrahi_members').select('*').eq('user_id', session.user.id).maybeSingle();
-  me = mem || { user_id: session.user.id, full_name: '', role: 'member', is_active: false, perms: {}, is_sysadmin: false, account_type: 'owner' };
-  buildNav();   // بعد تحميل الصلاحيات حتى يظهر تبويب المنتدى حسبها
-  if (!me.is_active) { showLoading(false); renderPending(); return; }
-  try { await loadAll(); } catch (e) { toast('خطأ تحميل: ' + e.message); }
-  // احتساب زيارة الموقع مرة واحدة لكل تحميل صفحة (لا يتكرر مع تجديد الجلسة)
-  if (!siteVisitCounted) {
-    siteVisitCounted = true;
-    try { const { data } = await sb.rpc('mrahi_site_visit'); if (typeof data === 'number') siteVisits = data; } catch (e) { /* تجاهل */ }
-  }
-  buildNav();   // إعادة البناء بعد تحميل إعدادات المنتدى (التفعيل/التعطيل)
-  showLoading(false);
-  if (!location.hash) location.hash = '#/home';
-  render();
-}
-
-/* ===== التهيئة ===== */
-function configMissing() {
-  const c = window.MRAH_CONFIG || {};
-  return !c.SUPABASE_URL || c.SUPABASE_URL.includes('YOUR_PROJECT') || !c.SUPABASE_ANON_KEY || c.SUPABASE_ANON_KEY.includes('YOUR_');
-}
-function showSetup() {
-  showLoading(false);
-  document.getElementById('app').classList.add('hidden');
-  const box = document.getElementById('auth'); box.classList.remove('hidden');
-  box.innerHTML = `<div class="auth-box"><div class="logo">⚙️</div><h2>إعداد مطلوب</h2>
-    <p class="sub">افتح ملف <b>config.js</b> وضع رابط مشروع Supabase والمفتاح العام (anon key)، ثم أعد التحميل.</p>
-    <p class="muted" style="font-size:.85rem">ونفّذ ملف <b>schema.sql</b> في Supabase → SQL Editor لإنشاء الجداول والصلاحيات.</p></div>`;
-}
-
-// ===== اختيار قاعدة البيانات (في تطبيق الأندرويد) =====
-// يحفظ الاختيار محلياً: 'local' (هذا الجهاز فقط) أو 'cloud' (Supabase مشترك + عنوانه ومفتاحه).
-const BK = {
-  get: () => { try { return localStorage.getItem('mrahi_backend'); } catch (e) { return null; } },
-  set: (v) => { try { localStorage.setItem('mrahi_backend', v); } catch (e) {} },
-  cloud: () => { try { return { url: localStorage.getItem('mrahi_cloud_url') || '', key: localStorage.getItem('mrahi_cloud_key') || '' }; } catch (e) { return { url: '', key: '' }; } },
-  saveCloud: (url, key) => { try { localStorage.setItem('mrahi_cloud_url', url); localStorage.setItem('mrahi_cloud_key', key); } catch (e) {} },
-  reset: () => { try { ['mrahi_backend', 'mrahi_cloud_url', 'mrahi_cloud_key'].forEach(k => localStorage.removeItem(k)); } catch (e) {} },
-};
-
-// شاشة الإعداد أول مرة: محلي أو مشترك
-function renderBackendChooser() {
-  showLoading(false);
-  document.getElementById('app').classList.add('hidden');
-  const box = document.getElementById('auth'); box.classList.remove('hidden');
-  box.innerHTML = `<div class="auth-box">
-    <div class="logo">🐪</div><h2>حلالي</h2><div class="sub">اختر مكان حفظ بياناتك</div>
-    <button class="btn" id="bk_local">📵 محلي على هذا الجهاز<br><span style="font-weight:400;font-size:.8rem;opacity:.85">يعمل بلا إنترنت • بياناتك على جوالك فقط • بلا تسجيل دخول</span></button>
-    <button class="btn outline" id="bk_cloud" style="margin-top:10px">☁️ مشترك (عدّة مستخدمين)<br><span style="font-weight:400;font-size:.8rem;opacity:.85">قاعدة Supabase واحدة • تسجيل دخول وصلاحيات • يحدّدها المدير</span></button>
-    <div id="bk_cloud_form" class="hidden" style="margin-top:14px;text-align:right">
-      <div class="muted" style="font-size:.82rem;margin-bottom:8px">أدخل بيانات مشروع Supabase (من المدير). تُحفظ على هذا الجهاز.</div>
-      ${fInput('عنوان المشروع (Project URL)', 'bk_url', '', 'url', 'placeholder="https://xxxx.supabase.co" inputmode="url" autocomplete="off"')}
-      ${fInput('المفتاح العام (anon key)', 'bk_key', '', 'text', 'placeholder="eyJ..." autocomplete="off"')}
-      <button class="btn" id="bk_connect">اتصال</button>
-      <div class="auth-msg" id="bk_msg"></div>
-    </div>
-  </div>`;
-  document.getElementById('bk_local').addEventListener('click', () => { BK.set('local'); startLocalMode(); });
-  document.getElementById('bk_cloud').addEventListener('click', () => {
-    document.getElementById('bk_cloud_form').classList.remove('hidden');
-    document.getElementById('bk_url').focus();
-  });
-  document.getElementById('bk_connect').addEventListener('click', () => {
-    const msg = document.getElementById('bk_msg'); msg.className = 'auth-msg';
-    const url = val('bk_url').trim().replace(/\/+$/, '');
-    const key = val('bk_key').trim();
-    if (!/^https:\/\/.+\.supabase\.co$/i.test(url)) { msg.classList.add('err'); msg.textContent = 'عنوان المشروع غير صحيح (مثال: https://xxxx.supabase.co)'; return; }
-    if (key.length < 20) { msg.classList.add('err'); msg.textContent = 'المفتاح العام غير صحيح'; return; }
-    BK.saveCloud(url, key); BK.set('cloud');
-    window.MRAH_CONFIG = { SUPABASE_URL: url, SUPABASE_ANON_KEY: key };
-    startCloudMode();
-  });
-}
-
 // الوضع المحلي: قاعدة بيانات محلية، مستخدم واحد، بلا تسجيل دخول
 async function startLocalMode() {
   window.MRAH_LOCAL = true;
@@ -3839,30 +3667,6 @@ async function startLocalMode() {
   showLoading(false);
   if (!location.hash) location.hash = '#/home';
   render();
-}
-
-// الوضع السحابي: Supabase + مصادقة الفريق (الويب، أو التطبيق المشترك)
-async function startCloudMode() {
-  window.MRAH_LOCAL = false;
-  sb = window.supabase.createClient(window.MRAH_CONFIG.SUPABASE_URL, window.MRAH_CONFIG.SUPABASE_ANON_KEY);
-  document.getElementById('signoutBtn').classList.remove('hidden');
-  document.getElementById('signoutBtn').addEventListener('click', async () => { await sb.auth.signOut(); });
-  sb.auth.onAuthStateChange((event, session) => {
-    if (session && session.user) { enterApp(session); }
-    else { me = null; renderAuth(); }
-  });
-  await loadSignupOpen();
-  const { data: { session } } = await sb.auth.getSession();
-  if (session && session.user) await enterApp(session); else { showLoading(false); renderAuth(); }
-}
-
-// تبديل وضع القاعدة لاحقاً (من شاشة «المزيد» في التطبيق)
-async function switchBackend() {
-  if (!await confirm2('تغيير وضع قاعدة البيانات؟ سيُعاد تشغيل التطبيق لتختار من جديد. (لن تُحذف بياناتك المحلية أو السحابية)')) return;
-  if (window.MRAH_LOCAL === false && sb && sb.auth) { try { await sb.auth.signOut(); } catch (e) {} }
-  BK.reset();
-  location.hash = '';
-  location.reload();
 }
 
 // ===== بوابة التفعيل (ترخيص مربوط بالجهاز) =====
@@ -3912,21 +3716,13 @@ async function init() {
   window.addEventListener('freeze', releaseMedia);   // WebView bfcache
   try { const P = window.Capacitor && window.Capacitor.Plugins; if (P && P.App && P.App.addListener) P.App.addListener('appStateChange', s => { if (s && s.isActive === false) releaseMedia(); }); } catch (e) {}
 
-  // تطبيق الأندرويد (APK): بوابة التفعيل أولاً (ترخيص مربوط بالجهاز)
-  if (window.MRAH_APK) {
-    if (window.MrahiLicense) { const s = window.MrahiLicense.state().state; if (s !== 'active' && s !== 'disabled') { renderLicenseGate(); return; } }
-    // محلي افتراضياً (الوضع المشترك مخفي) — يُحترم من اختار «مشترك» سابقاً فقط
-    const choice = BK.get();
-    if (choice === 'cloud') {
-      const c = BK.cloud();
-      if (c.url && c.key) { window.MRAH_CONFIG = { SUPABASE_URL: c.url, SUPABASE_ANON_KEY: c.key }; startCloudMode(); return; }
-    }
-    BK.set('local'); startLocalMode(); return;
+  // بوابة التفعيل أولاً (ترخيص مربوط بالجهاز) في تطبيق الأندرويد
+  if (window.MRAH_APK && window.MrahiLicense) {
+    const s = window.MrahiLicense.state().state;
+    if (s !== 'active' && s !== 'disabled') { renderLicenseGate(); return; }
   }
-
-  // الويب: Supabase عبر config.js
-  if (configMissing()) { showSetup(); return; }
-  startCloudMode();
+  // التطبيق محلي بالكامل — قاعدة بيانات على الجهاز (IndexedDB)، بلا إنترنت ولا خادم
+  startLocalMode();
 }
 
 init();
