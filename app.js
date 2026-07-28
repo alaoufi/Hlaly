@@ -1127,19 +1127,23 @@ function screenAnimalDetail(arg) {
   if (can('animals', 'edit')) addFab('✎ تعديل', () => setHash('#/animal-edit/' + id));
 }
 
-/* ===== إضافة نتاج (مواليد) للأم — إدخال جماعي بترقيم تلقائي وربط بالأم ===== */
+/* ===== إضافة نتاج (مواليد) للأم — عند العدد > 1 تُفتح حقول كاملة مستقلّة لكل مولود، وربط بالأم ===== */
 function addOffspringModal(mother) {
+  const KIND_LABEL = { number: 'الرقم', tag: 'الوسم', chip: 'رقم الشريحة', name: 'الاسم/المسمى' };
   openModal('مواليد ' + display(mother), `
     ${fSelect('الجنس', 'of_sex', SEX, 'female')}
     ${fInput('العدد', 'of_count', '', 'number', 'min="1" inputmode="numeric"')}
     ${fInput('تاريخ الميلاد', 'of_birth', todayStr(), 'date')}
     ${penField('of_pen', mother.pen || '', mother.type)}
-    <div class="chips"><span class="chip active" data-om="none">⭕ بدون ترقيم</span><span class="chip" data-om="num">🔢 بترقيم</span></div>
-    <div id="ofNone" class="muted" style="font-size:.82rem">تُضاف بلا رقم — رقّمها لاحقاً عند الكبر.</div>
-    <div id="ofNum" class="hidden">
-      ${fInput('بداية الترقيم', 'of_start', '', 'number', 'inputmode="numeric"')}
-      ${fInput('بادئة قبل الرقم (اختياري)', 'of_prefix', '')}
-      <div id="of_hint" class="muted" style="font-size:.82rem;margin-top:4px"></div></div>
+    <div id="ofSingle">
+      <div class="chips"><span class="chip active" data-om="none">⭕ بدون ترقيم</span><span class="chip" data-om="num">🔢 بترقيم</span></div>
+      <div id="ofNone" class="muted" style="font-size:.82rem">تُضاف بلا رقم — رقّمها لاحقاً عند الكبر.</div>
+      <div id="ofNum" class="hidden">
+        ${fInput('بداية الترقيم', 'of_start', '', 'number', 'inputmode="numeric"')}
+        ${fInput('بادئة قبل الرقم (اختياري)', 'of_prefix', '')}
+        <div id="of_hint" class="muted" style="font-size:.82rem;margin-top:4px"></div></div>
+    </div>
+    <div id="ofRows"></div>
     <button class="btn" id="of_save">➕ إضافة المواليد</button>`, () => {
     bindPenField('of_pen');
     let omode = 'none';   // الافتراضي بدون ترقيم — لا نفرض أرقاماً
@@ -1156,9 +1160,80 @@ function addOffspringModal(mother) {
       document.getElementById('ofNone').classList.toggle('hidden', omode !== 'none');
       if (omode === 'num') setHint();
     }));
+    // عند العدد > 1: تُفتح بطاقة كاملة مستقلّة لكل مولود (نفس منطق شاشة الإضافة)
+    const renderOfRows = () => {
+      const box = document.getElementById('ofRows'); if (!box) return;
+      const n = parseInt(val('of_count'), 10) || 0;
+      const multi = n > 1;
+      const single = document.getElementById('ofSingle'); if (single) single.style.display = multi ? 'none' : '';
+      if (!multi) { box.innerHTML = ''; return; }
+      const defSex = val('of_sex') || 'female';
+      const defBirth = val('of_birth') || todayStr();
+      let html = '';
+      for (let i = 1; i <= n; i++) {
+        html += `<div class="card"><h3>👶 المولود ${i}</h3>`
+          + fSelect('نوع المعرّف الخارجي', 'ob_kind_' + i, IDKIND, 'number')
+          + fInput('المعرّف الخارجي / الوسم (اختياري)', 'ob_code_' + i, '')
+          + fSelect('لون الوسم', 'ob_tagcolor_' + i, strOpts(tagColors()), '')
+          + fSelect('شكل الوسم', 'ob_tagshape_' + i, strOpts(tagShapes()), '')
+          + fInput('الاسم / المسمى (اختياري)', 'ob_name_' + i, '')
+          + fSelect('الجنس', 'ob_sex_' + i, SEX, defSex)
+          + `<div id="ob_purposeBox_${i}">${fSelect('غرض الذكر', 'ob_purpose_' + i, MALE_PURPOSE, '', '— غير محدّد —')}</div>`
+          + fSelect('الغرض', 'ob_des_' + i, DESIGN, '', '— غير محدّد —')
+          + fInput('تاريخ الميلاد', 'ob_birth_' + i, defBirth, 'date')
+          + fInput('اللون (اختياري)', 'ob_color_' + i, '')
+          + `</div>`;
+      }
+      box.innerHTML = html;
+      for (let i = 1; i <= n; i++) {
+        const wrapOf = (fid) => { const el = document.getElementById(fid); return el ? el.closest('.field') : null; };
+        const syncBKind = () => {
+          const k = val('ob_kind_' + i);
+          const setW = (fid, show) => { const w = wrapOf(fid); if (w) w.style.display = show ? '' : 'none'; };
+          const showCode = ['number', 'tag', 'chip', 'name'].includes(k);
+          setW('ob_code_' + i, showCode);
+          setW('ob_tagcolor_' + i, ['tag', 'color'].includes(k));
+          setW('ob_tagshape_' + i, k === 'tag');
+          if (showCode && KIND_LABEL[k]) { const el = document.getElementById('ob_code_' + i); const L = el && el.closest('.field').querySelector('label'); if (L) L.textContent = KIND_LABEL[k] + ' (اختياري — قد يتغيّر أو يسقط)'; }
+        };
+        const syncBPurpose = () => { const pb = document.getElementById('ob_purposeBox_' + i); if (pb) pb.style.display = val('ob_sex_' + i) === 'male' ? '' : 'none'; };
+        const ks = document.getElementById('ob_kind_' + i); if (ks) ks.addEventListener('change', syncBKind);
+        const ss = document.getElementById('ob_sex_' + i); if (ss) ss.addEventListener('change', syncBPurpose);
+        syncBKind(); syncBPurpose();
+      }
+    };
+    { const oc = document.getElementById('of_count'); if (oc) oc.addEventListener('input', renderOfRows); }
     document.getElementById('of_save').addEventListener('click', async () => {
-      let codes;
       const n = parseInt(val('of_count'), 10) || 0; if (n <= 0) { toast('أدخل عدد المواليد'); return; }
+      const pen = penValue('of_pen', mother.type);
+      const base = { type: mother.type, pen, source: 'born', status: 'present', mother_id: mother.id, father_name: '', notes: '' };
+      // العدد > 1: لكل مولود حقوله الكاملة المستقلّة
+      if (n > 1) {
+        if (!await confirm2(`إضافة ${n} مولوداً وربطها بـ${display(mother)}؟`)) return;
+        const ok = await guard(async () => {
+          for (let i = 1; i <= n; i++) {
+            const o = Object.assign({}, base);
+            o.idkind = val('ob_kind_' + i) || 'number';
+            o.sex = val('ob_sex_' + i) || 'female';
+            o.purpose = o.sex === 'male' ? val('ob_purpose_' + i) : '';
+            o.designation = val('ob_des_' + i);
+            o.code = val('ob_code_' + i).trim();
+            o.name = val('ob_name_' + i).trim();
+            o.tag_color = val('ob_tagcolor_' + i);
+            o.tag_shape = val('ob_tagshape_' + i);
+            o.birth = val('ob_birth_' + i) || null;
+            o.color = val('ob_color_' + i).trim();
+            if (!['number', 'tag', 'chip', 'name'].includes(o.idkind)) o.code = '';
+            if (!['tag', 'color'].includes(o.idkind)) o.tag_color = '';
+            if (o.idkind !== 'tag') o.tag_shape = '';
+            await dbInsert('animals', o);
+          }
+        });
+        if (ok) { closeModal(); lastPen = pen; try { localStorage.setItem('mrahi_last_pen', pen); } catch (e) {} toast(`أُضيف ${n} مولوداً`); await loadAll(); screenAnimalDetail(String(mother.id)); }
+        return;
+      }
+      // مولود واحد: الحقول المشتركة + خيار الترقيم
+      let codes;
       if (omode === 'num') {
         const startRaw = val('of_start').trim();
         if (startRaw === '') { toast('اكتب بداية الترقيم، أو اختر «بدون ترقيم»'); return; }
@@ -1170,9 +1245,8 @@ function addOffspringModal(mother) {
         codes = new Array(n).fill('');   // بدون ترقيم
       }
       if (!await confirm2(`إضافة ${codes.length} مولوداً وربطها بـ${display(mother)}؟`)) return;
-      const pen = penValue('of_pen', mother.type);
-      const base = { type: mother.type, pen, sex: val('of_sex'), source: 'born', status: 'present', color: '', birth: val('of_birth') || null, mother_id: mother.id, father_name: '', notes: '' };
-      const ok = await guard(async () => { for (const code of codes) await dbInsert('animals', { ...base, idkind: idkindFor(code), code, name: '' }); });
+      const single = Object.assign({}, base, { sex: val('of_sex'), color: '', birth: val('of_birth') || null });
+      const ok = await guard(async () => { for (const code of codes) await dbInsert('animals', { ...single, idkind: idkindFor(code), code, name: '' }); });
       if (ok) { closeModal(); lastPen = pen; try { localStorage.setItem('mrahi_last_pen', pen); } catch (e) {} toast(`أُضيف ${codes.length} مولوداً`); await loadAll(); screenAnimalDetail(String(mother.id)); }
     });
   });
