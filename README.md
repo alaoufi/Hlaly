@@ -1,8 +1,11 @@
-# مراح 🐪🐑🐐🐄 — تطبيق ويب مستقل
+# مراح 🐪🐑🐐🐄 — تطبيق أندرويد (APK)
 
-تطبيق ويب (PWA) لإدارة الحلال (إبل، غنم، ماعز، بقر) — متابعة فردية من الولادة حتى البيع،
-مع تطعيمات وعلاجات وتنبيهات. البيانات في **Supabase** (سحابية، متعدّدة المستخدمين بصلاحيات)،
-ويعمل **بدون إنترنت** بعد أول فتح عبر Service Worker.
+تطبيق أندرويد لإدارة الحلال (إبل، غنم، ماعز، بقر) — متابعة فردية من الولادة حتى البيع،
+مع تطعيمات وعلاجات وتنبيهات. يعمل **بدون إنترنت** (وضع محلي عبر IndexedDB)، مع دعم
+**الوضع المشترك** عبر **Supabase** (سحابي، متعدّد المستخدمين بصلاحيات).
+
+> **تطبيق APK فقط** — لم تعد هناك نسخة ويب (PWA/Vercel). الواجهة تُغلَّف عبر Capacitor
+> في تطبيق أندرويد يُبنى بواسطة `npm run build:www` ثم Capacitor.
 
 > **مستقل تماماً.** كل ملفاته (التطبيق + قاعدة البيانات SQL) داخل هذا المجلد ولا يعتمد على أي شيء خارجه.
 
@@ -22,13 +25,19 @@ gh repo create mrah --private --source=. --push
 #   git push -u origin main
 ```
 
-## النشر على Vercel (مشروع منفصل)
-1. في Vercel: **New Project** ثم اربطه بمستودع `mrah` الجديد (أو بنفس مستودع alaoufi.me).
-2. إن ربطته بـ alaoufi.me: **Root Directory** ← `mrah-web`. وإن ربطته بمستودع `mrah` المستقل فاتركه على الجذر.
-3. **Framework Preset** ← `Other` (موقع ثابت، بلا أمر بناء).
-4. Deploy. (إعداد no-cache مضبوط في `vercel.json`.)
+## بناء تطبيق أندرويد (APK)
+```bash
+# 1) جهّز مجلد www/ (يُولَّد من index.local.html — لا يُدفَع لـ git)
+APP_VERSION=1.0.0 npm run build:www
 
-## ربط Supabase (قاعدة بيانات خاصة، مرة واحدة)
+# 2) زامن Capacitor وابنِ الـ APK
+npx cap sync android
+cd android && ./gradlew assembleRelease   # أو استخدم GitHub Actions (android.yml)
+```
+> البناء آلي أيضاً عبر `.github/workflows/android.yml` الذي يُشغّل `npm run build:www`
+> ثم يُنتج APK موقّعاً بمفتاح ثابت (يُثبَّت فوق القديم مع حفظ البيانات).
+
+## ربط Supabase (اختياري — للوضع المشترك) (قاعدة بيانات خاصة، مرة واحدة)
 1. أنشئ مشروع Supabase جديداً، ثم من **SQL Editor** الصق وشغّل ملفاً واحداً:
    - **`sql/setup.sql`** ← يُنشئ كل الجداول والصلاحيات والدوال دفعة واحدة (آمن للتكرار).
    - (أو شغّل ملفات `sql/01_…` حتى `sql/05_…` بالترتيب إن فضّلت.)
@@ -41,15 +50,6 @@ gh repo create mrah --private --source=. --push
    };
    ```
    > مفتاح `anon` علني وآمن للوضع في الواجهة — الحماية عبر سياسات RLS.
-
-## التشغيل محلياً
-```bash
-cd mrah-web
-python3 -m http.server 8080
-# افتح http://localhost:8080
-```
-عبر `http(s)` يُسجَّل Service Worker فيعمل **أوفلاين** بعد أول زيارة، ويمكن **تثبيته**
-على الجوال («أضف إلى الشاشة الرئيسية»).
 
 ## المزايا
 - **سجل البهيمة:** النوع، رقم المراح، معرّف مرن (رقم/وسم/شريحة/اسم)، الجنس، الميلاد، اللون، الحالة، النسب، الملاحظات.
@@ -64,20 +64,23 @@ python3 -m http.server 8080
 - **عربي RTL** بالكامل، وواجهة جوال بشريط سفلي.
 
 ## التقنية
-HTML + CSS + JavaScript صِرف (بلا أطر عمل ولا خطوة بناء) + `@supabase/supabase-js` عبر CDN.
-العمل أوفلاين عبر Service Worker.
+HTML + CSS + JavaScript صِرف (بلا أطر عمل) مُغلَّف عبر **Capacitor** في تطبيق أندرويد.
+`@supabase/supabase-js` و `tweetnacl` مُضمّنان محلياً في الحزمة. الوضع المحلي عبر IndexedDB.
 
 ## الملفات
 ```
 mrah-web/
-├── index.html            هيكل الصفحة
+├── index.local.html      مدخل تطبيق APK (يُغلَّف عبر Capacitor)
 ├── app.css               التنسيقات
 ├── app.js                كل المنطق
-├── config.js             مفاتيح Supabase (عبّئها)
-├── manifest.webmanifest  إعداد PWA
-├── sw.js                 Service Worker (أوفلاين)
-├── vercel.json           إعداد النشر الثابت
+├── local-db.js           قاعدة البيانات المحلية (IndexedDB)
+├── updater.js            التحقق من تحديث APK
+├── license.js            ترخيص التفعيل (Ed25519)
+├── config.js             مفاتيح Supabase (للوضع المشترك)
 ├── icon.svg              الأيقونة
+├── capacitor.config.json إعداد Capacitor
+├── scripts/build-www.mjs بناء مجلد www/ للتغليف
+├── android/              مشروع أندرويد (Capacitor)
 └── sql/                  مخطط قاعدة البيانات
     ├── setup.sql         الإعداد الكامل (شغّله مرة واحدة)
     └── 01_…05_*.sql      الملفات منفصلة بالترتيب
