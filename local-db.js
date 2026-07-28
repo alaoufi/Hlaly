@@ -1,11 +1,9 @@
-/* حلالي — قاعدة بيانات محلية (IndexedDB) تحاكي واجهة Supabase المستخدمة في app.js
+/* حلالي — قاعدة بيانات محلية (IndexedDB) بواجهة موحّدة (from/rpc) يستخدمها app.js
    الهدف: تشغيل التطبيق بالكامل دون إنترنت ولا خادم، مع تخزين دائم على الجهاز.
-   عند وجود هذا الملف يعمل التطبيق في «الوضع المحلي» (window.MRAH_LOCAL = true)،
-   فيستبدل init() عميل Supabase بعميل محلي بنفس الواجهة (from/rpc/auth...). */
+   التطبيق محلي بالكامل: init() يستخدم هذا العميل دائماً (window.MRAH_LOCAL = true). */
 (function () {
   'use strict';
-  // ملاحظة: لا نفرض الوضع المحلي هنا — يقرّره app.js حسب اختيار المستخدم
-  // (محلي أو مشترك). هذا الملف يكتفي بإتاحة عميل محلي عبر createMrahLocalClient.
+  // يتيح هذا الملف عميلاً محلياً عبر createMrahLocalClient يستدعيه app.js عند الإقلاع.
 
   const DB_NAME = 'mrahi_local';
   const DB_VERSION = 4;   // 2: mrahi_expenses. 3: إصلاح ذاتي للمتاجر الناقصة. 4: متجر mrahi_med_stock (مخزون الأدوية)
@@ -83,7 +81,7 @@
     return true;
   });
 
-  // باني استعلام يحاكي Supabase: قابل للسَّلسلة و«قابل للانتظار» (thenable) عبر then().
+  // باني استعلام قابل للسَّلسلة و«قابل للانتظار» (thenable) عبر then().
   class Query {
     constructor(store) { this.store = store; this.filters = []; this._op = 'select'; this._payload = null; this._order = null; this._limit = null; this._single = null; this._onConflict = null; }
     select() { return this; }

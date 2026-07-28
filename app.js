@@ -1,4 +1,4 @@
-/* حلالي — تطبيق ويب متعدد المستخدمين (Supabase) — مزرعة واحدة مشتركة + صلاحيات تفصيلية */
+/* حلالي — تطبيق أندرويد محلّي بالكامل — قاعدة بيانات على الجهاز (IndexedDB)، بلا إنترنت ولا خادم */
 'use strict';
 
 /* ===== مسميات ===== */
@@ -19,11 +19,6 @@ const DESIGN = [{ k: 'raise', ar: '🌱 تربية' }, { k: 'sale', ar: '💰 ل
 const TREAT_FORM = [{ k: 'injection', ar: 'إبر' }, { k: 'oral', ar: 'تجريع' }, { k: 'spray', ar: 'رش' }, { k: 'topical', ar: 'دهن' }];
 const IDKIND = [{ k: 'number', ar: 'رقم' }, { k: 'tag', ar: 'وسم' }, { k: 'chip', ar: 'شريحة إلكترونية' }, { k: 'name', ar: 'اسم / مسمى' }, { k: 'color', ar: 'لون / علامة' }, { k: 'none', ar: 'بدون' }];
 const PREG = [{ k: 'monitoring', ar: 'تحت المتابعة' }, { k: 'born', ar: 'ولدت' }, { k: 'not_confirmed', ar: 'لم يثبت الحمل' }];
-const MODULES = [
-  { k: 'animals', ar: 'الحلال' }, { k: 'breeding', ar: 'التلقيح/الولادات' },
-  { k: 'vaccines', ar: 'التطعيمات' }, { k: 'treatments', ar: 'العلاجات' },
-  { k: 'forum', ar: 'المنتدى' },
-];
 const arOf = (arr, k) => (arr.find(x => x.k === k) || {}).ar || '—';
 const gestOf = (t) => (TYPES.find(x => x.k === t) || TYPES[1]).gest;
 const pubertyOf = (t) => (TYPES.find(x => x.k === t) || {}).puberty;   // سن البلوغ (أشهر) أو undefined
@@ -55,7 +50,7 @@ function inHerdCount(a) {
   if (c.sex !== 'both' && a.sex !== c.sex) return true;   // القاعدة لا تنطبق على هذا الجنس
   if (c.mode === 'manual') return a.source !== 'born';     // المواليد تُضاف يدوياً؛ المشترى/الاهداء يُحتسب
   if (!c.age) return true;
-  if (!a.birth) return true;
+  if (!a.birth) return a.source !== 'born';   // مولود بلا تاريخ ميلاد = حديث الولادة، يتبع أمّه ولا يُحتسب حتى يبلغ عمر الاحتساب
   return ageMonths(a.birth) >= c.age;
 }
 // أطول مدة تحريم لنوع التطعيم (الحليب أو اللحم، مع توافق عمود withdrawal_days القديم)
@@ -164,23 +159,15 @@ async function openScanner(onCode) {
 }
 
 /* ===== الحالة العامة ===== */
-let sb = null;        // عميل Supabase
+let sb = null;        // عميل قاعدة البيانات المحلية (IndexedDB) — واجهة موحّدة from/rpc
 let me = null;        // صف العضو الحالي (الصلاحيات)
-let signupOpen = true; // هل التسجيل (حساب جديد) مفتوح؟ يتحكّم به المدير
-let forumEnabled = true;        // المنتدى مُفعّل؟ (يخفيه المدير كاملاً عند التعطيل)
-let forumTopicsModsOnly = false; // إنشاء المواضيع للمشرفين فقط؟
-let siteVisits = 0;              // عدد زيارات الموقع الإجمالي (يظهر في الرئيسية)
-let siteVisitCounted = false;    // احتُسبت زيارة هذه الجلسة؟ (مرة واحدة لكل تحميل)
-const viewedTopics = new Set();  // مواضيع احتُسبت مشاهدتها هذه الجلسة (تفادي التكرار)
-let sharesOut = [];  // دعوات مشاركة حلالي التي أرسلتُها (أنا المالك)
-let sharesIn = [];   // دعوات/حلال مُشارَك معي (أنا المدعوّ)
-const C = { animals: [], matings: [], pregnancies: [], births: [], vaccineTypes: [], vaccinations: [], treatments: [], treatmentTypes: [], members: [], backups: [], types: [], tips: [], expenses: [], medstock: [], forumCats: [], forumMods: [], forumBans: [] };
+const C = { animals: [], matings: [], pregnancies: [], births: [], vaccineTypes: [], vaccinations: [], treatments: [], treatmentTypes: [], backups: [], types: [], tips: [], expenses: [], medstock: [] };
 // جداول الحلال المعزولة بالمالك — تُحفظ نسخة خام في C._<key> ويُعرض في التطبيق حلالي فقط
 const HERD_KEYS = ['animals', 'matings', 'pregnancies', 'births', 'vaccinations', 'treatments', 'expenses', 'medstock'];
 const TABLES = {
   animals: 'mrahi_animals', matings: 'mrahi_matings', pregnancies: 'mrahi_pregnancies',
   births: 'mrahi_births', vaccineTypes: 'mrahi_vaccine_types', vaccinations: 'mrahi_vaccinations',
-  treatments: 'mrahi_treatments', treatmentTypes: 'mrahi_treatment_types', members: 'mrahi_members', backups: 'mrahi_backups',
+  treatments: 'mrahi_treatments', treatmentTypes: 'mrahi_treatment_types', backups: 'mrahi_backups',
   types: 'mrahi_types',
   expenses: 'mrahi_expenses',
   medstock: 'mrahi_med_stock',
@@ -231,13 +218,6 @@ async function loadAll() {
     if (HERD_KEYS.includes(k)) { C['_' + k] = data; C[k] = data.filter(r => mineHerdRow(r)); }
     else C[k] = data;
   });
-  // دعوات/مشاركات الحلال (الطرفان فقط يريانها)
-  try {
-    const sh = await sb.from('mrahi_herd_shares').select('*');
-    const all = sh.error ? [] : (sh.data || []);
-    sharesOut = all.filter(s => s.owner_id === me.user_id);
-    sharesIn = all.filter(s => s.member_id === me.user_id);
-  } catch (e) { sharesOut = []; sharesIn = []; }
   // أنواع الحلال القابلة للإدارة (تُحدّث القائمة العامة TYPES)
   try {
     const tr = await sb.from('mrahi_types').select('*');
@@ -253,25 +233,6 @@ async function loadAll() {
     const tp = await sb.from('mrahi_tips').select('*');
     C.tips = tp.error ? [] : (tp.data || []);
   } catch (e) { C.tips = []; }
-  // أقسام المنتدى ومشرفوها (محتوى عام)
-  try {
-    const fc = await sb.from('mrahi_forum_categories').select('*').order('sort', { ascending: true });
-    C.forumCats = fc.error ? [] : (fc.data || []);
-  } catch (e) { C.forumCats = []; }
-  try {
-    const fm = await sb.from('mrahi_forum_moderators').select('*');
-    C.forumMods = fm.error ? [] : (fm.data || []);
-  } catch (e) { C.forumMods = []; }
-  try {
-    const fb = await sb.from('mrahi_forum_bans').select('*');
-    C.forumBans = fb.error ? [] : (fb.data || []);
-  } catch (e) { C.forumBans = []; }
-  await loadForumSettings();
-  await loadSignupOpen();
-  try {
-    const { data } = await sb.from('mrahi_counters').select('value').eq('key', 'site_visits').maybeSingle();
-    if (data && typeof data.value === 'number') siteVisits = data.value;
-  } catch (e) { /* تجاهل */ }
   try { await sb.rpc('mrahi_purge_trash'); } catch (e) { /* تنظيف أفضل جهد */ }
 }
 // خرائط أنواع البهائم: من المفاتيح الإنجليزية إلى الأسماء العربية في التطبيق
@@ -328,7 +289,7 @@ async function autoSeedTypes() {
       { key: 'goat', ar: 'ماعز', gest: 150, puberty: 7, weaning: 3 },
       { key: 'cattle', ar: 'بقر', gest: 283, puberty: 15, weaning: 7 },
     ]) { await dbInsert('types', { ...t, sort }); sort += 10; added++; }
-  } catch (e) { return; }                            // قد تفشل في القاعدة المشتركة قبل ترقية الأعمدة ⇒ تبقى الافتراضات
+  } catch (e) { return; }                            // في حال أي خطأ تبقى الأنواع الافتراضية
   if (added) {
     try { localStorage.setItem('mrahi_types_seeded', '1'); } catch (e) { /* تجاهل */ }
     const r = await sb.from('mrahi_types').select('*');
@@ -543,24 +504,6 @@ async function autoUpgradeLibrary() {
   try { const rv = await sb.from(TABLES.vaccineTypes).select('*'); if (!rv.error) C.vaccineTypes = rv.data || []; } catch (e) { /* تجاهل */ }
   try { const rt = await sb.from(TABLES.treatmentTypes).select('*'); if (!rt.error) C.treatmentTypes = rt.data || []; } catch (e) { /* تجاهل */ }
 }
-async function loadSignupOpen() {
-  try {
-    const { data } = await sb.from('mrahi_settings').select('value').eq('key', 'signup_open').maybeSingle();
-    signupOpen = !data || data.value !== false;
-  } catch (e) { signupOpen = true; }
-}
-async function loadForumSettings() {
-  try {
-    const { data } = await sb.from('mrahi_settings').select('key,value').in('key', ['forum_enabled', 'forum_topics_mods_only']);
-    const map = {}; (data || []).forEach(r => map[r.key] = r.value);
-    forumEnabled = map.forum_enabled !== false;            // الافتراضي: مُفعّل
-    forumTopicsModsOnly = map.forum_topics_mods_only === true; // الافتراضي: للجميع
-  } catch (e) { forumEnabled = true; forumTopicsModsOnly = false; }
-}
-async function setForumSetting(key, value) {
-  const { error } = await sb.from('mrahi_settings').upsert({ key, value, updated_at: new Date().toISOString() }, { onConflict: 'key' });
-  if (error) throw error;
-}
 async function refreshAndRender() {
   showLoading(true); try { await loadAll(); } catch (e) { toast('خطأ تحميل: ' + e.message); } buildNav(); showLoading(false); render();
   // فحص تحديث مكتبة الأدوية/التطعيمات من الإنترنت مرّة واحدة (صامت، لا يعطّل البدء)
@@ -636,7 +579,6 @@ const ROUTES = {
   treat: { t: 'إعطاء علاج', back: true, fn: screenTreat },
   bulk: { t: 'عمليات بالجملة', back: true, fn: screenBulk },
   backup: { t: 'النسخ الاحتياطي', back: true, fn: screenBackup },
-  members: { t: 'المستخدمون والصلاحيات', back: true, fn: screenMembers },
   types: { t: 'أنواع الحلال', back: true, fn: screenTypes },
   inspect: { t: 'تفقد الحلال', back: true, fn: screenInspect },
   finance: { t: 'المصروفات والميزانية', back: false, fn: screenFinance },
@@ -650,25 +592,17 @@ const ROUTES = {
   trash: { t: 'سلة المحذوفات', back: true, fn: screenTrash },
   tips: { t: 'النصائح والمعلومات', back: true, fn: screenTips },
   guide: { t: 'دليل الاستخدام', back: true, fn: screenGuide },
-  shares: { t: 'مشاركة الحلال', back: true, fn: screenShares },
-  'shared-herd': { t: 'حلال مُشارَك', back: true, fn: screenSharedHerd },
-  forum: { t: 'المنتدى', back: false, fn: screenForum },
-  'forum-admin': { t: 'إعدادات المنتدى', back: true, fn: screenForumAdmin },
-  'forum-cat': { t: 'المنتدى', back: true, fn: screenForumCategory },
-  'forum-topic': { t: 'الموضوع', back: true, fn: screenForumTopic },
 };
 function parseHash() { const raw = (location.hash || '#/home').replace(/^#\//, ''); const p = raw.split('/'); return { name: p[0] || 'home', arg: p[1] }; }
 
 function render() {
-  if (!me || !me.is_active) { renderPending(); return; }
+  if (!me) return;
   const { name, arg } = parseHash();
   const r = ROUTES[name] || ROUTES.home;
   document.getElementById('screenTitle').textContent = r.t;
   document.getElementById('backBtn').classList.toggle('hidden', !r.back);
-  const navName = name.indexOf('forum') === 0 ? 'forum' : name;
-  document.querySelectorAll('.nav-item').forEach(b => b.classList.toggle('active', b.dataset.route === '#/' + navName));
+  document.querySelectorAll('.nav-item').forEach(b => b.classList.toggle('active', b.dataset.route === '#/' + name));
   document.querySelectorAll('.fab').forEach(f => f.remove());
-  teardownForumRealtime();   // أغلق أي اشتراك لحظي عند تغيير الشاشة
   releaseMedia();            // حرّر الكاميرا/الميكروفون عند أي تنقّل (منع تسريب الموارد)
   window.scrollTo(0, 0);
   r.fn(arg);
@@ -701,7 +635,7 @@ function screenHome() {
   const bornM = born.filter(a => a.sex === 'male').length, bornF = born.filter(a => a.sex === 'female').length;
   const births = upcomingBirths(), vaccs = upcomingVacc(), treats = activeTreatments();
   const hasHerd = can('animals', 'view');
-  const roleLabel = isAdmin() ? 'مدير' : (me.account_type === 'visitor' ? 'زائر' : 'صاحب حلال');
+  const roleLabel = 'صاحب حلال';
   view().innerHTML = `
     <div class="title-lg">حلالي</div>
     <div class="muted">أهلاً ${esc(me.full_name || '')} • ${roleLabel}</div>
@@ -723,15 +657,10 @@ function screenHome() {
       <div class="stat" data-sfilter="dead" style="cursor:pointer"><div class="n">${dead}</div><div class="l">نافقة</div></div>
       <div class="stat" data-go="#/inspect" style="cursor:pointer"><div class="n">📊</div><div class="l">إحصائيات</div></div>
     </div>` : ''}
-    ${siteVisits ? `<div class="muted site-visits">👁 زيارات الموقع: ${siteVisits.toLocaleString('ar-EG')}</div>` : ''}
-    ${sharesIn.filter(s => s.status === 'pending').length ? `<div class="card click hl" data-go="#/shares"><div class="li-title">📨 دعوة لمشاهدة حلال (${sharesIn.filter(s => s.status === 'pending').length})</div><div class="li-sub">عضو يدعوك لمشاهدة حلاله — اضغط للرد</div></div>` : ''}
-    ${sharesIn.filter(s => s.status === 'accepted').map(s => `<div class="card click" data-go="#/shared-herd/${s.owner_id}"><div class="li-title">🤝 حلال ${esc(s.owner_name || 'عضو')}</div><div class="li-sub">مُشارَك معك — عرض فقط</div></div>`).join('')}
-    ${!hasHerd && forumEnabled && canForumView() ? `<div class="card click" data-go-forum><div class="li-title">💬 المنتدى</div><div class="li-sub">شارك واطرح أسئلتك مع المجتمع</div></div>` : ''}
     ${hasHerd && can('animals', 'edit') && C.animals.length === 0 ? `<div class="card click hl" data-go="#/animal-edit/0"><div class="li-title">➕ أضف أول بهيمة</div><div class="li-sub">ابدأ بإضافة حلالك — تختار النوع (إبل/غنم/ماعز/بقر) داخل النموذج</div></div>` : ''}
     ${hasHerd ? `<div class="search"><input id="q" placeholder="ابحث برقم/وسم/شريحة/اسم البهيمة"></div><div id="qr"></div>` : ''}
     ${can('breeding', 'view') ? `<div class="card"><h3>الولادات القادمة (٧ أيام)</h3>${births.length ? births.map(p => row(display(animalById(p.animal_id)), `${fmtDate(p.expected)} (بعد ${daysUntil(p.expected)} يوم)`)).join('') : noItem()}</div>` : ''}
     ${can('treatments', 'view') ? `<div class="card"><h3>العلاجات الحالية (تحت التحريم)</h3>${treats.length ? treats.map(t => row(display(animalById(t.animal_id)), `${esc(t.med_name)} • ينتهي ${fmtDate(t.withdrawal_end)}`)).join('') : noItem()}</div>` : ''}`;
-  { const gf = view().querySelector('[data-go-forum]'); if (gf) gf.addEventListener('click', () => setHash('#/forum')); }
   view().querySelectorAll('[data-go]').forEach(c => c.addEventListener('click', () => setHash(c.dataset.go)));
   // بطاقات الحالة: تفتح قائمة الحلال مُرشَّحة (في الحظيرة/مباعة/نافقة)
   view().querySelectorAll('[data-sfilter]').forEach(c => c.addEventListener('click', () => { animalFilter = ''; animalSourceSel = []; animalSexSel = []; animalStatusSel = [c.dataset.sfilter]; saveAnimalFilters(); setHash('#/animals'); }));
@@ -1001,18 +930,42 @@ function screenAnimalEdit(arg) {
     identityFields.forEach(fid => { const w = fieldWrap(fid); if (w) w.style.display = multi ? 'none' : ''; });
     const pb = document.getElementById('purposeBox'); if (pb) pb.style.display = multi ? 'none' : (val('f_sex') === 'male' ? '' : 'none');
     if (!multi) { syncKind(); box.innerHTML = ''; return; }
+    // كامل حقول الإضافة مستقلّة لكل مولود (نفس عدد المواليد المُدخل)
     const defSex = val('f_sex') || 'female';
+    const defBirth = val('f_birth') || todayStr();   // تاريخ ميلاد افتراضي لكل مولود (لتطبيق عمر الاحتساب)
     let html = '';
     for (let i = 1; i <= n; i++) {
       html += `<div class="card"><h3>👶 المولود ${i}</h3>`
+        + fSelect('نوع المعرّف الخارجي', 'b_kind_' + i, IDKIND, 'number')
+        + fInput('المعرّف الخارجي / الوسم (اختياري)', 'b_code_' + i, '')
+        + fSelect('لون الوسم', 'b_tagcolor_' + i, strOpts(tagColors()), '')
+        + fSelect('شكل الوسم', 'b_tagshape_' + i, strOpts(tagShapes()), '')
+        + fInput('الاسم / المسمى (اختياري)', 'b_name_' + i, '')
         + fSelect('الجنس', 'b_sex_' + i, SEX, defSex)
+        + `<div id="b_purposeBox_${i}">${fSelect('غرض الذكر', 'b_purpose_' + i, MALE_PURPOSE, '', '— غير محدّد —')}</div>`
         + fSelect('الغرض', 'b_des_' + i, DESIGN, '', '— غير محدّد —')
-        + fInput('المعرّف / الوسم (اختياري)', 'b_code_' + i, '')
-        + fInput('الاسم (اختياري)', 'b_name_' + i, '')
+        + fInput('تاريخ الميلاد', 'b_birth_' + i, defBirth, 'date')
         + fInput('اللون (اختياري)', 'b_color_' + i, '')
         + `</div>`;
     }
     box.innerHTML = html;
+    // ربط منطق نوع المعرّف وغرض الذكر لكل مولود على حدة (نفس منطق الحقول المشتركة)
+    for (let i = 1; i <= n; i++) {
+      const wrapOf = (fid) => { const el = document.getElementById(fid); return el ? el.closest('.field') : null; };
+      const syncBKind = () => {
+        const k = val('b_kind_' + i);
+        const setW = (fid, show) => { const w = wrapOf(fid); if (w) w.style.display = show ? '' : 'none'; };
+        const showCode = ['number', 'tag', 'chip', 'name'].includes(k);
+        setW('b_code_' + i, showCode);
+        setW('b_tagcolor_' + i, ['tag', 'color'].includes(k));
+        setW('b_tagshape_' + i, k === 'tag');
+        if (showCode && KIND_LABEL[k]) { const el = document.getElementById('b_code_' + i); const L = el && el.closest('.field').querySelector('label'); if (L) L.textContent = KIND_LABEL[k] + ' (اختياري — قد يتغيّر أو يسقط)'; }
+      };
+      const syncBPurpose = () => { const pb = document.getElementById('b_purposeBox_' + i); if (pb) pb.style.display = val('b_sex_' + i) === 'male' ? '' : 'none'; };
+      const ks = document.getElementById('b_kind_' + i); if (ks) ks.addEventListener('change', syncBKind);
+      const ss = document.getElementById('b_sex_' + i); if (ss) ss.addEventListener('change', syncBPurpose);
+      syncBKind(); syncBPurpose();
+    }
   };
   const syncSource = () => { const s = val('f_source'); const bb = document.getElementById('bcountBox'); if (bb) bb.style.display = s === 'born' ? '' : 'none'; const yb = document.getElementById('buypriceBox'); if (yb) yb.style.display = s === 'purchased' ? '' : 'none'; renderBornRows(); };
   document.getElementById('f_source').addEventListener('change', syncSource);
@@ -1047,15 +1000,24 @@ function screenAnimalEdit(arg) {
       let n = obj.source === 'born' ? (parseInt(val('f_bcount'), 10) || 1) : 1;   // عدد المواليد
       if (n < 1) n = 1;
       if (obj.source === 'born' && n > 1) {
-        // لكل مولود حقوله المستقلّة (جنس/غرض/رقم/اسم/لون) — الحقول المشتركة من الأعلى
+        // لكل مولود كامل حقوله المستقلّة — الحقول المشتركة (النوع/الحظيرة/المصدر/النسب) من الأعلى
         for (let i = 1; i <= n; i++) {
           const o = Object.assign({}, obj);
-          o.idkind = 'number'; o.tag_color = ''; o.tag_shape = ''; o.buy_price = null; o.purpose = '';
+          o.buy_price = null;
+          o.idkind = val('b_kind_' + i) || 'number';
           o.sex = val('b_sex_' + i) || 'female';
+          o.purpose = o.sex === 'male' ? val('b_purpose_' + i) : '';
           o.designation = val('b_des_' + i);
           o.code = val('b_code_' + i).trim();
           o.name = val('b_name_' + i).trim();
+          o.tag_color = val('b_tagcolor_' + i);
+          o.tag_shape = val('b_tagshape_' + i);
+          o.birth = val('b_birth_' + i) || null;
           o.color = val('b_color_' + i).trim();
+          // نظّف الحقول غير المناسبة لنوع المعرّف («بدون» لا يحفظ رقماً/وسماً)
+          if (!['number', 'tag', 'chip', 'name'].includes(o.idkind)) o.code = '';
+          if (!['tag', 'color'].includes(o.idkind)) o.tag_color = '';
+          if (o.idkind !== 'tag') o.tag_shape = '';
           await dbInsert('animals', o);
         }
         return;
@@ -1964,7 +1926,6 @@ const MORE_BG = { herd: '#e8f5e9', health: '#e3f2fd', finance: '#fff3e0', ops: '
 function screenMore() {
   const owner = me && me.account_type === 'owner';
   const I = (cond, label, hash) => cond ? [label, hash] : null;
-  const np = sharesIn.filter(s => s.status === 'pending').length;
   const cats = [
     { key: 'herd', title: '🐑 الحلال والمتابعة', items: [
       I(can('animals', 'view'), '🔍 تفقد الحلال وإحصائيات', '#/inspect'),
@@ -1986,7 +1947,6 @@ function screenMore() {
     { key: 'ops', title: '⚙️ العمليات والبيانات', items: [
       I(can('animals', 'add') || can('animals', 'edit') || can('vaccines', 'edit') || can('treatments', 'edit') || can('breeding', 'edit'), '⚙️ عمليات جماعية (تطعيم/علاج/بيع…)', '#/bulk'),
       I(can('backup', 'view'), '💾 النسخ الاحتياطي', '#/backup'),
-      I(!window.MRAH_LOCAL && (can('animals', 'view') || sharesIn.length), `🤝 مشاركة الحلال${np ? ` (${np} دعوة)` : ''}`, '#/shares'),
     ].filter(Boolean) },
     { key: 'guides', title: '📖 الأدلة', items: [
       I(true, '📘 دليل الاستخدام', '#/guide'),
@@ -1994,8 +1954,6 @@ function screenMore() {
     { key: 'admin', title: '🛡️ الإدارة', items: [
       I(isAdmin(), '🐑 أنواع الحلال (مدة الحمل/البلوغ)', '#/types'),
       I(isAdmin(), '🗑️ سلة المحذوفات', '#/trash'),
-      I(!window.MRAH_LOCAL && isAdmin(), '👥 المستخدمون والصلاحيات', '#/members'),
-      I(!window.MRAH_LOCAL && (isAdmin() || isAnyForumMod()), '⚙️ إعدادات المنتدى', '#/forum-admin'),
       I(isSys(), '💡 النصائح والمعلومات', '#/tips'),
     ].filter(Boolean) },
     { key: 'app', title: '📱 التطبيق', items: [
@@ -2015,7 +1973,7 @@ function screenMore() {
   if (window.MRAH_APK && window.MrahiLicense) { const s = window.MrahiLicense.state(); if (s.state === 'active') licLine = `<div>🔐 الترخيص: ${s.permanent ? 'دائم' : 'متبقّ ' + s.daysLeft + ' يوم'}</div>`; }
   const footer = `<div class="muted" style="text-align:center;margin-top:18px;font-size:.85rem">
     <div style="font-weight:700;color:var(--green)">✨ التسهيل · الحفظ · التخطيط</div>
-    ${window.MRAH_LOCAL ? 'حلالي — تطبيق محلّي • بياناتك على جهازك' : 'حلالي — مزرعة مشتركة'}${ver}${licLine}</div>`;
+    حلالي — تطبيق محلّي • بياناتك على جهازك${ver}${licLine}</div>`;
 
   view().innerHTML = topUpdate + cats.map(c => {
     const open = moreOpen.has(c.key);
@@ -2028,7 +1986,6 @@ function screenMore() {
   view().querySelectorAll('[data-cat]').forEach(h => h.addEventListener('click', () => { const k = h.dataset.cat; moreOpen.has(k) ? moreOpen.delete(k) : moreOpen.add(k); screenMore(); }));
   view().querySelectorAll('[data-go]').forEach(c => c.addEventListener('click', () => {
     const h = c.dataset.go;
-    if (h === '__switch') return switchBackend();
     if (h === '__checkupdate') return (typeof window.mrahiCheckUpdate === 'function') ? window.mrahiCheckUpdate() : toast('التحديث متاح في تطبيق الجوال');
     if (h === '__feedback') { const v = window.MRAH_VERSION || ''; const subj = encodeURIComponent('ملاحظات حلالي' + (v ? ' — نسخة ' + v : '')); const body = encodeURIComponent('اكتب ملاحظتك أو اقتراحك هنا:\n\n\n——————\nنسخة التطبيق: ' + v); location.href = 'mailto:alaoufi@gmail.com?subject=' + subj + '&body=' + body; return; }
     if (h === '__deactivate') return (async () => { if (await confirm2('إلغاء تفعيل هذا الجهاز؟ سيُعاد قفل التطبيق حتى تُدخل رمزاً جديداً. (بياناتك لا تُحذف)')) { window.MrahiLicense.deactivate(); location.reload(); } })();
@@ -2056,136 +2013,6 @@ function screenGuide(arg) {
     books: books,
   });
 }
-
-/* ===== مشاركة الحلال (دعوة وقبول متبادل) ===== */
-const shareStatusAr = (s) => ({ pending: 'بانتظار القبول', accepted: 'مقبولة', declined: 'مرفوضة', revoked: 'مسحوبة' }[s] || s);
-async function shareUpdate(id, obj) { const ok = await guard(async () => { const { error } = await sb.from('mrahi_herd_shares').update(obj).eq('id', id); if (error) throw error; }); if (ok) { await loadAll(); screenShares(); } }
-async function shareRemove(id) { if (!await confirm2('إزالة هذه المشاركة؟')) return; const ok = await guard(async () => { const { error } = await sb.from('mrahi_herd_shares').delete().eq('id', id); if (error) throw error; }); if (ok) { toast('تمت الإزالة'); await loadAll(); screenShares(); } }
-
-function screenShares() {
-  const owner = can('animals', 'view');               // أملك حلالاً أشاركه؟
-  const inPending = sharesIn.filter(s => s.status === 'pending');
-  const inAccepted = sharesIn.filter(s => s.status === 'accepted');
-  const out = sharesOut.slice().sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
-
-  const inviteCard = owner ? `
-    <div class="card"><h3>🤝 دعوة عضو لمشاهدة حلالي</h3>
-      <div class="muted" style="font-size:.85rem;margin-bottom:8px">أدخل رقم جوال العضو أو اسم المستخدم الخاص به. سيصله طلب، وبقبوله يطّلع على حلالك <b>للعرض فقط</b> دون تعديل. يمكنك سحب المشاركة في أي وقت.</div>
-      <input id="sh_id" placeholder="رقم الجوال أو اسم المستخدم" inputmode="text" autocomplete="off">
-      <button class="btn" id="sh_send" style="margin-top:8px">إرسال الدعوة</button>
-      <div class="auth-msg" id="sh_msg"></div>
-    </div>
-    <div class="card"><h3>حلالي المُشارَك (${out.length})</h3>
-      ${out.length ? out.map(s => `<div class="share-row">
-          <div><div class="li-title sm">${esc(s.member_name || 'عضو')}</div>
-            <div class="li-sub"><span class="badge ${s.status === 'accepted' ? '' : 'off'}">${shareStatusAr(s.status)}</span></div></div>
-          <div class="btn-row">
-            ${s.status === 'accepted' ? `<button class="btn sm danger" data-revoke="${s.id}">سحب الوصول</button>`
-              : s.status === 'pending' ? `<button class="btn sm outline" data-rm="${s.id}">إلغاء الدعوة</button>`
-              : `<button class="btn sm outline" data-rm="${s.id}">حذف</button>`}
-          </div></div>`).join('') : '<div class="muted">لم تُشارك حلالك مع أحد بعد.</div>'}
-    </div>` : '';
-
-  const incomingCard = `
-    <div class="card"><h3>📨 حلال مُشارَك معي</h3>
-      ${inPending.length ? `<div class="muted" style="font-size:.85rem;margin-bottom:6px">دعوات بانتظار ردّك:</div>` + inPending.map(s => `<div class="share-row">
-          <div><div class="li-title sm">${esc(s.owner_name || 'عضو')}</div>
-            <div class="li-sub">يدعوك لمشاهدة حلاله (عرض فقط)</div></div>
-          <div class="btn-row">
-            <button class="btn sm" data-accept="${s.id}">قبول</button>
-            <button class="btn sm danger" data-decline="${s.id}">رفض</button>
-          </div></div>`).join('') : ''}
-      ${inAccepted.length ? `<div class="muted" style="font-size:.85rem;margin:8px 0 6px">حلال يمكنك مشاهدته:</div>` + inAccepted.map(s => `<div class="share-row">
-          <div><div class="li-title sm">${esc(s.owner_name || 'عضو')}</div>
-            <div class="li-sub">عرض فقط</div></div>
-          <div class="btn-row">
-            <button class="btn sm" data-view="${s.owner_id}">👁 عرض الحلال</button>
-            <button class="btn sm outline" data-rm="${s.id}">إزالة</button>
-          </div></div>`).join('') : ''}
-      ${(!inPending.length && !inAccepted.length) ? '<div class="muted">لا توجد دعوات أو حلال مُشارَك معك.</div>' : ''}
-    </div>`;
-
-  view().innerHTML = inviteCard + incomingCard;
-
-  const send = document.getElementById('sh_send');
-  if (send) send.addEventListener('click', async () => {
-    const msg = document.getElementById('sh_msg'); msg.className = 'auth-msg';
-    const id = document.getElementById('sh_id').value.trim();
-    if (!id) { msg.classList.add('err'); msg.textContent = 'أدخل رقم الجوال أو اسم المستخدم'; return; }
-    send.disabled = true;
-    try {
-      const { data, error } = await sb.rpc('mrahi_invite_to_herd', { p_identifier: id });
-      if (error) throw error;
-      if (data && data.ok) { msg.classList.add('ok'); msg.textContent = 'تم إرسال الدعوة بنجاح'; document.getElementById('sh_id').value = ''; await loadAll(); setTimeout(screenShares, 700); }
-      else {
-        const e = data && data.err;
-        msg.classList.add('err');
-        msg.textContent = e === 'notfound' ? 'لا يوجد عضو بهذا الرقم أو الاسم'
-          : e === 'self' ? 'لا يمكنك دعوة نفسك'
-          : e === 'empty' ? 'أدخل رقم الجوال أو اسم المستخدم'
-          : 'تعذّر إرسال الدعوة';
-      }
-    } catch (e) { const msg2 = document.getElementById('sh_msg'); msg2.classList.add('err'); msg2.textContent = 'تعذّر إرسال الدعوة: ' + (e.message || ''); }
-    finally { const s = document.getElementById('sh_send'); if (s) s.disabled = false; }
-  });
-
-  view().querySelectorAll('[data-accept]').forEach(b => b.addEventListener('click', () => shareUpdate(b.dataset.accept, { status: 'accepted', responded_at: new Date().toISOString() })));
-  view().querySelectorAll('[data-decline]').forEach(b => b.addEventListener('click', () => shareUpdate(b.dataset.decline, { status: 'declined', responded_at: new Date().toISOString() })));
-  view().querySelectorAll('[data-revoke]').forEach(b => b.addEventListener('click', async () => { if (await confirm2('سحب وصول هذا العضو إلى حلالك؟')) shareUpdate(b.dataset.revoke, { status: 'revoked' }); }));
-  view().querySelectorAll('[data-rm]').forEach(b => b.addEventListener('click', () => shareRemove(b.dataset.rm)));
-  view().querySelectorAll('[data-view]').forEach(b => b.addEventListener('click', () => setHash('#/shared-herd/' + b.dataset.view)));
-}
-
-/* ===== عرض حلال مُشارَك (عرض فقط) ===== */
-function screenSharedHerd() {
-  const ownerId = parseHash().arg;
-  const share = sharesIn.find(s => s.owner_id === ownerId && s.status === 'accepted');
-  if (!share) { view().innerHTML = `<div class="center-empty">لا تملك صلاحية مشاهدة هذا الحلال.</div>`; return; }
-  const ownerName = share.owner_name || 'عضو';
-  const ttl = document.getElementById('screenTitle'); if (ttl) ttl.textContent = 'حلال ' + ownerName;
-  const animals = (C._animals || []).filter(a => a.owner_id === ownerId);
-  const present = animals.filter(a => a.status === 'present');
-  view().innerHTML = `
-    <div class="ro-banner">👁 عرض فقط — حلال ${esc(ownerName)}</div>
-    <div class="stats">
-      <div class="stat green"><div class="n">${present.length}</div><div class="l">في الحظيرة</div></div>
-      <div class="stat blue"><div class="n">${animals.length}</div><div class="l">الإجمالي</div></div>
-    </div>
-    <div class="search"><input id="shq" placeholder="ابحث برقم/اسم/حظيرة"></div>
-    <div class="card"><h3>الحلال (${present.length})</h3><div id="shlist"></div></div>`;
-  const listEl = document.getElementById('shlist');
-  const drawList = (term) => {
-    let arr = present;
-    if (term) { const t = term.toLowerCase(); arr = present.filter(a => [a.code, a.name, a.pen].some(x => (x || '').toLowerCase().includes(t))); }
-    arr = arr.slice().sort((a, b) => b.id - a.id);
-    listEl.innerHTML = arr.length ? arr.map(a => `<div class="card click" data-sa="${a.id}"><div class="li-title">${display(a)}</div><div class="li-sub">${arOf(TYPES, a.type)} • ${esc(sexTerm(a))}${a.pen ? ' • 🏠 ' + esc(a.pen) : ''}</div></div>`).join('') : noItem();
-    listEl.querySelectorAll('[data-sa]').forEach(c => c.addEventListener('click', () => sharedAnimalModal(parseInt(c.dataset.sa, 10), ownerId)));
-  };
-  drawList('');
-  const q = document.getElementById('shq'); if (q) q.addEventListener('input', () => drawList(q.value.trim()));
-}
-
-// بطاقة بهيمة من حلال مُشارَك — سجلّ كامل للعرض فقط
-function sharedAnimalModal(id, ownerId) {
-  const a = (C._animals || []).find(x => x.id === id);
-  if (!a) return;
-  const f = (arr) => (arr || []).filter(r => r.owner_id === ownerId && r.animal_id === id);
-  const mts = f(C._matings).sort((x, y) => (y.date || '').localeCompare(x.date || ''));
-  const prg = f(C._pregnancies);
-  const vac = f(C._vaccinations).sort((x, y) => (y.date || '').localeCompare(x.date || ''));
-  const trt = f(C._treatments).sort((x, y) => (y.date || '').localeCompare(x.date || ''));
-  const vtName = (tid) => { const v = C.vaccineTypes.find(x => x.id === tid); return v ? esc(v.name) : 'تطعيم'; };
-  const sec = (title, html) => `<div class="card" style="margin:6px 0"><h3>${title}</h3>${html}</div>`;
-  openModal('سجل ' + (a.code || 'البهيمة'), `
-    <div class="muted" style="margin-bottom:8px">${arOf(TYPES, a.type)} • ${esc(sexTerm(a))}${a.birth ? ' • مواليد ' + fmtDate(a.birth) : ''}${a.color ? ' • ' + esc(a.color) : ''}</div>
-    ${sec('🤰 التلقيح والحمل', (mts.length || prg.length)
-      ? (matingRows(mts) + prg.map(p => row('حمل (' + arOf(PREG, p.status) + ')', p.expected ? 'متوقّع ' + fmtDate(p.expected) : '—')).join(''))
-      : noItem())}
-    ${sec('💉 التطعيمات', vac.length ? vac.map(v => row(fmtDate(v.date) + ' — ' + vtName(v.type_id), v.withdrawal_end ? 'تحريم حتى ' + fmtDate(v.withdrawal_end) : '—')).join('') : noItem())}
-    ${sec('💊 العلاجات', trt.length ? trt.map(t => row(esc(t.med_name) + ' (' + fmtDate(t.date) + ')', t.withdrawal_end ? 'تحريم حتى ' + fmtDate(t.withdrawal_end) : '—')).join('') : noItem())}
-  `);
-}
-function matingRows(mts) { return mts.map(m => row('تلقيح ' + fmtDate(m.date), 'الفحل: ' + (esc(m.sire_name) || esc(m.sire_code) || '—'))).join(''); }
 
 /* ===== النسخ الاحتياطي (تصدير) ===== */
 function snapshot() {
@@ -2309,144 +2136,6 @@ function exportCsv() {
   const head = ['النوع', 'الحظيرة', 'المعرف', 'نوع المعرف', 'الاسم', 'الجنس', 'المصدر', 'تاريخ الميلاد', 'اللون', 'الحالة', 'تاريخ البيع', 'سعر البيع', 'تاريخ النفوق', 'رقم الأم', 'اسم الأب', 'ملاحظات'];
   const rows = C.animals.map(a => [arOf(TYPES, a.type), a.pen, a.code, arOf(IDKIND, a.idkind), a.name, arOf(SEX, a.sex), arOf(SOURCE, a.source || 'purchased'), a.birth, a.color, arOf(STATUS, a.status), a.sale_date || '', a.sale_price != null ? a.sale_price : '', a.dead_date || '', a.mother_id ? (animalById(a.mother_id) || {}).code || '' : '', a.father_name, a.notes].map(cell).join(','));
   shareOrDownload('mrahi_animals_' + stamp() + '.csv', '﻿' + head.join(',') + '\n' + rows.join('\n'), 'text/csv');
-}
-
-/* ===== المستخدمون والصلاحيات (للمدير) ===== */
-function screenMembers() {
-  if (!isAdmin()) { view().innerHTML = noPerm(); return; }
-  const list = C.members.slice().sort((a, b) => (a.full_name || '').localeCompare(b.full_name || ''));
-  view().innerHTML = `
-    <div class="card">
-      <div class="li-title">🔐 تسجيل الحسابات الجديدة</div>
-      <div class="li-sub">${signupOpen ? 'مفتوح — يمكن لأي شخص إنشاء حساب (ثم تفعّله أنت).' : 'مغلق — لا يمكن إنشاء حسابات جديدة الآن.'}</div>
-      <button class="btn sm ${signupOpen ? 'danger' : ''}" id="signupToggle" style="margin-top:6px">${signupOpen ? '🔒 إغلاق التسجيل' : '🔓 فتح التسجيل'}</button>
-    </div>
-    <button class="btn" id="addUser" style="margin-bottom:10px">➕ إضافة مستخدم جديد</button>
-    <div class="muted" style="margin-bottom:8px">فعّل المستخدمين وحدّد صلاحياتهم. يمكنك إضافة مستخدم بنفسك، أو يسجّل هو ثم يظهر هنا بانتظار التفعيل.</div>` +
-    list.map(m => memberCard(m)).join('');
-  view().querySelector('#addUser').addEventListener('click', adminAddUser);
-  const tg = view().querySelector('#signupToggle');
-  if (tg) tg.addEventListener('click', async () => {
-    const ok = await guard(async () => {
-      const { error } = await sb.from('mrahi_settings').upsert({ key: 'signup_open', value: !signupOpen, updated_at: new Date().toISOString() }, { onConflict: 'key' });
-      if (error) throw error;
-    });
-    if (ok) { signupOpen = !signupOpen; toast(signupOpen ? 'فُتح التسجيل' : 'أُغلق التسجيل'); screenMembers(); }
-  });
-  list.forEach(m => bindMemberCard(m));
-}
-function memberCard(m) {
-  return `<div class="card">
-    <div style="display:flex;justify-content:space-between;align-items:center">
-      <div><div class="li-title">${esc(m.full_name || '—')}</div>
-        <div class="li-sub"><span class="badge ${m.role === 'admin' ? 'role' : ''}">${m.role === 'admin' ? 'مدير الحظيرة' : (m.account_type === 'visitor' ? '👤 زائر' : '🐑 صاحب حلال')}</span>
-        ${m.is_sysadmin ? '<span class="badge role">مدير النظام</span>' : ''}
-        <span class="badge ${m.is_active ? '' : 'off'}">${m.is_active ? 'مفعّل' : 'موقوف'}</span>
-        ${m.user_id === me.user_id ? '<span class="badge">أنت</span>' : ''}</div>
-        ${(m.phone || m.username) ? `<div class="li-sub">${m.phone ? '📱 ' + esc(m.phone) : ''}${m.phone && m.username ? ' • ' : ''}${m.username ? '@' + esc(m.username) : ''}</div>` : '<div class="li-sub muted">لا توجد بيانات اتصال</div>'}</div>
-    </div>
-    <div class="btn-row" style="margin-top:8px">
-      <button class="btn sm ${m.is_active ? 'danger' : ''}" data-toggle="${m.user_id}" ${m.user_id === me.user_id ? 'disabled' : ''}>${m.is_active ? 'إيقاف' : 'تفعيل'}</button>
-      <button class="btn sm outline" data-role="${m.user_id}" ${m.user_id === me.user_id ? 'disabled' : ''}>${m.role === 'admin' ? 'إنزال لمستخدم' : 'ترقية لمدير'}</button>
-      ${isSys() ? `<button class="btn sm outline" data-sys="${m.user_id}">${m.is_sysadmin ? 'سحب إدارة النظام' : 'منح إدارة النظام'}</button>` : ''}
-      <button class="btn sm" data-edit="${m.user_id}">✎ تعديل البيانات والصلاحيات</button>
-      ${m.user_id === me.user_id ? '' : `<button class="btn sm danger" data-del="${m.user_id}">🗑 حذف المستخدم</button>`}
-    </div></div>`;
-}
-function bindMemberCard(m) {
-  const q = (sel) => view().querySelector(sel);
-  const tg = q(`[data-toggle="${m.user_id}"]`); if (tg) tg.addEventListener('click', async () => {
-    const ok = await guard(async () => { await dbUpdateMember(m.user_id, { is_active: !m.is_active }); }); if (ok) { await loadAll(); screenMembers(); }
-  });
-  const rl = q(`[data-role="${m.user_id}"]`); if (rl) rl.addEventListener('click', async () => {
-    const ok = await guard(async () => { await dbUpdateMember(m.user_id, { role: m.role === 'admin' ? 'member' : 'admin' }); }); if (ok) { await loadAll(); screenMembers(); }
-  });
-  const sy = q(`[data-sys="${m.user_id}"]`); if (sy) sy.addEventListener('click', async () => {
-    if (!await confirm2(m.is_sysadmin ? 'سحب صلاحية إدارة النظام من هذا المستخدم؟' : 'منح هذا المستخدم صلاحية إدارة النظام (النصائح والمعلومات)؟')) return;
-    const ok = await guard(async () => { await dbUpdateMember(m.user_id, { is_sysadmin: !m.is_sysadmin }); }); if (ok) { await loadAll(); screenMembers(); }
-  });
-  const ed = q(`[data-edit="${m.user_id}"]`); if (ed) ed.addEventListener('click', () => adminEditUser(m));
-  const dl = q(`[data-del="${m.user_id}"]`); if (dl) dl.addEventListener('click', async () => {
-    if (m.user_id === me.user_id) { toast('لا يمكنك حذف حسابك أنت'); return; }
-    if (!await confirm2(`حذف المستخدم «${m.full_name || '—'}» نهائياً؟ لن يظهر في القائمة ولن يتمكّن من الدخول. (بيانات الحلال الخاصة به تبقى محفوظة)`, { danger: true })) return;
-    const ok = await guard(async () => { const { error } = await sb.from('mrahi_members').delete().eq('user_id', m.user_id); if (error) throw error; });
-    if (ok) { toast('تم حذف المستخدم'); await loadAll(); screenMembers(); }
-  });
-}
-async function dbUpdateMember(uid, obj) { const { error } = await sb.from('mrahi_members').update(obj).eq('user_id', uid); if (error) throw error; }
-
-// المدير يعدّل بيانات مستخدم: الاسم/الجوال/اسم المستخدم + الصلاحيات + الرقم السري
-function adminEditUser(m) {
-  const p = m.perms || {};
-  const isAdminUser = m.role === 'admin';
-  const permGrid = `<div class="perm-grid">
-    <div class="h">القسم</div><div class="h">عرض</div><div class="h">إضافة</div><div class="h">تعديل</div><div class="h">حذف</div>
-    ${MODULES.map(mod => `<div>${mod.ar}</div>` + ['view', 'add', 'edit', 'delete'].map(act => `<label><input type="checkbox" data-eu-mod="${mod.k}" data-eu-act="${act}" ${p[mod.k] && p[mod.k][act] ? 'checked' : ''}></label>`).join('')).join('')}
-    <div>النسخ الاحتياطي</div><label><input type="checkbox" data-eu-mod="backup" data-eu-act="view" ${p.backup && p.backup.view ? 'checked' : ''}></label><label></label><label></label><label></label>
-  </div>`;
-  openModal('تعديل بيانات المستخدم', `
-    ${fInput('الاسم', 'eu_name', m.full_name || '')}
-    ${fInput('رقم الجوال', 'eu_phone', m.phone || '', 'tel', 'inputmode="tel"')}
-    ${fInput('اسم المستخدم', 'eu_user', m.username || '', 'text', 'autocomplete="off"')}
-    <div class="li-title sm" style="margin:12px 0 4px">🔐 الصلاحيات</div>
-    ${isAdminUser ? '<div class="muted" style="font-size:.82rem;margin-bottom:6px">هذا الحساب مدير ويملك كل الصلاحيات تلقائياً. التحديد أدناه يُطبَّق إذا أُنزل لمستخدم.</div>' : ''}
-    ${permGrid}
-    <div class="li-title sm" style="margin:14px 0 4px">🔑 الرقم السري</div>
-    ${fInput('رقم سري جديد (٤ أرقام — اتركه فارغاً لعدم التغيير)', 'eu_pin', '', 'text', 'inputmode="numeric" maxlength="4" autocomplete="off"')}
-    <button class="btn" id="eu_save" style="margin-top:12px">حفظ التغييرات</button>
-    <div class="muted" style="font-size:.82rem;margin-top:6px">يدخل المستخدم بالجوال أو اسم المستخدم. عند تعيين رقم سري جديد، أبلغه به ليدخل (ويمكنه تغييره لاحقاً).</div>`, () => {
-    document.getElementById('eu_save').addEventListener('click', async () => {
-      const full_name = val('eu_name').trim();
-      const phone = normPhone(val('eu_phone'));
-      const username = val('eu_user').trim();
-      const pin = val('eu_pin').trim();
-      if (!full_name) { toast('أدخل الاسم'); return; }
-      if (phone.length < 7) { toast('أدخل رقم جوال صحيح'); return; }
-      if (pin && !/^\d{4}$/.test(pin)) { toast('الرقم السري ٤ أرقام'); return; }
-      if (!await confirm2('حفظ تعديلات هذا المستخدم؟')) return;
-      const perms = {};
-      document.querySelectorAll('#modalRoot [data-eu-mod]').forEach(cb => { if (cb.checked) { const mod = cb.dataset.euMod, act = cb.dataset.euAct; perms[mod] = perms[mod] || {}; perms[mod][act] = true; } });
-      const update = { full_name, phone, username: username || null, perms };
-      const ok = await guard(async () => {
-        await dbUpdateMember(m.user_id, update);
-        if (pin) {
-          const { data, error } = await sb.functions.invoke('admin-set-password', { body: { target_user_id: m.user_id, pin } });
-          if (error) throw new Error('تعذّر تغيير الرقم السري — تأكّد من نشر دالة admin-set-password');
-          if (data && data.error) throw new Error('تعذّر تغيير الرقم السري: ' + data.error);
-        }
-      });
-      if (ok) { closeModal(); toast('تم حفظ التغييرات'); await loadAll(); screenMembers(); }
-    });
-  });
-}
-
-// المدير يُنشئ حساباً جديداً مباشرةً (عبر عميل مؤقت كي لا تُستبدل جلسة المدير)
-function adminAddUser() {
-  openModal('إضافة مستخدم جديد', `
-    ${fInput('الاسم', 'nu_name', '')}
-    ${fInput('رقم الجوال', 'nu_phone', '', 'tel', 'inputmode="tel"')}
-    ${fInput('اسم المستخدم (اختياري)', 'nu_user', '', 'text', 'autocomplete="off"')}
-    ${fInput('رقم سري مؤقت (٤ أرقام)', 'nu_pin', '', 'text', 'inputmode="numeric" maxlength="4"')}
-    <button class="btn" id="nu_save" style="margin-top:6px">إنشاء الحساب</button>
-    <div class="muted" style="font-size:.82rem;margin-top:6px">يُنشأ موقوفاً — بعد ظهوره في القائمة فعّله وامنحه الصلاحيات. أعطِه الجوال والرقم السري ليدخل (ويغيّره لاحقاً).</div>`, () => {
-    document.getElementById('nu_save').addEventListener('click', async () => {
-      const full_name = val('nu_name').trim();
-      const phone = normPhone(val('nu_phone'));
-      const username = val('nu_user').trim();
-      const pin = val('nu_pin').trim();
-      if (!full_name) { toast('أدخل الاسم'); return; }
-      if (phone.length < 7) { toast('أدخل رقم جوال صحيح'); return; }
-      if (!/^\d{4}$/.test(pin)) { toast('الرقم السري ٤ أرقام'); return; }
-      const ok = await guard(async () => {
-        const tmp = window.supabase.createClient(window.MRAH_CONFIG.SUPABASE_URL, window.MRAH_CONFIG.SUPABASE_ANON_KEY,
-          { auth: { persistSession: false, autoRefreshToken: false, storageKey: 'mrahi_admin_tmp' } });
-        const { error } = await tmp.auth.signUp({ email: phoneToEmail(phone), password: pinToPass(pin), options: { data: { full_name, username, phone, app: 'mrahi' } } });
-        if (error) throw error;
-        try { await tmp.auth.signOut(); } catch (e) { /* تجاهل */ }
-      });
-      if (ok) { closeModal(); toast('تم إنشاء الحساب — فعّله وامنحه الصلاحيات'); await loadAll(); screenMembers(); }
-    });
-  });
 }
 
 /* ===== تفقد الحلال وإحصائيات ===== */
@@ -3069,7 +2758,7 @@ async function screenTrash() {
   try { const { data } = await sb.from('mrahi_trash').select('*').order('created_at', { ascending: false }); list = data || []; } catch (e) { toast('خطأ تحميل السلة'); }
   showLoading(false);
   const actionAr = { delete: 'محذوف', edit: 'نسخة قبل تعديل' };
-  const whoOf = (t) => t.actor_name || ((C.members.find(m => m.user_id === t.actor) || {}).full_name) || '—';
+  const whoOf = (t) => t.actor_name || '—';
   view().innerHTML = `<div class="muted" style="margin-bottom:8px">العناصر المحذوفة والنُّسخ السابقة قابلة للاستعادة. تُحذف نهائياً تلقائياً بعد ٣٠ يوماً، أو احذفها يدوياً بعد التأكّد.</div>`
     + (list.length ? list.map(t => `<div class="card">
         <div class="li-title">${esc(t.label || t.tbl)}</div>
@@ -3097,465 +2786,6 @@ async function restoreTrash(t) {
   if (ok) { toast('تمت الاستعادة'); await loadAll(); screenTrash(); }
 }
 
-/* ===== منتدى النقاش ===== */
-let forumRT = null;                                   // قناة التحديث اللحظي الحالية
-function teardownForumRealtime() { if (forumRT) { try { sb.removeChannel(forumRT); } catch (e) { /* تجاهل */ } forumRT = null; } }
-function setupForumRealtime(name, subs) {
-  teardownForumRealtime();
-  try {
-    let ch = sb.channel('forum:' + name);
-    subs.forEach(s => { ch = ch.on('postgres_changes', Object.assign({ event: s.event, schema: 'public', table: s.table }, s.filter ? { filter: s.filter } : {}), s.cb); });
-    ch.subscribe();
-    forumRT = ch;
-  } catch (e) { /* التحديث اللحظي اختياري */ }
-}
-const forumCatById = (id) => (C.forumCats || []).find(c => c.id === id);
-const forumCatName = (id) => { const c = forumCatById(id); return c ? c.name : 'عام'; };
-let curForumCat = null;   // قسم الموضوع المفتوح حالياً (لعرض شارات المشرفين)
-let curForumLocked = false; // هل الموضوع المفتوح مُغلق
-let forumShowModTools = localStorage.getItem('mrahi_forum_modtools') !== '0'; // المشرف: إظهار أدوات التحكم بالمواضيع والمشاركات
-const forumMemberName = (uid) => { const m = (C.members || []).find(x => x.user_id === uid); return m ? (m.full_name || m.username || 'عضو') : 'عضو'; };
-// اسم المشرف للعرض العام — مخزّن في صف الإشراف (لا يتطلّب قراءة دليل الأعضاء)
-const forumModName = (m) => m.member_name || forumMemberName(m.user_id);
-const forumModsOf = (catId) => (C.forumMods || []).filter(m => m.category_id === catId);
-const isAnyForumMod = () => isAdmin() || (C.forumMods || []).some(m => m.user_id === me.user_id);
-const isForumMod = (catId) => isAdmin() || (C.forumMods || []).some(m => m.category_id === catId && m.user_id === me.user_id);
-const forumModTitle = (catId, uid) => { const m = (C.forumMods || []).find(x => x.category_id === catId && x.user_id === uid); return m ? (m.title || 'مشرف') : null; };
-const modBadge = (catId, uid) => { const t = forumModTitle(catId, uid); return t ? ` <span class="badge mod">🛡️ ${esc(t)}</span>` : ''; };
-const canForumView = () => can('forum', 'view') || isAnyForumMod();
-const forumBanned = () => !!(C.forumBans || []).find(b => b.user_id === me.user_id);
-const canForumAddIn = (catId) => !forumBanned() && (can('forum', 'add') || isForumMod(catId));
-const canCreateTopic = (catId) => canForumAddIn(catId) && (!forumTopicsModsOnly || isForumMod(catId));
-const forumOffMsg = () => '<div class="center-empty" style="padding:30px">🚧 المنتدى متوقّف مؤقتاً.</div>';
-const editedMark = (r) => (r && r.updated_at && r.created_at && r.updated_at !== r.created_at) ? ' <span class="muted" style="font-size:.8em">(مُعدّل)</span>' : '';
-const fmtBody = (s) => esc(s || '').replace(/\n/g, '<br>');
-function timeAgo(iso) {
-  if (!iso) return '';
-  const s = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
-  if (s < 60) return 'الآن';
-  const m = Math.floor(s / 60); if (m < 60) return `قبل ${m} دقيقة`;
-  const h = Math.floor(m / 60); if (h < 24) return `قبل ${h} ساعة`;
-  const d = Math.floor(h / 24); if (d < 30) return `قبل ${d} يوم`;
-  return fmtDate(String(iso).slice(0, 10));
-}
-const likeBtn = (col, id, n, mine) => `<button class="like-btn ${mine ? 'liked' : ''}" data-lk="${col}:${id}" data-n="${n}">👍 <span class="lk-n">${n}</span></button>`;
-async function forumToggleLike(col, id, btn) {
-  const liked = btn.classList.contains('liked');
-  try {
-    if (liked) { const { error } = await sb.from('mrahi_forum_likes').delete().eq('user_id', me.user_id).eq(col, id); if (error) throw error; }
-    else { const obj = { user_id: me.user_id }; obj[col] = id; const { error } = await sb.from('mrahi_forum_likes').insert(obj); if (error && !/duplicate/i.test(error.message || '')) throw error; }
-  } catch (e) { toast('تعذّر تسجيل الإعجاب'); return; }
-  const n = Math.max(0, parseInt(btn.dataset.n || '0', 10) + (liked ? -1 : 1));
-  btn.dataset.n = n; btn.classList.toggle('liked', !liked);
-  const span = btn.querySelector('.lk-n'); if (span) span.textContent = n;
-}
-
-// شاشة المنتدى: الأقسام + أحدث المواضيع
-async function screenForum() {
-  if (!forumEnabled) { view().innerHTML = forumOffMsg(); return; }
-  if (!canForumView()) { view().innerHTML = noPerm(); return; }
-  showLoading(true);
-  let cats = (C.forumCats || []).filter(c => !c.is_hidden);
-  const counts = {}; let latest = [];
-  try {
-    const [tc, lt] = await Promise.all([
-      sb.from('mrahi_forum_topics').select('category_id'),
-      sb.from('mrahi_forum_topics').select('*').order('last_activity', { ascending: false }).limit(6),
-    ]);
-    (tc.data || []).forEach(r => { counts[r.category_id] = (counts[r.category_id] || 0) + 1; });
-    latest = (lt.data || []).filter(t => { const c = forumCatById(t.category_id); return !c || !c.is_hidden; });
-  } catch (e) { /* تجاهل */ }
-  showLoading(false);
-  const catCard = (c) => `<div class="card click forum-cat" data-cat="${c.id}">
-      <div class="fc-ico">${esc(c.icon || '💬')}</div>
-      <div class="fc-body"><div class="li-title">${esc(c.name)}</div><div class="li-sub">${esc(c.description || '')}</div></div>
-      <div class="fc-count">${counts[c.id] || 0}</div>
-    </div>`;
-  view().innerHTML = `<div class="muted" style="margin-bottom:8px">منتدى حلالي — تبادل الخبرات والاستشارات بين الأعضاء.</div>`
-    + (latest.length ? `<div class="card"><h3>أحدث المواضيع</h3>${latest.map(t => `<div class="forum-latest" data-topic="${t.id}"><div class="li-title sm">${t.is_pinned ? '📌 ' : ''}${esc(t.title)}</div><div class="li-sub">${esc(forumCatName(t.category_id))} • ${esc(t.author_name || 'عضو')}${modBadge(t.category_id, t.author_id)} • ${timeAgo(t.last_activity)}</div></div>`).join('')}</div>` : '')
-    + `<div class="forum-section-h">الأقسام</div>`
-    + (cats.length ? cats.map(catCard).join('') : '<div class="center-empty">لا توجد أقسام بعد.</div>');
-  view().querySelectorAll('[data-cat]').forEach(c => c.addEventListener('click', () => setHash('#/forum-cat/' + c.dataset.cat)));
-  view().querySelectorAll('[data-topic]').forEach(c => c.addEventListener('click', () => setHash('#/forum-topic/' + c.dataset.topic)));
-  setupForumRealtime('forum-home', [{ event: '*', table: 'mrahi_forum_topics', cb: () => { if (parseHash().name === 'forum') screenForum(); } }]);
-}
-
-// شاشة إعدادات المنتدى (من «المزيد») — التحكم حسب الصلاحيات
-async function screenForumAdmin() {
-  if (!(isAdmin() || isAnyForumMod())) { view().innerHTML = noPerm(); return; }
-  const admin = isAdmin();
-  const cats = C.forumCats || [];
-  const bans = C.forumBans || [];
-  const intro = `<div class="muted" style="margin-bottom:8px">إعدادات المنتدى والتحكم به. للتصفّح والمشاركة استخدم تبويب «المنتدى 💬» في الأسفل.</div>`;
-  const enableCard = admin ? `<div class="card">
-    <div class="li-title">${forumEnabled ? '🟢 المنتدى مُفعّل' : '🔴 المنتدى مُعطّل'}</div>
-    <div class="li-sub">${forumEnabled ? 'ظاهر للأعضاء في الشريط السفلي.' : 'مخفيّ تماماً عن الجميع — لا يظهر التبويب ولا المحتوى.'}</div>
-    <button class="btn sm ${forumEnabled ? 'danger' : ''}" id="fa_enable" style="margin-top:6px">${forumEnabled ? '🚫 تعطيل المنتدى' : '✅ تفعيل المنتدى'}</button>
-  </div>` : '';
-
-  // عند التعطيل: لا يظهر إلا زر التفعيل
-  if (!forumEnabled) {
-    view().innerHTML = intro + (admin ? enableCard : '<div class="center-empty" style="padding:24px">🚧 المنتدى متوقّف مؤقتاً.</div>');
-    const eb = document.getElementById('fa_enable');
-    if (eb) eb.addEventListener('click', () => toggleForumEnabled());
-    return;
-  }
-
-  const toolsCard = `<div class="card">
-    <div class="li-title">🛡️ أدوات التحكم بالمواضيع والمشاركات</div>
-    <div class="li-sub">${forumShowModTools ? 'ظاهرة الآن — يظهر زر ⚙️ على المواضيع والمشاركات لإدارتها.' : 'مخفيّة — تتصفّح وتردّ بلا أزرار تحكم.'}</div>
-    <button class="btn sm ${forumShowModTools ? 'danger' : ''}" id="fa_tools" style="margin-top:6px">${forumShowModTools ? '🙈 إخفاء أدوات التحكم' : '🛠️ إظهار أدوات التحكم'}</button>
-  </div>`;
-  const topicModeCard = admin ? `<div class="card">
-    <div class="li-title">📝 من يُنشئ المواضيع</div>
-    <div class="li-sub">${forumTopicsModsOnly ? 'المشرفون والمدير فقط — الأعضاء يردّون فقط.' : 'كل عضو يملك صلاحية الإضافة.'}</div>
-    <button class="btn sm" id="fa_topicmode" style="margin-top:6px">${forumTopicsModsOnly ? '👥 السماح للجميع' : '🛡️ قصْره على المشرفين'}</button>
-  </div>` : '';
-  const bansCard = admin ? `<div class="card">
-    <div class="li-title">🚷 الأعضاء المحظورون</div>
-    <div class="li-sub">المحظور لا يستطيع نشر مواضيع أو ردود أو إعجاب.</div>
-    <div style="margin-top:6px">${bans.length ? bans.map(b => `<div class="fmod-row"><span>${esc(forumMemberName(b.user_id))}${b.reason ? ' <span class="muted">— ' + esc(b.reason) + '</span>' : ''}</span><button class="btn sm outline" data-unban="${b.user_id}">رفع الحظر</button></div>`).join('') : '<div class="muted">لا أحد محظور.</div>'}</div>
-    <button class="btn sm danger" id="fa_ban" style="margin-top:8px">➕ حظر عضو</button>
-  </div>` : '';
-  let catBlocks = '';
-  if (admin) {
-    catBlocks = `<div class="forum-section-h">الأقسام والمشرفون</div>`
-      + (cats.length ? cats.map(c => {
-        const mods = forumModsOf(c.id);
-        return `<div class="card">
-            <div class="li-title">${esc(c.icon || '💬')} ${esc(c.name)} ${c.is_hidden ? '<span class="badge off">مخفي</span>' : ''}</div>
-            ${c.description ? `<div class="li-sub">${esc(c.description)}</div>` : ''}
-            <div class="li-sub">${mods.length ? '🛡️ ' + mods.map(m => esc(forumModName(m)) + ' (' + esc(m.title || 'مشرف') + ')').join('، ') : 'لا مشرفين لهذا القسم'}</div>
-            <div class="btn-row" style="margin-top:8px">
-              <button class="btn sm outline" data-editcat="${c.id}">✎ تعديل</button>
-              <button class="btn sm outline" data-mods="${c.id}">👤 المشرفون</button>
-              <button class="btn sm ${c.is_hidden ? '' : 'outline'}" data-hidecat="${c.id}" data-cur="${c.is_hidden ? '1' : '0'}">${c.is_hidden ? '👁 إظهار' : '🙈 إخفاء'}</button>
-            </div></div>`;
-      }).join('') : '<div class="muted">لا أقسام بعد — أضِف قسماً بالزر بالأسفل.</div>');
-  }
-  view().innerHTML = intro + enableCard + toolsCard + topicModeCard + bansCard + catBlocks;
-
-  const eb = document.getElementById('fa_enable'); if (eb) eb.addEventListener('click', () => toggleForumEnabled());
-  const tb = document.getElementById('fa_tools');
-  if (tb) tb.addEventListener('click', () => {
-    forumShowModTools = !forumShowModTools;
-    localStorage.setItem('mrahi_forum_modtools', forumShowModTools ? '1' : '0');
-    toast(forumShowModTools ? 'أُظهرت أدوات التحكم' : 'أُخفيت أدوات التحكم'); screenForumAdmin();
-  });
-  const tm = document.getElementById('fa_topicmode');
-  if (tm) tm.addEventListener('click', async () => {
-    const ok = await guard(async () => { await setForumSetting('forum_topics_mods_only', !forumTopicsModsOnly); });
-    if (ok) { forumTopicsModsOnly = !forumTopicsModsOnly; toast('تم الحفظ'); screenForumAdmin(); }
-  });
-  const fbn = document.getElementById('fa_ban'); if (fbn) fbn.addEventListener('click', () => forumBanModal());
-  view().querySelectorAll('[data-unban]').forEach(b => b.addEventListener('click', async () => {
-    if (!await confirm2('رفع الحظر عن هذا العضو؟')) return;
-    const ok = await guard(async () => { const { error } = await sb.from('mrahi_forum_bans').delete().eq('user_id', b.dataset.unban); if (error) throw error; });
-    if (ok) { toast('رُفع الحظر'); await loadAll(); screenForumAdmin(); }
-  }));
-  if (admin) {
-    view().querySelectorAll('[data-editcat]').forEach(b => b.addEventListener('click', () => forumCatModal(forumCatById(parseInt(b.dataset.editcat, 10)))));
-    view().querySelectorAll('[data-mods]').forEach(b => b.addEventListener('click', () => forumModsModal(parseInt(b.dataset.mods, 10))));
-    view().querySelectorAll('[data-hidecat]').forEach(b => b.addEventListener('click', async () => {
-      const cur = b.dataset.cur === '1';
-      const ok = await guard(async () => { const { error } = await sb.from('mrahi_forum_categories').update({ is_hidden: !cur }).eq('id', b.dataset.hidecat); if (error) throw error; });
-      if (ok) { toast(cur ? 'أُظهر القسم' : 'أُخفي القسم'); await loadAll(); screenForumAdmin(); }
-    }));
-    addFab('➕ إضافة قسم', () => forumCatModal(null));
-  }
-}
-async function toggleForumEnabled() {
-  const next = !forumEnabled;
-  const ok = await guard(async () => { await setForumSetting('forum_enabled', next); });
-  if (ok) { forumEnabled = next; toast(next ? 'فُعّل المنتدى' : 'عُطّل المنتدى'); buildNav(); screenForumAdmin(); }
-}
-// حظر عضو من المنتدى (للمدير)
-function forumBanModal() {
-  const banned = new Set((C.forumBans || []).map(b => b.user_id));
-  const candidates = (C.members || []).filter(m => m.is_active && m.role !== 'admin' && !banned.has(m.user_id))
-    .map(m => ({ k: m.user_id, ar: (m.full_name || m.username || 'عضو') + (m.username ? ' (@' + m.username + ')' : '') }));
-  openModal('حظر عضو من المنتدى', `
-    <div class="muted" style="margin-bottom:8px">العضو المحظور يبقى في النظام لكنه لا يستطيع نشر مواضيع أو ردود أو إعجاب في المنتدى.</div>
-    ${fSelect('العضو', 'fb_user', candidates, '', '— اختر عضواً —')}
-    ${fInput('سبب الحظر (اختياري)', 'fb_reason', '')}
-    <button class="btn danger" id="fb_save" style="margin-top:6px">حظر</button>`, () => {
-    document.getElementById('fb_save').addEventListener('click', async () => {
-      const uid = val('fb_user'); if (!uid) { toast('اختر العضو'); return; }
-      const reason = val('fb_reason').trim();
-      const ok = await guard(async () => { const { error } = await sb.from('mrahi_forum_bans').insert({ user_id: uid, reason }); if (error) throw error; });
-      if (ok) { closeModal(); toast('تم حظر العضو'); await loadAll(); screenForumAdmin(); }
-    });
-  });
-}
-
-// شاشة قسم: قائمة المواضيع + بحث + إنشاء موضوع
-async function screenForumCategory(catId) {
-  if (!forumEnabled) { view().innerHTML = forumOffMsg(); return; }
-  if (!canForumView()) { view().innerHTML = noPerm(); return; }
-  catId = parseInt(catId, 10);
-  const cat = forumCatById(catId);
-  document.getElementById('screenTitle').textContent = cat ? cat.name : 'المنتدى';
-  showLoading(true);
-  let topics = [];
-  try { const { data } = await sb.from('mrahi_forum_topics').select('*').eq('category_id', catId).order('is_pinned', { ascending: false }).order('last_activity', { ascending: false }); topics = data || []; } catch (e) { toast('تعذّر تحميل المواضيع'); }
-  const likeMap = {};
-  try { const ids = topics.map(t => t.id); if (ids.length) { const { data } = await sb.from('mrahi_forum_likes').select('topic_id').in('topic_id', ids); (data || []).forEach(l => { likeMap[l.topic_id] = (likeMap[l.topic_id] || 0) + 1; }); } } catch (e) { /* تجاهل */ }
-  showLoading(false);
-  const topicRow = (t) => `<div class="card click topic-item" data-topic="${t.id}">
-      <div class="li-title">${t.is_pinned ? '<span class="ft-pin">📌</span>' : ''}${t.is_locked ? '<span class="ft-lock">🔒</span>' : ''}${esc(t.title)}</div>
-      <div class="li-sub">${esc(t.author_name || 'عضو')}${modBadge(catId, t.author_id)} • ${timeAgo(t.last_activity)}</div>
-      <div class="topic-meta"><span>💬 ${t.reply_count || 0}</span><span>👍 ${likeMap[t.id] || 0}</span><span>👁 ${t.view_count || 0}</span></div>
-    </div>`;
-  const draw = (list) => {
-    const box = document.getElementById('ftopics'); if (!box) return;
-    box.innerHTML = list.length ? list.map(topicRow).join('') : '<div class="center-empty">لا مواضيع في هذا القسم بعد. كن أول من يبدأ نقاشاً!</div>';
-    box.querySelectorAll('[data-topic]').forEach(c => c.addEventListener('click', () => setHash('#/forum-topic/' + c.dataset.topic)));
-  };
-  const mods = forumModsOf(catId);
-  const modsLine = mods.length ? `<div class="forum-mods">🛡️ مشرفو القسم: ${mods.map(m => esc(forumModName(m)) + ' (' + esc(m.title || 'مشرف') + ')').join('، ')}</div>` : '';
-  view().innerHTML = `${cat ? `<div class="muted" style="margin-bottom:8px">${esc(cat.icon || '')} ${esc(cat.description || '')}</div>` : ''}
-    ${modsLine}
-    <div class="search"><input id="fq" placeholder="ابحث في عناوين ومحتوى المواضيع"></div>
-    <div id="ftopics"></div>`;
-  draw(topics);
-  const fq = document.getElementById('fq');
-  fq.addEventListener('input', () => { const term = fq.value.trim().toLowerCase(); draw(!term ? topics : topics.filter(t => (t.title || '').toLowerCase().includes(term) || (t.body || '').toLowerCase().includes(term))); });
-  if (canCreateTopic(catId)) addFab('➕ موضوع جديد', () => forumTopicModal(catId, null));
-  setupForumRealtime('forum-cat-' + catId, [{ event: '*', table: 'mrahi_forum_topics', cb: () => { const q = document.getElementById('fq'); if (parseHash().name === 'forum-cat' && !(q && q.value.trim())) screenForumCategory(catId); } }]);
-}
-
-// كتلة ردّ واحد
-function postBlock(p, n, mine, canMod, canReply, depth) {
-  const own = p.author_id === me.user_id;
-  const ind = depth ? `margin-inline-start:${Math.min(depth, 5) * 16}px` : '';
-  const showEdit = (own && can('forum', 'edit')) || canMod;
-  const showDel = (own && can('forum', 'delete')) || canMod;
-  const hasManage = showEdit || showDel || canMod;
-  return `<div class="card post${p.is_answer ? ' answer' : ''}${p.is_hidden ? ' hidden-post' : ''}${depth ? ' nested' : ''}" data-post="${p.id}" style="${ind}">
-    ${p.is_answer ? '<div class="answer-tag">✅ إجابة معتمدة</div>' : ''}
-    ${p.is_hidden ? '<div class="hidden-tag">🚫 مخفية</div>' : ''}
-    <div class="post-head"><span class="pa-name">${esc(p.author_name || 'عضو')}${modBadge(curForumCat, p.author_id)}</span><span class="pa-time">${timeAgo(p.created_at)}${editedMark(p)}</span></div>
-    <div class="post-body">${fmtBody(p.body)}</div>
-    <div class="post-actions">
-      ${likeBtn('post_id', p.id, n, mine)}
-      ${canReply ? `<button class="btn sm outline" data-reply="${p.id}">↩︎ رد</button>` : ''}
-      ${hasManage ? `<button class="btn sm outline" data-mng aria-label="إدارة">⚙️</button>` : ''}
-    </div>
-    ${hasManage ? `<div class="manage-row hidden">
-      ${canMod ? `<button class="btn sm ${p.is_answer ? '' : 'outline'}" data-answer="${p.id}" data-cur="${p.is_answer ? '1' : '0'}">${p.is_answer ? 'إلغاء الاعتماد' : '✅ اعتماد كإجابة'}</button>` : ''}
-      ${canMod ? `<button class="btn sm outline" data-hide="${p.id}" data-cur="${p.is_hidden ? '1' : '0'}">${p.is_hidden ? '👁 إظهار' : '🙈 إخفاء'}</button>` : ''}
-      ${showEdit ? `<button class="btn sm outline" data-edit-post="${p.id}">✎ تعديل</button>` : ''}
-      ${showDel ? `<button class="btn sm danger" data-del-post="${p.id}">🗑 حذف</button>` : ''}
-    </div>` : ''}</div>`;
-}
-function bindReplyEvents(topicId, posts) {
-  const box = document.getElementById('freplies'); if (!box) return;
-  box.querySelectorAll('[data-lk]').forEach(b => b.addEventListener('click', () => { const [col, id] = b.dataset.lk.split(':'); forumToggleLike(col, id, b); }));
-  box.querySelectorAll('[data-mng]').forEach(b => b.addEventListener('click', () => { const row = b.closest('.post').querySelector('.manage-row'); if (row) row.classList.toggle('hidden'); b.classList.toggle('active'); }));
-  box.querySelectorAll('[data-reply]').forEach(b => b.addEventListener('click', () => forumReplyModal(topicId, parseInt(b.dataset.reply, 10), () => refreshReplies(topicId))));
-  box.querySelectorAll('[data-edit-post]').forEach(b => b.addEventListener('click', () => { const p = posts.find(x => String(x.id) === b.dataset.editPost); if (p) forumPostEditModal(p, () => refreshReplies(topicId)); }));
-  box.querySelectorAll('[data-answer]').forEach(b => b.addEventListener('click', async () => {
-    const cur = b.dataset.cur === '1';
-    const ok = await guard(async () => { const { error } = await sb.from('mrahi_forum_posts').update({ is_answer: !cur }).eq('id', b.dataset.answer); if (error) throw error; });
-    if (ok) { toast(cur ? 'أُلغي الاعتماد' : 'تم اعتماده كإجابة'); refreshReplies(topicId); }
-  }));
-  box.querySelectorAll('[data-hide]').forEach(b => b.addEventListener('click', async () => {
-    const cur = b.dataset.cur === '1';
-    const ok = await guard(async () => { const { error } = await sb.from('mrahi_forum_posts').update({ is_hidden: !cur }).eq('id', b.dataset.hide); if (error) throw error; });
-    if (ok) { toast(cur ? 'أُظهرت المشاركة' : 'أُخفيت المشاركة'); refreshReplies(topicId); }
-  }));
-  box.querySelectorAll('[data-del-post]').forEach(b => b.addEventListener('click', async () => {
-    if (!await confirm2('حذف هذا الرد وكل الردود المتفرّعة عنه؟')) return;
-    const ok = await guard(async () => { const { error } = await sb.from('mrahi_forum_posts').delete().eq('id', b.dataset.delPost); if (error) throw error; });
-    if (ok) { toast('تم الحذف'); refreshReplies(topicId); }
-  }));
-}
-async function refreshReplies(topicId) {
-  const box = document.getElementById('freplies'); if (!box) return;
-  let posts = [];
-  try { const { data } = await sb.from('mrahi_forum_posts').select('*').eq('topic_id', topicId).order('created_at', { ascending: true }); posts = data || []; } catch (e) { return; }
-  const postLikes = {}, myPostLikes = new Set();
-  try { const ids = posts.map(p => p.id); if (ids.length) { const { data } = await sb.from('mrahi_forum_likes').select('post_id,user_id').in('post_id', ids); (data || []).forEach(l => { postLikes[l.post_id] = (postLikes[l.post_id] || 0) + 1; if (l.user_id === me.user_id) myPostLikes.add(l.post_id); }); } } catch (e) { /* تجاهل */ }
-  const canMod = isForumMod(curForumCat);
-  const canModBtns = canMod && forumShowModTools;
-  const canReply = canForumAddIn(curForumCat) && (!curForumLocked || canMod);
-  // عرض شجري: كل رد يظهر متبوعاً بالردود المتفرّعة عنه مباشرة
-  const renderLevel = (parentId, depth) => posts.filter(p => (p.parent_id || null) === parentId)
-    .map(p => postBlock(p, postLikes[p.id] || 0, myPostLikes.has(p.id), canModBtns, canReply, depth) + renderLevel(p.id, depth + 1)).join('');
-  box.innerHTML = posts.length ? renderLevel(null, 0) : '<div class="muted" style="text-align:center;padding:10px">لا ردود بعد — كن أول من يردّ.</div>';
-  const rc = document.getElementById('rcount'); if (rc) rc.textContent = posts.length;
-  bindReplyEvents(topicId, posts);
-}
-
-// شاشة الموضوع: التفاصيل + الردود + التحديث اللحظي
-async function screenForumTopic(topicId) {
-  if (!forumEnabled) { view().innerHTML = forumOffMsg(); return; }
-  if (!canForumView()) { view().innerHTML = noPerm(); return; }
-  topicId = parseInt(topicId, 10);
-  showLoading(true);
-  let topic = null;
-  try { const { data } = await sb.from('mrahi_forum_topics').select('*').eq('id', topicId).maybeSingle(); topic = data; } catch (e) { /* تجاهل */ }
-  let topicLikes = 0, myTopicLike = false;
-  try { const { data } = await sb.from('mrahi_forum_likes').select('user_id').eq('topic_id', topicId); topicLikes = (data || []).length; myTopicLike = (data || []).some(l => l.user_id === me.user_id); } catch (e) { /* تجاهل */ }
-  showLoading(false);
-  if (!topic) { view().innerHTML = '<div class="center-empty">الموضوع غير موجود أو حُذف.</div>'; return; }
-  // احتساب مشاهدة الموضوع مرة واحدة لكل جلسة، وإلا نعرض العدد المحمَّل
-  if (!viewedTopics.has(topicId)) {
-    viewedTopics.add(topicId);
-    try { const { data } = await sb.rpc('mrahi_forum_topic_view', { p_topic_id: topicId }); if (typeof data === 'number') topic.view_count = data; } catch (e) { /* تجاهل */ }
-  }
-  curForumCat = topic.category_id;
-  curForumLocked = !!topic.is_locked;
-  const canMod = isForumMod(topic.category_id), mineTopic = topic.author_id === me.user_id;
-  const canModUI = canMod && forumShowModTools;
-  view().innerHTML = `
-    <div class="card topic-head">
-      <div class="th-title">${topic.is_pinned ? '📌 ' : ''}${topic.is_locked ? '🔒 ' : ''}${esc(topic.title)}</div>
-      <div class="li-sub">${esc(topic.author_name || 'عضو')}${modBadge(topic.category_id, topic.author_id)} • ${timeAgo(topic.created_at)}${editedMark(topic)} • ${esc(forumCatName(topic.category_id))} • 👁 ${topic.view_count || 0}</div>
-      ${topic.body ? `<div class="post-body">${fmtBody(topic.body)}</div>` : ''}
-      <div class="post-actions">
-        ${likeBtn('topic_id', topic.id, topicLikes, myTopicLike)}
-        ${(((mineTopic && can('forum', 'edit')) || (mineTopic && can('forum', 'delete')) || canModUI)) ? `<button class="btn sm outline" data-mng-topic>⚙️ إدارة</button>` : ''}
-      </div>
-      <div class="manage-row hidden" id="topicManage">
-        ${((mineTopic && can('forum', 'edit')) || canModUI) ? `<button class="btn sm outline" data-edit-topic>✎ تعديل</button>` : ''}
-        ${((mineTopic && can('forum', 'delete')) || canModUI) ? `<button class="btn sm danger" data-del-topic>🗑 حذف</button>` : ''}
-        ${canModUI ? `<button class="btn sm" data-pin>${topic.is_pinned ? 'إلغاء التثبيت' : '📌 تثبيت'}</button>` : ''}
-        ${canModUI ? `<button class="btn sm" data-lock>${topic.is_locked ? '🔓 فتح' : '🔒 إغلاق'}</button>` : ''}
-      </div>
-    </div>
-    <div class="forum-replies-h">الردود (<span id="rcount">${topic.reply_count || 0}</span>)</div>
-    <div id="freplies"></div>
-    ${forumBanned()
-      ? '<div class="center-empty" style="padding:18px">🚷 أنت محظور من المشاركة في المنتدى.</div>'
-      : (!canForumAddIn(topic.category_id)
-        ? ''
-        : (topic.is_locked && !canMod
-          ? '<div class="center-empty" style="padding:18px">🔒 هذا الموضوع مغلق ولا يقبل ردوداً جديدة.</div>'
-          : `<div class="card composer"><textarea id="freply" placeholder="اكتب ردّك..."></textarea><button class="btn" id="fsend">إرسال الرد</button></div>`))}`;
-  // أحداث مستوى الموضوع
-  const mt = view().querySelector('[data-mng-topic]'); if (mt) mt.addEventListener('click', () => { const r = document.getElementById('topicManage'); if (r) r.classList.toggle('hidden'); mt.classList.toggle('active'); });
-  const lk = view().querySelector('.topic-head [data-lk]'); if (lk) lk.addEventListener('click', () => { const [col, id] = lk.dataset.lk.split(':'); forumToggleLike(col, id, lk); });
-  const et = view().querySelector('[data-edit-topic]'); if (et) et.addEventListener('click', () => forumTopicModal(topic.category_id, topic));
-  const dt = view().querySelector('[data-del-topic]'); if (dt) dt.addEventListener('click', async () => {
-    if (!await confirm2('حذف الموضوع وكل ردوده نهائياً؟')) return;
-    const ok = await guard(async () => { const { error } = await sb.from('mrahi_forum_topics').delete().eq('id', topic.id); if (error) throw error; });
-    if (ok) { toast('تم الحذف'); setHash(topic.category_id ? '#/forum-cat/' + topic.category_id : '#/forum'); }
-  });
-  const pin = view().querySelector('[data-pin]'); if (pin) pin.addEventListener('click', async () => {
-    const ok = await guard(async () => { const { error } = await sb.from('mrahi_forum_topics').update({ is_pinned: !topic.is_pinned }).eq('id', topic.id); if (error) throw error; });
-    if (ok) { toast(topic.is_pinned ? 'أُلغي التثبيت' : 'تم التثبيت'); screenForumTopic(topicId); }
-  });
-  const lock = view().querySelector('[data-lock]'); if (lock) lock.addEventListener('click', async () => {
-    const ok = await guard(async () => { const { error } = await sb.from('mrahi_forum_topics').update({ is_locked: !topic.is_locked }).eq('id', topic.id); if (error) throw error; });
-    if (ok) { toast(topic.is_locked ? 'فُتح الموضوع' : 'أُغلق الموضوع'); screenForumTopic(topicId); }
-  });
-  const send = document.getElementById('fsend');
-  if (send) send.addEventListener('click', async () => {
-    const ta = document.getElementById('freply'); const body = ta.value.trim();
-    if (!body) { toast('اكتب ردّاً'); return; }
-    send.disabled = true;
-    const ok = await guard(async () => { const { error } = await sb.from('mrahi_forum_posts').insert({ topic_id: topicId, body, author_id: me.user_id, author_name: me.full_name || '' }); if (error) throw error; });
-    send.disabled = false;
-    if (ok) { ta.value = ''; refreshReplies(topicId); }
-  });
-  await refreshReplies(topicId);
-  // تحديث لحظي للردود
-  setupForumRealtime('forum-topic-' + topicId, [{ event: '*', table: 'mrahi_forum_posts', filter: 'topic_id=eq.' + topicId, cb: () => { if (parseHash().name === 'forum-topic') refreshReplies(topicId); } }]);
-}
-
-// مودالات المنتدى
-function forumTopicModal(catId, t) {
-  const cats = (C.forumCats || []).map(c => ({ k: String(c.id), ar: c.name }));
-  openModal(t ? 'تعديل الموضوع' : 'موضوع جديد', `
-    ${fSelect('القسم', 'ft_cat', cats, String(t ? t.category_id : catId))}
-    ${fInput('العنوان', 'ft_title', t && t.title)}
-    ${fTextarea('المحتوى', 'ft_body', t && t.body)}
-    <button class="btn" id="ft_save" style="margin-top:6px">${t ? 'حفظ' : 'نشر الموضوع'}</button>`, () => {
-    document.getElementById('ft_save').addEventListener('click', async () => {
-      const category_id = parseInt(val('ft_cat'), 10) || null;
-      const title = val('ft_title').trim(), body = val('ft_body').trim();
-      if (!title) { toast('أدخل العنوان'); return; }
-      const ok = await guard(async () => {
-        if (t) { const { error } = await sb.from('mrahi_forum_topics').update({ title, body, category_id, updated_at: new Date().toISOString() }).eq('id', t.id); if (error) throw error; }
-        else { const { error } = await sb.from('mrahi_forum_topics').insert({ title, body, category_id, author_id: me.user_id, author_name: me.full_name || '' }); if (error) throw error; }
-      });
-      if (ok) { closeModal(); toast(t ? 'تم الحفظ' : 'تم نشر الموضوع'); if (t) screenForumTopic(t.id); else setHash('#/forum-cat/' + category_id); }
-    });
-  });
-}
-// الرد على مشاركة معيّنة (يظهر متداخلاً تحتها مباشرة)
-function forumReplyModal(topicId, parentId, after) {
-  openModal('رد على المشاركة', `${fTextarea('ردّك أو توضيحك', 'fr_body', '')}<button class="btn" id="fr_save" style="margin-top:6px">إرسال الرد</button>`, () => {
-    document.getElementById('fr_save').addEventListener('click', async () => {
-      const body = val('fr_body').trim(); if (!body) { toast('اكتب ردّاً'); return; }
-      const ok = await guard(async () => { const { error } = await sb.from('mrahi_forum_posts').insert({ topic_id: topicId, parent_id: parentId, body, author_id: me.user_id, author_name: me.full_name || '' }); if (error) throw error; });
-      if (ok) { closeModal(); toast('تم إرسال الرد'); if (after) after(); }
-    });
-  });
-}
-function forumPostEditModal(p, after) {
-  openModal('تعديل الرد', `${fTextarea('المحتوى', 'fp_body', p.body)}<button class="btn" id="fp_save" style="margin-top:6px">حفظ</button>`, () => {
-    document.getElementById('fp_save').addEventListener('click', async () => {
-      const body = val('fp_body').trim(); if (!body) { toast('اكتب المحتوى'); return; }
-      const ok = await guard(async () => { const { error } = await sb.from('mrahi_forum_posts').update({ body, updated_at: new Date().toISOString() }).eq('id', p.id); if (error) throw error; });
-      if (ok) { closeModal(); toast('تم الحفظ'); if (after) after(); }
-    });
-  });
-}
-function forumCatModal(c) {
-  openModal(c ? 'تعديل القسم' : 'قسم جديد', `
-    ${fInput('الاسم', 'fc_name', c && c.name)}
-    ${fInput('الأيقونة (إيموجي)', 'fc_icon', c ? c.icon : '💬')}
-    ${fInput('الوصف', 'fc_desc', c && c.description)}
-    ${fInput('الترتيب', 'fc_sort', c ? c.sort : 0, 'number')}
-    <button class="btn" id="fc_save" style="margin-top:6px">حفظ</button>
-    ${c ? '<button class="btn danger" id="fc_del" style="margin-top:8px">حذف القسم</button>' : ''}`, () => {
-    document.getElementById('fc_save').addEventListener('click', async () => {
-      const name = val('fc_name').trim(); if (!name) { toast('أدخل الاسم'); return; }
-      const obj = { name, icon: val('fc_icon').trim() || '💬', description: val('fc_desc').trim(), sort: num('fc_sort') };
-      const ok = await guard(async () => { if (c) { const { error } = await sb.from('mrahi_forum_categories').update(obj).eq('id', c.id); if (error) throw error; } else { const { error } = await sb.from('mrahi_forum_categories').insert(obj); if (error) throw error; } });
-      if (ok) { closeModal(); toast('تم الحفظ'); await loadAll(); (parseHash().name === 'forum-admin' ? screenForumAdmin() : screenForum()); }
-    });
-    const del = document.getElementById('fc_del');
-    if (del) del.addEventListener('click', async () => {
-      if (!await confirm2('حذف القسم؟ ستبقى مواضيعه لكن بلا قسم.')) return;
-      const ok = await guard(async () => { const { error } = await sb.from('mrahi_forum_categories').delete().eq('id', c.id); if (error) throw error; });
-      if (ok) { closeModal(); toast('تم الحذف'); await loadAll(); (parseHash().name === 'forum-admin' ? screenForumAdmin() : screenForum()); }
-    });
-  });
-}
-
-// تحديث الشاشة المناسبة بعد تعديل المشرفين
-function forumModsRefresh(catId) { const n = parseHash().name; if (n === 'forum-admin') screenForumAdmin(); else if (n === 'forum-cat') screenForumCategory(catId); }
-// إدارة مشرفي قسم (للمدير): تعيين عضو مشرفاً مع تعريف، وإزالته
-function forumModsModal(catId) {
-  const mods = forumModsOf(catId);
-  const candidates = (C.members || []).filter(m => m.is_active).map(m => ({ k: m.user_id, ar: (m.full_name || m.username || 'عضو') + (m.username ? ' (@' + m.username + ')' : '') }));
-  openModal('مشرفو القسم', `
-    <div class="muted" style="margin-bottom:8px">المشرف يستطيع تثبيت/إغلاق المواضيع وحذف/تعديل أي محتوى داخل هذا القسم فقط، ويظهر تعريفه بجانب اسمه.</div>
-    <div id="fmodlist">${mods.length ? mods.map(m => `<div class="fmod-row"><span>${esc(forumModName(m))} <span class="badge mod">🛡️ ${esc(m.title || 'مشرف')}</span></span><button class="btn sm danger" data-rmmod="${m.id}">إزالة</button></div>`).join('') : '<div class="muted">لا مشرفين بعد.</div>'}</div>
-    <hr style="border:none;border-top:1px solid #eee;margin:12px 0">
-    <div class="li-title sm" style="margin-bottom:6px">➕ تعيين مشرف</div>
-    ${fSelect('العضو', 'fm_user', candidates, '', '— اختر عضواً —')}
-    ${fInput('التعريف (مثل: بيطري، مربي، خبير أعلاف)', 'fm_title', '')}
-    <button class="btn" id="fm_add" style="margin-top:6px">تعيين مشرفاً</button>`, () => {
-    document.getElementById('fm_add').addEventListener('click', async () => {
-      const uid = val('fm_user'), title = val('fm_title').trim();
-      if (!uid) { toast('اختر العضو'); return; }
-      const mm = (C.members || []).find(x => x.user_id === uid);
-      const member_name = mm ? (mm.full_name || mm.username || '') : '';
-      const ok = await guard(async () => { const { error } = await sb.from('mrahi_forum_moderators').upsert({ category_id: catId, user_id: uid, title, member_name }, { onConflict: 'category_id,user_id' }); if (error) throw error; });
-      if (ok) { closeModal(); toast('تم التعيين'); await loadAll(); forumModsRefresh(catId); }
-    });
-    document.querySelectorAll('[data-rmmod]').forEach(b => b.addEventListener('click', async () => {
-      if (!await confirm2('إزالة هذا المشرف؟')) return;
-      const ok = await guard(async () => { const { error } = await sb.from('mrahi_forum_moderators').delete().eq('id', b.dataset.rmmod); if (error) throw error; });
-      if (ok) { closeModal(); toast('تمت الإزالة'); await loadAll(); forumModsRefresh(catId); }
-    }));
-  });
-}
-
 /* ===== المودال ===== */
 function openModal(title, body, onMount) {
   const root = document.getElementById('modalRoot');
@@ -3577,23 +2807,11 @@ function showAppIcon() {
 const noPerm = () => '<div class="center-empty">ليست لديك صلاحية الوصول لهذا القسم.<br>راجع مدير النظام.</div>';
 
 /* ===== شاشة بانتظار التفعيل ===== */
-function renderPending() {
-  document.getElementById('screenTitle').textContent = 'حلالي';
-  document.getElementById('backBtn').classList.add('hidden');
-  document.getElementById('bottomnav').innerHTML = '';
-  document.querySelectorAll('.fab').forEach(f => f.remove());
-  view().innerHTML = `<div class="center-empty"><div style="font-size:3rem">⏳</div>
-    <h3>حسابك بانتظار موافقة المدير</h3>
-    <p class="muted">تم إنشاء حسابك كـ«صاحب حلال». بمجرّد موافقة المدير ستتمكّن من الدخول وإدارة حلالك الخاص. أعد تسجيل الدخول بعد التفعيل.</p>
-    <div class="muted">${esc((me && me.full_name) || '')}</div></div>`;
-}
-
 /* ===== المصادقة ===== */
 function buildNav() {
   const tabs = [['#/home', '🏠', 'الرئيسية']];
   if (can('animals', 'view')) tabs.push(['#/animals', '🐑', 'الحلال']);
   if (can('animals', 'view')) tabs.push(['#/finance', '💰', 'الميزانية']);
-  if (!window.MRAH_LOCAL && forumEnabled && canForumView()) tabs.push(['#/forum', '💬', 'المنتدى']);
   if (can('animals', 'view') || can('breeding', 'view') || can('vaccines', 'view') || can('treatments', 'view')) tabs.push(['#/alerts', '🔔', 'التنبيهات']);
   tabs.push(['#/more', '☰', 'المزيد']);
   const nav = document.getElementById('bottomnav');
@@ -3618,179 +2836,6 @@ function pinField(label, id) {
   </div>`;
 }
 
-function renderAuth() {
-  document.getElementById('app').classList.add('hidden');
-  const box = document.getElementById('auth'); box.classList.remove('hidden');
-  let mode = 'signin';
-  let acctType = 'owner';   // نوع الحساب عند التسجيل: صاحب حلال / زائر
-  function draw() {
-    const typeSel = `
-      <div class="acct-type">
-        <button type="button" id="ty_owner" class="${acctType === 'owner' ? 'active' : ''}">🐑 صاحب حلال</button>
-        <button type="button" id="ty_visitor" class="${acctType === 'visitor' ? 'active' : ''}">👤 زائر</button>
-      </div>
-      <div class="muted acct-hint">${acctType === 'owner'
-        ? 'تدير حلالك الخاص (بهائمك، تلقيحك، تطعيماتك…) بخصوصية تامة. يُفعّل حسابك بعد موافقة المدير.'
-        : 'تتصفّح وتشارك في المنتدى والنصائح. الدخول فوري بلا انتظار، دون إدارة حلال.'}</div>`;
-    box.innerHTML = `<div class="auth-box">
-      <div class="logo">🐪</div><h2>حلالي</h2><div class="sub">إدارة الحلال — دخول الفريق</div>
-      <div class="auth-tabs"><button id="t_in" class="${mode === 'signin' ? 'active' : ''}">دخول</button>${signupOpen ? `<button id="t_up" class="${mode === 'signup' ? 'active' : ''}">حساب جديد</button>` : ''}</div>
-      ${signupOpen ? '' : '<div class="muted" style="text-align:center;font-size:.85rem;margin:-4px 0 8px">التسجيل مغلق حالياً. راجع مدير النظام.</div>'}
-      ${mode === 'signup'
-        ? typeSel +
-          fInput('الاسم', 'a_name', '') +
-          fInput('رقم الجوال', 'a_phone', '', 'tel', 'inputmode="tel"') +
-          fInput('اسم المستخدم (اختياري)', 'a_user', '', 'text', 'autocomplete="off"') +
-          pinField('الرقم السري (٤ أرقام)', 'a_pin')
-        : fInput('الجوال أو اسم المستخدم', 'a_id', '') +
-          pinField('الرقم السري (٤ أرقام)', 'a_pin')}
-      <button class="btn" id="a_submit">${mode === 'signin' ? 'تسجيل الدخول' : 'إنشاء حساب'}</button>
-      <div class="auth-msg" id="a_msg"></div></div>`;
-    document.getElementById('t_in').addEventListener('click', () => { mode = 'signin'; draw(); });
-    { const up = document.getElementById('t_up'); if (up) up.addEventListener('click', () => { mode = 'signup'; draw(); }); }
-    { const o = document.getElementById('ty_owner'); if (o) o.addEventListener('click', () => { acctType = 'owner'; draw(); }); }
-    { const z = document.getElementById('ty_visitor'); if (z) z.addEventListener('click', () => { acctType = 'visitor'; draw(); }); }
-    if (!signupOpen && mode === 'signup') { mode = 'signin'; }
-    document.getElementById('a_submit').addEventListener('click', submit);
-    box.querySelectorAll('.eye').forEach(b => b.addEventListener('click', () => {
-      const inp = document.getElementById(b.dataset.eye);
-      const show = inp.type === 'password';
-      inp.type = show ? 'text' : 'password';
-      b.textContent = show ? '🙈' : '👁';
-    }));
-    box.querySelectorAll('input').forEach(inp => inp.addEventListener('keydown', e => { if (e.key === 'Enter') submit(); }));
-  }
-  async function submit() {
-    const msg = document.getElementById('a_msg'); msg.className = 'auth-msg';
-    const pin = val('a_pin').trim();
-    if (!PIN_RE.test(pin)) { msg.classList.add('err'); msg.textContent = 'الرقم السري يجب أن يكون ٤ أرقام'; return; }
-    msg.textContent = '… لحظة';
-    try {
-      if (mode === 'signin') {
-        const ident = val('a_id').trim();
-        if (!ident) { msg.classList.add('err'); msg.textContent = 'أدخل الجوال أو اسم المستخدم'; return; }
-        // المُعرّف قد يكون جوالاً أو اسم مستخدم → حوّله إلى البريد الداخلي
-        const digits = normPhone(ident);
-        const { data: email } = await sb.rpc('mrahi_resolve_login', { ident: digits || ident });
-        const loginEmail = email || (digits ? phoneToEmail(digits) : null);
-        if (!loginEmail) { msg.classList.add('err'); msg.textContent = 'بيانات الدخول غير صحيحة'; return; }
-        const { error } = await sb.auth.signInWithPassword({ email: loginEmail, password: pinToPass(pin) });
-        if (error) throw error;
-      } else {
-        const full_name = val('a_name').trim();
-        const phone = normPhone(val('a_phone'));
-        const username = val('a_user').trim();
-        if (!full_name) { msg.classList.add('err'); msg.textContent = 'أدخل الاسم'; return; }
-        if (phone.length < 7) { msg.classList.add('err'); msg.textContent = 'أدخل رقم جوال صحيح'; return; }
-        const { data, error } = await sb.auth.signUp({
-          email: phoneToEmail(phone), password: pinToPass(pin),
-          options: { data: { full_name, username, phone, app: 'mrahi', account_type: acctType } },
-        });
-        if (error) throw error;
-        // الزائر: دخول فوري. صاحب الحلال: بانتظار موافقة المدير.
-        if (!data.session) {
-          msg.classList.add('ok');
-          msg.textContent = acctType === 'visitor'
-            ? 'تم إنشاء حساب الزائر. سجّل الدخول للمشاركة في المنتدى.'
-            : 'تم إنشاء حسابك كصاحب حلال. ينتظر موافقة المدير، ثم سجّل الدخول.';
-          mode = 'signin'; return;
-        }
-      }
-    } catch (e) {
-      msg.classList.add('err'); msg.textContent = translateAuthError(e.message);
-    }
-  }
-  draw();
-}
-function translateAuthError(m) {
-  if (/Invalid login/i.test(m)) return 'بيانات الدخول غير صحيحة';
-  if (/already registered/i.test(m)) return 'رقم الجوال مسجّل مسبقاً';
-  if (/duplicate key|unique constraint/i.test(m)) return 'الجوال أو اسم المستخدم مستخدم مسبقاً';
-  if (/Database error saving/i.test(m)) return 'الجوال أو اسم المستخدم مستخدم مسبقاً';
-  if (/Password should be at least/i.test(m)) return 'الرقم السري قصير';
-  if (/Email not confirmed/i.test(m)) return 'أوقِف «تأكيد البريد» في إعدادات Supabase';
-  return m;
-}
-
-async function enterApp(session) {
-  document.getElementById('auth').classList.add('hidden');
-  document.getElementById('app').classList.remove('hidden');
-  showLoading(true);
-  // تحميل صف العضو الحالي
-  const { data: mem } = await sb.from('mrahi_members').select('*').eq('user_id', session.user.id).maybeSingle();
-  me = mem || { user_id: session.user.id, full_name: '', role: 'member', is_active: false, perms: {}, is_sysadmin: false, account_type: 'owner' };
-  buildNav();   // بعد تحميل الصلاحيات حتى يظهر تبويب المنتدى حسبها
-  if (!me.is_active) { showLoading(false); renderPending(); return; }
-  try { await loadAll(); } catch (e) { toast('خطأ تحميل: ' + e.message); }
-  // احتساب زيارة الموقع مرة واحدة لكل تحميل صفحة (لا يتكرر مع تجديد الجلسة)
-  if (!siteVisitCounted) {
-    siteVisitCounted = true;
-    try { const { data } = await sb.rpc('mrahi_site_visit'); if (typeof data === 'number') siteVisits = data; } catch (e) { /* تجاهل */ }
-  }
-  buildNav();   // إعادة البناء بعد تحميل إعدادات المنتدى (التفعيل/التعطيل)
-  showLoading(false);
-  if (!location.hash) location.hash = '#/home';
-  render();
-}
-
-/* ===== التهيئة ===== */
-function configMissing() {
-  const c = window.MRAH_CONFIG || {};
-  return !c.SUPABASE_URL || c.SUPABASE_URL.includes('YOUR_PROJECT') || !c.SUPABASE_ANON_KEY || c.SUPABASE_ANON_KEY.includes('YOUR_');
-}
-function showSetup() {
-  showLoading(false);
-  document.getElementById('app').classList.add('hidden');
-  const box = document.getElementById('auth'); box.classList.remove('hidden');
-  box.innerHTML = `<div class="auth-box"><div class="logo">⚙️</div><h2>إعداد مطلوب</h2>
-    <p class="sub">افتح ملف <b>config.js</b> وضع رابط مشروع Supabase والمفتاح العام (anon key)، ثم أعد التحميل.</p>
-    <p class="muted" style="font-size:.85rem">ونفّذ ملف <b>schema.sql</b> في Supabase → SQL Editor لإنشاء الجداول والصلاحيات.</p></div>`;
-}
-
-// ===== اختيار قاعدة البيانات (في تطبيق الأندرويد) =====
-// يحفظ الاختيار محلياً: 'local' (هذا الجهاز فقط) أو 'cloud' (Supabase مشترك + عنوانه ومفتاحه).
-const BK = {
-  get: () => { try { return localStorage.getItem('mrahi_backend'); } catch (e) { return null; } },
-  set: (v) => { try { localStorage.setItem('mrahi_backend', v); } catch (e) {} },
-  cloud: () => { try { return { url: localStorage.getItem('mrahi_cloud_url') || '', key: localStorage.getItem('mrahi_cloud_key') || '' }; } catch (e) { return { url: '', key: '' }; } },
-  saveCloud: (url, key) => { try { localStorage.setItem('mrahi_cloud_url', url); localStorage.setItem('mrahi_cloud_key', key); } catch (e) {} },
-  reset: () => { try { ['mrahi_backend', 'mrahi_cloud_url', 'mrahi_cloud_key'].forEach(k => localStorage.removeItem(k)); } catch (e) {} },
-};
-
-// شاشة الإعداد أول مرة: محلي أو مشترك
-function renderBackendChooser() {
-  showLoading(false);
-  document.getElementById('app').classList.add('hidden');
-  const box = document.getElementById('auth'); box.classList.remove('hidden');
-  box.innerHTML = `<div class="auth-box">
-    <div class="logo">🐪</div><h2>حلالي</h2><div class="sub">اختر مكان حفظ بياناتك</div>
-    <button class="btn" id="bk_local">📵 محلي على هذا الجهاز<br><span style="font-weight:400;font-size:.8rem;opacity:.85">يعمل بلا إنترنت • بياناتك على جوالك فقط • بلا تسجيل دخول</span></button>
-    <button class="btn outline" id="bk_cloud" style="margin-top:10px">☁️ مشترك (عدّة مستخدمين)<br><span style="font-weight:400;font-size:.8rem;opacity:.85">قاعدة Supabase واحدة • تسجيل دخول وصلاحيات • يحدّدها المدير</span></button>
-    <div id="bk_cloud_form" class="hidden" style="margin-top:14px;text-align:right">
-      <div class="muted" style="font-size:.82rem;margin-bottom:8px">أدخل بيانات مشروع Supabase (من المدير). تُحفظ على هذا الجهاز.</div>
-      ${fInput('عنوان المشروع (Project URL)', 'bk_url', '', 'url', 'placeholder="https://xxxx.supabase.co" inputmode="url" autocomplete="off"')}
-      ${fInput('المفتاح العام (anon key)', 'bk_key', '', 'text', 'placeholder="eyJ..." autocomplete="off"')}
-      <button class="btn" id="bk_connect">اتصال</button>
-      <div class="auth-msg" id="bk_msg"></div>
-    </div>
-  </div>`;
-  document.getElementById('bk_local').addEventListener('click', () => { BK.set('local'); startLocalMode(); });
-  document.getElementById('bk_cloud').addEventListener('click', () => {
-    document.getElementById('bk_cloud_form').classList.remove('hidden');
-    document.getElementById('bk_url').focus();
-  });
-  document.getElementById('bk_connect').addEventListener('click', () => {
-    const msg = document.getElementById('bk_msg'); msg.className = 'auth-msg';
-    const url = val('bk_url').trim().replace(/\/+$/, '');
-    const key = val('bk_key').trim();
-    if (!/^https:\/\/.+\.supabase\.co$/i.test(url)) { msg.classList.add('err'); msg.textContent = 'عنوان المشروع غير صحيح (مثال: https://xxxx.supabase.co)'; return; }
-    if (key.length < 20) { msg.classList.add('err'); msg.textContent = 'المفتاح العام غير صحيح'; return; }
-    BK.saveCloud(url, key); BK.set('cloud');
-    window.MRAH_CONFIG = { SUPABASE_URL: url, SUPABASE_ANON_KEY: key };
-    startCloudMode();
-  });
-}
-
 // الوضع المحلي: قاعدة بيانات محلية، مستخدم واحد، بلا تسجيل دخول
 async function startLocalMode() {
   window.MRAH_LOCAL = true;
@@ -3798,7 +2843,6 @@ async function startLocalMode() {
   sb = window.createMrahLocalClient();
   document.getElementById('signoutBtn').classList.add('hidden');
   me = { user_id: 'local', full_name: '', role: 'admin', is_active: true, is_sysadmin: true, perms: {}, account_type: 'owner' };
-  forumEnabled = false; signupOpen = false;
   document.getElementById('app').classList.remove('hidden');
   showLoading(true);
   try { await loadAll(); } catch (e) { toast('خطأ تحميل: ' + e.message); }
@@ -3806,30 +2850,6 @@ async function startLocalMode() {
   showLoading(false);
   if (!location.hash) location.hash = '#/home';
   render();
-}
-
-// الوضع السحابي: Supabase + مصادقة الفريق (الويب، أو التطبيق المشترك)
-async function startCloudMode() {
-  window.MRAH_LOCAL = false;
-  sb = window.supabase.createClient(window.MRAH_CONFIG.SUPABASE_URL, window.MRAH_CONFIG.SUPABASE_ANON_KEY);
-  document.getElementById('signoutBtn').classList.remove('hidden');
-  document.getElementById('signoutBtn').addEventListener('click', async () => { await sb.auth.signOut(); });
-  sb.auth.onAuthStateChange((event, session) => {
-    if (session && session.user) { enterApp(session); }
-    else { me = null; renderAuth(); }
-  });
-  await loadSignupOpen();
-  const { data: { session } } = await sb.auth.getSession();
-  if (session && session.user) await enterApp(session); else { showLoading(false); renderAuth(); }
-}
-
-// تبديل وضع القاعدة لاحقاً (من شاشة «المزيد» في التطبيق)
-async function switchBackend() {
-  if (!await confirm2('تغيير وضع قاعدة البيانات؟ سيُعاد تشغيل التطبيق لتختار من جديد. (لن تُحذف بياناتك المحلية أو السحابية)')) return;
-  if (window.MRAH_LOCAL === false && sb && sb.auth) { try { await sb.auth.signOut(); } catch (e) {} }
-  BK.reset();
-  location.hash = '';
-  location.reload();
 }
 
 // ===== بوابة التفعيل (ترخيص مربوط بالجهاز) =====
@@ -3879,21 +2899,13 @@ async function init() {
   window.addEventListener('freeze', releaseMedia);   // WebView bfcache
   try { const P = window.Capacitor && window.Capacitor.Plugins; if (P && P.App && P.App.addListener) P.App.addListener('appStateChange', s => { if (s && s.isActive === false) releaseMedia(); }); } catch (e) {}
 
-  // تطبيق الأندرويد (APK): بوابة التفعيل أولاً (ترخيص مربوط بالجهاز)
-  if (window.MRAH_APK) {
-    if (window.MrahiLicense) { const s = window.MrahiLicense.state().state; if (s !== 'active' && s !== 'disabled') { renderLicenseGate(); return; } }
-    // محلي افتراضياً (الوضع المشترك مخفي) — يُحترم من اختار «مشترك» سابقاً فقط
-    const choice = BK.get();
-    if (choice === 'cloud') {
-      const c = BK.cloud();
-      if (c.url && c.key) { window.MRAH_CONFIG = { SUPABASE_URL: c.url, SUPABASE_ANON_KEY: c.key }; startCloudMode(); return; }
-    }
-    BK.set('local'); startLocalMode(); return;
+  // بوابة التفعيل أولاً (ترخيص مربوط بالجهاز) في تطبيق الأندرويد
+  if (window.MRAH_APK && window.MrahiLicense) {
+    const s = window.MrahiLicense.state().state;
+    if (s !== 'active' && s !== 'disabled') { renderLicenseGate(); return; }
   }
-
-  // الويب: Supabase عبر config.js
-  if (configMissing()) { showSetup(); return; }
-  startCloudMode();
+  // التطبيق محلي بالكامل — قاعدة بيانات على الجهاز (IndexedDB)، بلا إنترنت ولا خادم
+  startLocalMode();
 }
 
 init();
