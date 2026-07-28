@@ -734,6 +734,8 @@ let animalFilter = '';
 function loadFilterArr(k, def) { try { const v = JSON.parse(localStorage.getItem(k)); return Array.isArray(v) ? v : def; } catch (e) { return def; } }
 function saveAnimalFilters() { try { localStorage.setItem('mrahi_f_status', JSON.stringify(animalStatusSel)); localStorage.setItem('mrahi_f_source', JSON.stringify(animalSourceSel)); localStorage.setItem('mrahi_f_sex', JSON.stringify(animalSexSel)); } catch (e) {} }
 function toggleSel(arr, v) { const i = arr.indexOf(v); if (i >= 0) arr.splice(i, 1); else arr.push(v); }
+// السجل المختار في شاشة سجل البهيمة (النسب/الإنجاب/المرضي/العلاجات/التطعيمات)
+let animalRecTab = 'lineage';
 // مرشّحات العرض: اختيار متعدّد؛ مصفوفة فارغة = الكل. تُحفظ آخر اختيار.
 let animalStatusSel = loadFilterArr('mrahi_f_status', ['present']);   // 'present'|'sold'|'dead'
 let animalSourceSel = loadFilterArr('mrahi_f_source', []);            // 'born'|'purchased'|'sale'
@@ -1067,6 +1069,67 @@ function screenAnimalDetail(arg) {
       ${withItems.length ? `<span class="badge off">⛔ تحت التحريم حتى ${fmtDate(withItems[0].withdrawal_end)}</span>` : ''}
       ${a.status !== 'present' ? `<span class="badge ${a.status === 'sold' ? 'sold' : a.status === 'dead' ? 'dead' : ''}">${arOf(STATUS, a.status)}</span>` : ''}
     </div>`;
+  const breedingAge = (!a.birth || !pubertyOf(a.type) || ageMonths(a.birth) >= pubertyOf(a.type));
+  // ===== كفاءة الإنجاب (تُحتسب من النتاج والتلقيح) =====
+  const birthDates = Array.from(new Set(offspring.map(o => o.birth).filter(Boolean))).sort();
+  const parities = birthDates.length;                                  // عدد الولادات (تواريخ ميلاد مختلفة)
+  const avgLitter = parities ? Math.round((offspring.length / parities) * 10) / 10 : 0;
+  let intervalMonths = null;
+  if (birthDates.length >= 2) {
+    let sum = 0;
+    for (let i = 1; i < birthDates.length; i++) { const d1 = new Date(birthDates[i - 1] + 'T00:00:00'), d2 = new Date(birthDates[i] + 'T00:00:00'); sum += (d2 - d1) / 86400000; }
+    intervalMonths = Math.round((sum / (birthDates.length - 1)) / 30.4);
+  }
+  const lastBirth = birthDates.length ? birthDates[birthDates.length - 1] : null;
+  const fertilityPct = matings.length ? Math.round((parities / matings.length) * 100) : null;
+  const offStats = offspring.length ? `<div class="muted" style="margin:2px 0 6px;font-size:.85rem">🟢 في الحظيرة ${offspring.filter(o => o.status === 'present').length} • 💰 مباعة ${offspring.filter(o => o.status === 'sold').length} • 📉 نافقة ${offspring.filter(o => o.status === 'dead').length} • 🎁 اهداء ${offspring.filter(o => o.status === 'given').length}</div>` : '';
+  const offList = offspring.length ? offspring.map(o => { const ic = { present: '🟢', sold: '💰', dead: '📉', given: '🎁' }[o.status] || ''; return `<div class="card click" data-aid="${o.id}" style="margin:6px 0"><div class="li-title">${display(o)}</div><div class="li-sub">${esc(sexTerm(o))} • ${fmtDate(o.birth)} • ${ic} ${arOf(STATUS, o.status)}</div></div>`; }).join('') : noItem();
+
+  // ===== محتوى كل سجل =====
+  const REC = {};
+  REC.lineage = `<div class="card"><h3>🌳 النسب</h3>
+      ${row('الأم', mother ? display(mother) : '—')}
+      ${row('الأب / الفحل', esc(a.father_name) || '—')}
+      ${a.notes ? row('ملاحظات', esc(a.notes)) : ''}</div>
+    <div class="card"><h3>👶 النتاج (${offspring.length})</h3>
+      ${offStats}
+      ${can('animals', 'edit') && a.sex === 'female' && breedingAge ? `<button class="btn outline" id="addOffspring">➕ إضافة مواليد (نتاج)</button>` : ''}
+      ${offList}</div>`;
+  REC.repro = `<div class="card"><h3>📊 كفاءة الإنجاب</h3>
+      ${row('عدد الولادات', String(parities))}
+      ${row('إجمالي المواليد', String(offspring.length))}
+      ${parities ? row('متوسط المواليد لكل ولادة', String(avgLitter)) : ''}
+      ${intervalMonths != null ? row('متوسط الفترة بين الولادات', intervalMonths + ' شهر تقريباً') : ''}
+      ${fertilityPct != null ? row('معدل الإخصاب', fertilityPct + '% (' + parities + ' ولادة ÷ ' + matings.length + ' تلقيح)') : ''}
+      ${lastBirth ? row('آخر ولادة', fmtDate(lastBirth)) : ''}
+      ${monPreg ? row('الحمل الحالي', 'ولادة متوقّعة ' + fmtDate(monPreg.expected)) : ''}
+      ${!parities && !matings.length ? noItem() : ''}</div>
+    ${a.sex === 'female' && breedingAge ? `<div class="card"><h3>🤰 التلقيح والحمل (${matings.length})</h3>
+      ${can('breeding', 'edit') ? `<button class="btn outline" id="addMating">إضافة تلقيح / متابعة حمل</button>` : ''}
+      ${can('breeding', 'edit') && a.status === 'present' ? `<button class="btn outline" id="addSonar" style="margin-top:6px">🔊 فحص حمل بالسونار</button>` : ''}
+      ${matings.map(m => row('تلقيح ' + fmtDate(m.date), 'الفحل: ' + (esc(m.sire_name) || esc(m.sire_code) || '—'))).join('')}
+      ${pregs.map(p => row('حمل (' + arOf(PREG, p.status) + ')' + (p.confirmed ? ' 🔊' : ''), 'الولادة التقريبية ' + fmtDate(p.expected) + ' • مدة الحمل ' + p.gest + ' يوم')).join('')}
+      ${!matings.length && !pregs.length ? noItem() : ''}</div>` : ''}`;
+  REC.medical = `<div class="card"><h3>🩺 السجل المرضي (${treats.length})</h3>
+      <div class="muted" style="font-size:.82rem;margin-bottom:6px">الحالات التي أصابت البهيمة (مصدرها سجل العلاجات).</div>
+      ${treats.length ? treats.map(t => row((t.treatment_type ? esc(t.treatment_type) : (t.med_name ? esc(t.med_name) : 'حالة')) + ' — ' + fmtDate(t.date), [t.action ? 'الإجراء: ' + esc(t.action) : '', t.notes ? esc(t.notes) : ''].filter(Boolean).join(' • ') || '—')).join('') : noItem()}</div>`;
+  REC.treat = `<div class="card"><h3>💊 سجل العلاجات (${treats.length})</h3>
+      ${can('treatments', 'edit') ? `<button class="btn outline" id="addTreat">إعطاء علاج</button>` : ''}
+      ${treats.length ? treats.map(t => row(esc(t.med_name || '') + ' (' + fmtDate(t.date) + ')', 'تحريم حتى ' + fmtDate(t.withdrawal_end) + (t.next_due ? ' • جرعة قادمة ' + fmtDate(t.next_due) : ''))).join('') : noItem()}</div>`;
+  REC.vacc = `<div class="card"><h3>💉 سجل التطعيمات (${vaccs.length})</h3>
+      ${can('vaccines', 'edit') ? `<button class="btn outline" id="addVacc">إعطاء تطعيم</button>` : ''}
+      ${vaccs.length ? vaccs.map(v => row(fmtDate(v.date) + ' — ' + vtName(v.type_id), 'تحريم حتى ' + fmtDate(v.withdrawal_end))).join('') : noItem()}</div>`;
+
+  // ===== شرائح اختيار السجل =====
+  const recTabs = [];
+  if (can('animals', 'view')) recTabs.push({ k: 'lineage', ar: '🌳 النسب' });
+  if (can('breeding', 'view')) recTabs.push({ k: 'repro', ar: '🤰 الإنجاب' });
+  if (can('treatments', 'view')) recTabs.push({ k: 'medical', ar: '🩺 المرضي' });
+  if (can('treatments', 'view')) recTabs.push({ k: 'treat', ar: '💊 العلاجات' });
+  if (can('vaccines', 'view')) recTabs.push({ k: 'vacc', ar: '💉 التطعيمات' });
+  if (!recTabs.find(t => t.k === animalRecTab)) animalRecTab = recTabs.length ? recTabs[0].k : 'lineage';
+  const recChips = recTabs.length ? `<div class="chips" style="margin:8px 0">${recTabs.map(t => `<span class="chip ${animalRecTab === t.k ? 'active' : ''}" data-rec="${t.k}">${t.ar}</span>`).join('')}</div>` : '';
+
   view().innerHTML = summary + `
     <div class="card"><h3>البيانات الأساسية</h3>
       ${row('النوع', arOf(TYPES, a.type))}
@@ -1085,34 +1148,18 @@ function screenAnimalDetail(arg) {
       ${row('اللون', esc(a.color) || '—')}
       ${row('الحالة', arOf(STATUS, a.status))}
       ${(a.source || 'purchased') === 'purchased' && (a.sale_date == null) && a.buy_date ? row('تاريخ الشراء', fmtDate(a.buy_date)) : ''}
-      ${(a.source || 'purchased') === 'purchased' && a.buy_price != null ? row('سعر الشراء', a.buy_price) : ''}
       ${a.status === 'sold' ? row('تاريخ البيع', fmtDate(a.sale_date)) + row('سعر البيع', a.sale_price != null ? a.sale_price : '—') : ''}
       ${a.status === 'dead' ? row('تاريخ النفوق', fmtDate(a.dead_date)) : ''}
       ${a.status === 'given' ? row('تاريخ الإهداء', fmtDate(a.gift_date)) + (a.gift_to ? row('أُهديت إلى', esc(a.gift_to)) : '') : ''}
       ${can('animals', 'edit') ? `<div class="btn-row" style="margin-top:8px">${a.status === 'present'
         ? `<button class="btn sm" id="qSell">💰 بيع</button><button class="btn sm danger" id="qDead">📉 نفوق</button><button class="btn sm" id="qGift">🎁 إهداء</button>${!inHerdCount(a) ? `<button class="btn sm outline" id="qCount">➕ احتساب</button>` : (a.counted === true ? `<button class="btn sm outline" id="qUncount">➖ إخراج</button>` : '')}`
         : `<button class="btn sm outline" id="qBack">↩ إعادة للحظيرة</button>`}</div>` : ''}</div>
-    <div class="card"><h3>النسب</h3>
-      ${row('الأم', mother ? display(mother) : '—')}
-      ${row('الأب / الفحل', esc(a.father_name) || '—')}
-      ${a.notes ? row('ملاحظات', esc(a.notes)) : ''}</div>
-    ${a.sex === 'female' && (!a.birth || !pubertyOf(a.type) || ageMonths(a.birth) >= pubertyOf(a.type)) ? `<div class="card"><h3>أنتجت (${offspring.length})</h3>
-      ${offspring.length ? `<div class="muted" style="margin:2px 0 6px;font-size:.85rem">🟢 في الحظيرة ${offspring.filter(o => o.status === 'present').length} • 💰 مباعة ${offspring.filter(o => o.status === 'sold').length} • 📉 نافقة ${offspring.filter(o => o.status === 'dead').length} • 🎁 اهداء ${offspring.filter(o => o.status === 'given').length}</div>` : ''}
-      ${can('animals', 'edit') ? `<button class="btn outline" id="addOffspring">➕ إضافة مواليد (نتاج)</button>` : ''}
-      ${offspring.length ? offspring.map(o => { const ic = { present: '🟢', sold: '💰', dead: '📉', given: '🎁' }[o.status] || ''; return `<div class="card click" data-aid="${o.id}" style="margin:6px 0"><div class="li-title">${display(o)}</div><div class="li-sub">${esc(sexTerm(o))} • ${fmtDate(o.birth)} • ${ic} ${arOf(STATUS, o.status)}</div></div>`; }).join('') : noItem()}</div>` : ''}
-    ${can('breeding', 'view') && a.sex === 'female' && (!a.birth || !pubertyOf(a.type) || ageMonths(a.birth) >= pubertyOf(a.type)) ? `<div class="card"><h3>التلقيح والحمل</h3>
-      ${can('breeding', 'edit') ? `<button class="btn outline" id="addMating">إضافة تلقيح / متابعة حمل</button>` : ''}
-      ${can('breeding', 'edit') && a.sex === 'female' && a.status === 'present' ? `<button class="btn outline" id="addSonar" style="margin-top:6px">🔊 فحص حمل بالسونار</button>` : ''}
-      ${matings.map(m => row('تلقيح ' + fmtDate(m.date), 'الفحل: ' + (esc(m.sire_name) || esc(m.sire_code) || '—'))).join('')}
-      ${pregs.map(p => row('حمل (' + arOf(PREG, p.status) + ')' + (p.confirmed ? ' 🔊' : ''), 'الولادة التقريبية ' + fmtDate(p.expected) + ' • مدة الحمل ' + p.gest + ' يوم')).join('')}</div>` : ''}
-    ${can('vaccines', 'view') ? `<div class="card"><h3>التطعيمات (${vaccs.length})</h3>
-      ${can('vaccines', 'edit') ? `<button class="btn outline" id="addVacc">إعطاء تطعيم</button>` : ''}
-      ${vaccs.map(v => row(fmtDate(v.date) + ' — ' + vtName(v.type_id), 'تحريم حتى ' + fmtDate(v.withdrawal_end))).join('')}</div>` : ''}
-    ${can('treatments', 'view') ? `<div class="card"><h3>العلاجات (${treats.length})</h3>
-      ${can('treatments', 'edit') ? `<button class="btn outline" id="addTreat">إعطاء علاج</button>` : ''}
-      ${treats.map(t => row(esc(t.med_name) + ' (' + fmtDate(t.date) + ')', 'تحريم حتى ' + fmtDate(t.withdrawal_end))).join('')}</div>` : ''}
+    <div class="muted" style="font-size:.82rem;margin:6px 2px 0">اختر السجل الذي تريده:</div>
+    ${recChips}
+    <div id="recBody">${REC[animalRecTab] || ''}</div>
     <div style="height:30px"></div>`;
   bindCards(view());
+  view().querySelectorAll('[data-rec]').forEach(c => c.addEventListener('click', () => { animalRecTab = c.dataset.rec; screenAnimalDetail(String(id)); }));
   const qs = document.getElementById('qSell'); if (qs) qs.addEventListener('click', () => quickSell(a));
   const qd = document.getElementById('qDead'); if (qd) qd.addEventListener('click', () => quickDead(a));
   const qg = document.getElementById('qGift'); if (qg) qg.addEventListener('click', () => quickGift(a));
