@@ -58,6 +58,10 @@ main { padding: 14px; max-width: 760px; margin: 0 auto; }
 .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
 .chip { border: 1px solid var(--green-l); background: #fff; color: var(--green-d); padding: 6px 12px; border-radius: 999px; font-size: .85rem; cursor: pointer; }
 .chip.active { background: var(--green); color: #fff; border-color: var(--green); }
+/* تبويبات سجل البهيمة: صف قابل للتمرير أفقياً بدل الالتفاف */
+.animal-tabs { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 4px; scrollbar-width: none; }
+.animal-tabs::-webkit-scrollbar { display: none; }
+.animal-tabs .chip { flex: 0 0 auto; font-weight: 700; }
 
 /* Forms */
 .field { margin-bottom: 12px; }

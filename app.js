@@ -734,8 +734,8 @@ let animalFilter = '';
 function loadFilterArr(k, def) { try { const v = JSON.parse(localStorage.getItem(k)); return Array.isArray(v) ? v : def; } catch (e) { return def; } }
 function saveAnimalFilters() { try { localStorage.setItem('mrahi_f_status', JSON.stringify(animalStatusSel)); localStorage.setItem('mrahi_f_source', JSON.stringify(animalSourceSel)); localStorage.setItem('mrahi_f_sex', JSON.stringify(animalSexSel)); } catch (e) {} }
 function toggleSel(arr, v) { const i = arr.indexOf(v); if (i >= 0) arr.splice(i, 1); else arr.push(v); }
-// السجل المختار في شاشة سجل البهيمة (النسب/الإنجاب/المرضي/العلاجات/التطعيمات)
-let animalRecTab = 'lineage';
+// التبويب المختار في شاشة سجل البهيمة (البيانات/النسب/الإنجاب/المرضي/العلاجات/التطعيمات)
+let animalRecTab = 'basic';
 // مرشّحات العرض: اختيار متعدّد؛ مصفوفة فارغة = الكل. تُحفظ آخر اختيار.
 let animalStatusSel = loadFilterArr('mrahi_f_status', ['present']);   // 'present'|'sold'|'dead'
 let animalSourceSel = loadFilterArr('mrahi_f_source', []);            // 'born'|'purchased'|'sale'
@@ -1120,18 +1120,7 @@ function screenAnimalDetail(arg) {
       ${can('vaccines', 'edit') ? `<button class="btn outline" id="addVacc">إعطاء تطعيم</button>` : ''}
       ${vaccs.length ? vaccs.map(v => row(fmtDate(v.date) + ' — ' + vtName(v.type_id), 'تحريم حتى ' + fmtDate(v.withdrawal_end))).join('') : noItem()}</div>`;
 
-  // ===== شرائح اختيار السجل =====
-  const recTabs = [];
-  if (can('animals', 'view')) recTabs.push({ k: 'lineage', ar: '🌳 النسب' });
-  if (can('breeding', 'view')) recTabs.push({ k: 'repro', ar: '🤰 الإنجاب' });
-  if (can('treatments', 'view')) recTabs.push({ k: 'medical', ar: '🩺 المرضي' });
-  if (can('treatments', 'view')) recTabs.push({ k: 'treat', ar: '💊 العلاجات' });
-  if (can('vaccines', 'view')) recTabs.push({ k: 'vacc', ar: '💉 التطعيمات' });
-  if (!recTabs.find(t => t.k === animalRecTab)) animalRecTab = recTabs.length ? recTabs[0].k : 'lineage';
-  const recChips = recTabs.length ? `<div class="chips" style="margin:8px 0">${recTabs.map(t => `<span class="chip ${animalRecTab === t.k ? 'active' : ''}" data-rec="${t.k}">${t.ar}</span>`).join('')}</div>` : '';
-
-  view().innerHTML = summary + `
-    <div class="card"><h3>البيانات الأساسية</h3>
+  REC.basic = `<div class="card"><h3>📋 البيانات الأساسية</h3>
       ${row('النوع', arOf(TYPES, a.type))}
       ${row('المعرّف الخارجي (الوسم)', a.code ? esc(a.code) + ' • ' + arOf(IDKIND, a.idkind) : '— غير مرقّمة —')}
       ${(a.tag_color || a.tag_shape) ? row('🏷️ لون/شكل الوسم', [a.tag_color ? esc(a.tag_color) + colorDot(a.tag_color) : '', a.tag_shape ? esc(a.tag_shape) : ''].filter(Boolean).join(' • ')) : ''}
@@ -1153,11 +1142,19 @@ function screenAnimalDetail(arg) {
       ${a.status === 'given' ? row('تاريخ الإهداء', fmtDate(a.gift_date)) + (a.gift_to ? row('أُهديت إلى', esc(a.gift_to)) : '') : ''}
       ${can('animals', 'edit') ? `<div class="btn-row" style="margin-top:8px">${a.status === 'present'
         ? `<button class="btn sm" id="qSell">💰 بيع</button><button class="btn sm danger" id="qDead">📉 نفوق</button><button class="btn sm" id="qGift">🎁 إهداء</button>${!inHerdCount(a) ? `<button class="btn sm outline" id="qCount">➕ احتساب</button>` : (a.counted === true ? `<button class="btn sm outline" id="qUncount">➖ إخراج</button>` : '')}`
-        : `<button class="btn sm outline" id="qBack">↩ إعادة للحظيرة</button>`}</div>` : ''}</div>
-    <div class="muted" style="font-size:.82rem;margin:6px 2px 0">اختر السجل الذي تريده:</div>
-    ${recChips}
-    <div id="recBody">${REC[animalRecTab] || ''}</div>
-    <div style="height:30px"></div>`;
+        : `<button class="btn sm outline" id="qBack">↩ إعادة للحظيرة</button>`}</div>` : ''}</div>`;
+
+  // ===== تبويبات مستقلّة: يختار المستخدم التبويب فيظهر وحده =====
+  const recTabs = [{ k: 'basic', ar: '📋 البيانات' }];
+  if (can('animals', 'view')) recTabs.push({ k: 'lineage', ar: '🌳 النسب' });
+  if (can('breeding', 'view')) recTabs.push({ k: 'repro', ar: '🤰 الإنجاب' });
+  if (can('treatments', 'view')) recTabs.push({ k: 'medical', ar: '🩺 المرضي' });
+  if (can('treatments', 'view')) recTabs.push({ k: 'treat', ar: '💊 العلاجات' });
+  if (can('vaccines', 'view')) recTabs.push({ k: 'vacc', ar: '💉 التطعيمات' });
+  if (!recTabs.find(t => t.k === animalRecTab)) animalRecTab = 'basic';
+  const recChips = `<div class="chips animal-tabs" style="margin:8px 0">${recTabs.map(t => `<span class="chip ${animalRecTab === t.k ? 'active' : ''}" data-rec="${t.k}">${t.ar}</span>`).join('')}</div>`;
+
+  view().innerHTML = summary + recChips + `<div id="recBody">${REC[animalRecTab] || ''}</div><div style="height:30px"></div>`;
   bindCards(view());
   view().querySelectorAll('[data-rec]').forEach(c => c.addEventListener('click', () => { animalRecTab = c.dataset.rec; screenAnimalDetail(String(id)); }));
   const qs = document.getElementById('qSell'); if (qs) qs.addEventListener('click', () => quickSell(a));
