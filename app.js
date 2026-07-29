@@ -7,11 +7,13 @@ let TYPES = [
   { k: 'goat', ar: 'ماعز', gest: 150, puberty: 7, weaning: 3 }, { k: 'cattle', ar: 'بقر', gest: 283, puberty: 15, weaning: 7 },
 ];
 const SEX = [{ k: 'female', ar: 'أنثى' }, { k: 'male', ar: 'ذكر' }];
-const STATUS = [{ k: 'present', ar: 'موجودة' }, { k: 'sold', ar: 'مباعة' }, { k: 'dead', ar: 'نافقة' }, { k: 'given', ar: 'اهداء' }];
+const STATUS = [{ k: 'present', ar: 'موجودة' }, { k: 'sold', ar: 'مباعة' }, { k: 'dead', ar: 'نافقة' }, { k: 'given', ar: 'اهداء' }, { k: 'missing', ar: 'مفقودة' }, { k: 'slaughtered', ar: 'ذُبحت (استهلاك)' }];
+// أيقونة كل حالة (للعرض في القوائم)
+const STATUS_ICON = { present: '🟢', sold: '💰', dead: '📉', given: '🎁', missing: '🔎', slaughtered: '🔪' };
 // حالات الإضافة (كيف دخلت): ولادة/شراء/اهداء
 const SOURCE = [{ k: 'born', ar: 'ولادة' }, { k: 'purchased', ar: 'شراء' }, { k: 'gift', ar: 'اهداء' }];
 // حالات الإجراء (كيف خرجت): مباعة/نافقة/اهداء (تُعرض عند التعديل فقط)
-const EXIT = [{ k: 'sold', ar: 'مباعة' }, { k: 'dead', ar: 'نافقة' }, { k: 'given', ar: 'اهداء' }];
+const EXIT = [{ k: 'sold', ar: 'مباعة' }, { k: 'dead', ar: 'نافقة' }, { k: 'given', ar: 'اهداء' }, { k: 'missing', ar: 'مفقودة' }, { k: 'slaughtered', ar: 'ذُبحت (استهلاك)' }];
 // غرض الذكر: فحل يبقى للقطيع، أو معدّ للبيع/التسمين
 const MALE_PURPOSE = [{ k: 'sire', ar: '🐏 فحل للقطيع' }, { k: 'sale', ar: '💰 معدّ للبيع' }];
 // الغرض العامّ لأي بهيمة (مواليد أو مشترى): تربية أو للبيع
@@ -589,6 +591,7 @@ const ROUTES = {
   pens: { t: 'الحظائر', back: true, fn: screenPens },
   countage: { t: 'عمر احتساب المولود', back: true, fn: screenCountAge },
   herdsettings: { t: 'إعدادات الحظيرة', back: true, fn: screenHerdSettings },
+  contacts: { t: 'دليل التواصل', back: true, fn: screenContacts },
   trash: { t: 'سلة المحذوفات', back: true, fn: screenTrash },
   tips: { t: 'النصائح والمعلومات', back: true, fn: screenTips },
   guide: { t: 'دليل الاستخدام', back: true, fn: screenGuide },
@@ -778,7 +781,7 @@ function screenAnimals() {
   // مربّع اختيار (☐/☑) ليوضّح أنها متعدّدة الاختيار
   const cb = (on) => (on ? '☑' : '☐') + ' ';
   // بلا زرّ «الكل» — إلغاء تحديد الجميع (أو تحديدهم كلهم) يعرض الكل
-  const stChips = `<div class="chips"><span class="chip ${animalStatusSel.includes('present') ? 'active' : ''}" data-s="present">${cb(animalStatusSel.includes('present'))}في الحظيرة</span><span class="chip ${animalStatusSel.includes('sold') ? 'active' : ''}" data-s="sold">${cb(animalStatusSel.includes('sold'))}مباعة</span><span class="chip ${animalStatusSel.includes('dead') ? 'active' : ''}" data-s="dead">${cb(animalStatusSel.includes('dead'))}نافقة</span><span class="chip ${animalStatusSel.includes('given') ? 'active' : ''}" data-s="given">${cb(animalStatusSel.includes('given'))}🎁 اهداء</span></div>`;
+  const stChips = `<div class="chips"><span class="chip ${animalStatusSel.includes('present') ? 'active' : ''}" data-s="present">${cb(animalStatusSel.includes('present'))}في الحظيرة</span><span class="chip ${animalStatusSel.includes('sold') ? 'active' : ''}" data-s="sold">${cb(animalStatusSel.includes('sold'))}مباعة</span><span class="chip ${animalStatusSel.includes('dead') ? 'active' : ''}" data-s="dead">${cb(animalStatusSel.includes('dead'))}نافقة</span><span class="chip ${animalStatusSel.includes('given') ? 'active' : ''}" data-s="given">${cb(animalStatusSel.includes('given'))}🎁 اهداء</span><span class="chip ${animalStatusSel.includes('missing') ? 'active' : ''}" data-s="missing">${cb(animalStatusSel.includes('missing'))}🔎 مفقودة</span><span class="chip ${animalStatusSel.includes('slaughtered') ? 'active' : ''}" data-s="slaughtered">${cb(animalStatusSel.includes('slaughtered'))}🔪 ذُبحت</span></div>`;
   const srcChips = `<div class="chips"><span class="chip ${animalSourceSel.includes('born') ? 'active' : ''}" data-src="born">${cb(animalSourceSel.includes('born'))}👶 مواليد</span><span class="chip ${animalSourceSel.includes('purchased') ? 'active' : ''}" data-src="purchased">${cb(animalSourceSel.includes('purchased'))}🛒 شراء</span><span class="chip ${animalSourceSel.includes('gift') ? 'active' : ''}" data-src="gift">${cb(animalSourceSel.includes('gift'))}🎁 اهداء</span><span class="chip ${animalSourceSel.includes('sale') ? 'active' : ''}" data-src="sale">${cb(animalSourceSel.includes('sale'))}💰 للبيع (المعدّ للبيع)</span></div>`;
   const sexChips = `<div class="chips">${SEX.map(s => `<span class="chip ${animalSexSel.includes(s.k) ? 'active' : ''}" data-sex="${s.k}">${cb(animalSexSel.includes(s.k))}${s.k === 'male' ? '♂ ' : '♀ '}${s.ar}</span>`).join('')}</div>`;
   const list = C.animals.filter(a => (!animalFilter || a.type === animalFilter) && (!animalStatusSel.length || animalStatusSel.includes(a.status)) && (!animalSourceSel.length || animalSourceSel.some(s => s === 'sale' ? (a.designation === 'sale' || a.purpose === 'sale') : (a.source || 'purchased') === s)) && (!animalSexSel.length || animalSexSel.includes(a.sex))).sort((a, b) => b.id - a.id);
@@ -891,7 +894,9 @@ function screenAnimalEdit(arg) {
       ${a && a.status !== 'present' ? `${fSelect('الإجراء', 'f_status', EXIT, a.status)}
       <div id="saleBox">${fInput('تاريخ البيع', 'f_saledate', a.sale_date, 'date')}${fInput('سعر البيع', 'f_saleprice', a.sale_price, 'number', 'min="0" step="any" inputmode="decimal"')}</div>
       <div id="deadBox">${fInput('تاريخ النفوق', 'f_deaddate', a.dead_date, 'date')}</div>
-      <div id="giftBox">${fInput('تاريخ الإهداء', 'f_giftdate', a.gift_date, 'date')}${fInput('أُهديت إلى (اختياري)', 'f_giftto', a.gift_to)}</div>` : ''}</div>
+      <div id="giftBox">${fInput('تاريخ الإهداء', 'f_giftdate', a.gift_date, 'date')}${fInput('أُهديت إلى (اختياري)', 'f_giftto', a.gift_to)}</div>
+      <div id="missingBox">${fInput('تاريخ الفقد', 'f_missdate', a.missing_date, 'date')}</div>
+      <div id="slaughterBox">${fInput('تاريخ الذبح', 'f_slaughterdate', a.slaughter_date, 'date')}</div>` : ''}</div>
     <div id="bornRows"></div>
     <div class="card"><h3>النسب</h3>
       ${fAnimalSelect('الأم', 'f_mother', a && a.mother_id, females, '— بدون —')}
@@ -904,6 +909,8 @@ function screenAnimalEdit(arg) {
     const sb = document.getElementById('saleBox'); if (sb) sb.style.display = s === 'sold' ? '' : 'none';
     const db = document.getElementById('deadBox'); if (db) db.style.display = s === 'dead' ? '' : 'none';
     const gb = document.getElementById('giftBox'); if (gb) gb.style.display = s === 'given' ? '' : 'none';
+    const mb = document.getElementById('missingBox'); if (mb) mb.style.display = s === 'missing' ? '' : 'none';
+    const slb = document.getElementById('slaughterBox'); if (slb) slb.style.display = s === 'slaughtered' ? '' : 'none';
   };
   { const fs = document.getElementById('f_status'); if (fs) { fs.addEventListener('change', syncExit); syncExit(); } }
   // غرض الذكر يظهر للذكور فقط
@@ -990,7 +997,9 @@ function screenAnimalEdit(arg) {
       sale_price: status === 'sold' && val('f_saleprice') !== '' ? parseFloat(val('f_saleprice')) : null,
       dead_date: status === 'dead' ? (val('f_deaddate') || null) : null,
       gift_date: status === 'given' ? (val('f_giftdate') || null) : null,
-      gift_to: status === 'given' ? (val('f_giftto').trim() || null) : null };
+      gift_to: status === 'given' ? (val('f_giftto').trim() || null) : null,
+      missing_date: status === 'missing' ? (val('f_missdate') || null) : null,
+      slaughter_date: status === 'slaughtered' ? (val('f_slaughterdate') || null) : null };
     // نظّف الحقول غير المناسبة لنوع المعرّف («بدون» لا يحفظ رقماً/وسماً)
     if (!['number', 'tag', 'chip', 'name'].includes(obj.idkind)) obj.code = '';
     if (!['tag', 'color'].includes(obj.idkind)) obj.tag_color = '';
@@ -1083,7 +1092,7 @@ function screenAnimalDetail(arg) {
   const lastBirth = birthDates.length ? birthDates[birthDates.length - 1] : null;
   const fertilityPct = matings.length ? Math.round((parities / matings.length) * 100) : null;
   const offStats = offspring.length ? `<div class="muted" style="margin:2px 0 6px;font-size:.85rem">🟢 في الحظيرة ${offspring.filter(o => o.status === 'present').length} • 💰 مباعة ${offspring.filter(o => o.status === 'sold').length} • 📉 نافقة ${offspring.filter(o => o.status === 'dead').length} • 🎁 اهداء ${offspring.filter(o => o.status === 'given').length}</div>` : '';
-  const offList = offspring.length ? offspring.map(o => { const ic = { present: '🟢', sold: '💰', dead: '📉', given: '🎁' }[o.status] || ''; return `<div class="card click" data-aid="${o.id}" style="margin:6px 0"><div class="li-title">${display(o)}</div><div class="li-sub">${esc(sexTerm(o))} • ${fmtDate(o.birth)} • ${ic} ${arOf(STATUS, o.status)}</div></div>`; }).join('') : noItem();
+  const offList = offspring.length ? offspring.map(o => { const ic = STATUS_ICON[o.status] || ''; return `<div class="card click" data-aid="${o.id}" style="margin:6px 0"><div class="li-title">${display(o)}</div><div class="li-sub">${esc(sexTerm(o))} • ${fmtDate(o.birth)} • ${ic} ${arOf(STATUS, o.status)}</div></div>`; }).join('') : noItem();
 
   // ===== محتوى كل سجل =====
   const REC = {};
@@ -1140,9 +1149,14 @@ function screenAnimalDetail(arg) {
       ${a.status === 'sold' ? row('تاريخ البيع', fmtDate(a.sale_date)) + row('سعر البيع', a.sale_price != null ? a.sale_price : '—') : ''}
       ${a.status === 'dead' ? row('تاريخ النفوق', fmtDate(a.dead_date)) : ''}
       ${a.status === 'given' ? row('تاريخ الإهداء', fmtDate(a.gift_date)) + (a.gift_to ? row('أُهديت إلى', esc(a.gift_to)) : '') : ''}
-      ${can('animals', 'edit') ? `<div class="btn-row" style="margin-top:8px">${a.status === 'present'
-        ? `<button class="btn sm" id="qSell">💰 بيع</button><button class="btn sm danger" id="qDead">📉 نفوق</button><button class="btn sm" id="qGift">🎁 إهداء</button>${!inHerdCount(a) ? `<button class="btn sm outline" id="qCount">➕ احتساب</button>` : (a.counted === true ? `<button class="btn sm outline" id="qUncount">➖ إخراج</button>` : '')}`
-        : `<button class="btn sm outline" id="qBack">↩ إعادة للحظيرة</button>`}</div>` : ''}</div>`;
+      ${a.status === 'missing' ? row('تاريخ الفقد', fmtDate(a.missing_date)) : ''}
+      ${a.status === 'slaughtered' ? row('تاريخ الذبح', fmtDate(a.slaughter_date)) : ''}
+      <div class="btn-row" style="margin-top:8px">
+        <button class="btn sm outline" id="qShare">📤 مشاركة البطاقة</button>
+        ${can('animals', 'edit') ? (a.status === 'present'
+          ? `<button class="btn sm" id="qSell">💰 بيع</button><button class="btn sm danger" id="qDead">📉 نفوق</button><button class="btn sm" id="qGift">🎁 إهداء</button><button class="btn sm outline" id="qMissing">🔎 فقد</button><button class="btn sm danger" id="qSlaughter">🔪 ذبح</button>${!inHerdCount(a) ? `<button class="btn sm outline" id="qCount">➕ احتساب</button>` : (a.counted === true ? `<button class="btn sm outline" id="qUncount">➖ إخراج</button>` : '')}`
+          : `<button class="btn sm outline" id="qBack">↩ إعادة للحظيرة</button>`) : ''}
+      </div></div>`;
 
   // ===== تبويبات مستقلّة: يختار المستخدم التبويب فيظهر وحده =====
   const recTabs = [{ k: 'basic', ar: '📋 البيانات' }];
@@ -1163,6 +1177,9 @@ function screenAnimalDetail(arg) {
   const qc = document.getElementById('qCount'); if (qc) qc.addEventListener('click', async () => { const ok = await guard(async () => { await dbUpdate('animals', a.id, { counted: true }); }); if (ok) { toast('أُضيفت لعدد الحظيرة'); await loadAll(); screenAnimalDetail(String(a.id)); } });
   const qu = document.getElementById('qUncount'); if (qu) qu.addEventListener('click', async () => { const ok = await guard(async () => { await dbUpdate('animals', a.id, { counted: false }); }); if (ok) { toast('أُخرجت من عدد الحظيرة'); await loadAll(); screenAnimalDetail(String(a.id)); } });
   const qb = document.getElementById('qBack'); if (qb) qb.addEventListener('click', () => quickRevert(a));
+  const qm = document.getElementById('qMissing'); if (qm) qm.addEventListener('click', () => quickMissing(a));
+  const qsl = document.getElementById('qSlaughter'); if (qsl) qsl.addEventListener('click', () => quickSlaughter(a));
+  const qsh = document.getElementById('qShare'); if (qsh) qsh.addEventListener('click', () => shareAnimalCard(a));
   const ao = document.getElementById('addOffspring'); if (ao) ao.addEventListener('click', () => addOffspringModal(a));
   const am = document.getElementById('addMating'); if (am) am.addEventListener('click', () => setHash('#/mating/' + id));
   const aso = document.getElementById('addSonar'); if (aso) aso.addEventListener('click', () => animalSonarModal(a));
@@ -1849,10 +1866,122 @@ function quickGift(a) {
     });
   });
 }
+function quickMissing(a) {
+  openModal('تسجيل فقد', `
+    ${fInput('تاريخ الفقد', 'qm_date', todayStr(), 'date')}
+    <div class="muted" style="font-size:.82rem">تُخرَج من عدد الحظيرة وتبقى في السجل — إذا وُجدت أعِدها للحظيرة.</div>
+    <button class="btn" id="qm_save">حفظ كمفقودة</button>`, () => {
+    document.getElementById('qm_save').addEventListener('click', async () => {
+      if (!await confirm2('تسجيل هذه البهيمة كمفقودة وإخراجها من عدد الحظيرة؟')) return;
+      const ok = await guard(async () => { await dbUpdate('animals', a.id, { status: 'missing', missing_date: val('qm_date') || null, sale_date: null, sale_price: null, dead_date: null, gift_date: null, gift_to: null, slaughter_date: null }); });
+      if (ok) { closeModal(); toast('سُجّلت كمفقودة'); await loadAll(); screenAnimalDetail(String(a.id)); }
+    });
+  });
+}
+function quickSlaughter(a) {
+  openModal('استهلاك ذاتي (ذبح)', `
+    ${fInput('تاريخ الذبح', 'qsl_date', todayStr(), 'date')}
+    <button class="btn danger" id="qsl_save">حفظ كذبح شخصي</button>`, () => {
+    document.getElementById('qsl_save').addEventListener('click', async () => {
+      const wd = withdrawalActiveOn(a.id, val('qsl_date') || todayStr());
+      const msg = wd ? `⚠️ هذه البهيمة تحت تحريم دواء حتى ${fmtDate(wd)} — لا يُنصح بذبحها/أكلها قبله. تسجيل الذبح؟` : 'تسجيل ذبح هذه البهيمة للاستهلاك الذاتي وإخراجها من الحظيرة؟';
+      if (!await confirm2(msg, wd ? { danger: true } : {})) return;
+      const ok = await guard(async () => { await dbUpdate('animals', a.id, { status: 'slaughtered', slaughter_date: val('qsl_date') || null, sale_date: null, sale_price: null, dead_date: null, gift_date: null, gift_to: null, missing_date: null }); });
+      if (ok) { closeModal(); toast('سُجّل الذبح'); await loadAll(); screenAnimalDetail(String(a.id)); }
+    });
+  });
+}
 async function quickRevert(a) {
-  if (!await confirm2('إعادة هذه البهيمة إلى الحظيرة؟ ستُلغى بيانات البيع/النفوق/الإهداء.')) return;
-  const ok = await guard(async () => { await dbUpdate('animals', a.id, { status: 'present', sale_date: null, sale_price: null, dead_date: null, gift_date: null, gift_to: null }); });
+  if (!await confirm2('إعادة هذه البهيمة إلى الحظيرة؟ ستُلغى بيانات البيع/النفوق/الإهداء/الفقد/الذبح.')) return;
+  const ok = await guard(async () => { await dbUpdate('animals', a.id, { status: 'present', sale_date: null, sale_price: null, dead_date: null, gift_date: null, gift_to: null, missing_date: null, slaughter_date: null }); });
   if (ok) { toast('أُعيدت للحظيرة'); await loadAll(); screenAnimalDetail(String(a.id)); }
+}
+// مشاركة بطاقة البهيمة كنص جاهز (واتساب/رسائل…)
+async function shareAnimalCard(a) {
+  const mother = a.mother_id ? animalById(a.mother_id) : null;
+  const off = C.animals.filter(x => x.mother_id === a.id || x.father_id === a.id).length;
+  const L = [];
+  L.push('🐑 بطاقة بهيمة — حلالي');
+  L.push('———————————');
+  L.push('النوع: ' + arOf(TYPES, a.type));
+  L.push('المعرّف: ' + (a.code ? a.code + ' (' + arOf(IDKIND, a.idkind) + ')' : 'غير مرقّمة'));
+  if (a.name) L.push('الاسم: ' + a.name);
+  L.push('الجنس: ' + sexTerm(a));
+  if (a.tag_color || a.tag_shape) L.push('الوسم: ' + [a.tag_color, a.tag_shape].filter(Boolean).join(' / '));
+  if (a.color) L.push('اللون: ' + a.color);
+  if (a.birth) L.push('الميلاد: ' + fmtDate(a.birth) + (ageText(a.birth) ? ' (' + ageText(a.birth) + ')' : ''));
+  L.push('النسب: الأم ' + (mother ? display(mother) : '—') + ' • الأب ' + (a.father_name || '—'));
+  if (off) L.push('النتاج: ' + off + ' مولود');
+  L.push('الحالة: ' + arOf(STATUS, a.status));
+  if (a.notes) L.push('ملاحظات: ' + a.notes);
+  const text = L.join('\n');
+  try {
+    if (navigator.share) { await navigator.share({ title: 'بطاقة ' + display(a), text }); return; }
+  } catch (e) { if (e && e.name === 'AbortError') return; }
+  const ok = await copyText(text);
+  toast(ok ? 'نُسخت البطاقة — الصقها في أي تطبيق ✅' : 'تعذّرت المشاركة على هذا الجهاز');
+}
+
+/* ===== دليل التواصل (زبائن/بيطري/شعبي/موردون…) — محلي على الجهاز ===== */
+const CONTACT_CATS = [
+  { k: 'buyer', ar: '🛒 زبون/مشتري' }, { k: 'vet', ar: '🩺 طبيب بيطري' },
+  { k: 'folk', ar: '🌿 معالج شعبي' }, { k: 'supplier', ar: '📦 مورّد (علف/أدوية)' },
+  { k: 'transport', ar: '🚚 نقل/شحن' }, { k: 'other', ar: '👤 أخرى' },
+];
+function loadContacts() { try { return JSON.parse(localStorage.getItem('mrahi_contacts') || '[]') || []; } catch (e) { return []; } }
+function saveContacts(a) { try { localStorage.setItem('mrahi_contacts', JSON.stringify(a)); } catch (e) {} }
+const digitsOnly = (s) => String(s || '').replace(/[^\d+]/g, '');
+// رقم واتساب دولي: يحوّل 05XXXXXXXX السعودي إلى 9665XXXXXXXX (أفضل جهد)
+function waNumber(phone) { let d = String(phone || '').replace(/\D/g, ''); if (d.length === 10 && d.indexOf('05') === 0) d = '966' + d.slice(1); else if (d.length === 9 && d.indexOf('5') === 0) d = '966' + d; return d; }
+function screenContacts() {
+  if (!can('animals', 'view')) { view().innerHTML = noPerm(); return; }
+  const canEdit = can('animals', 'edit');
+  const contacts = loadContacts().slice().sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ar'));
+  const catAr = (k) => (CONTACT_CATS.find(c => c.k === k) || { ar: '👤 أخرى' }).ar;
+  const groups = {}; contacts.forEach(c => { (groups[c.category || 'other'] = groups[c.category || 'other'] || []).push(c); });
+  let body = '';
+  CONTACT_CATS.forEach(cat => {
+    const arr = groups[cat.k]; if (!arr || !arr.length) return;
+    body += `<div class="card"><h3>${cat.ar} (${arr.length})</h3>` + arr.map(c => {
+      const tel = digitsOnly(c.phone), wa = waNumber(c.phone);
+      return `<div style="padding:8px 0;border-bottom:1px solid #eee">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+          <span class="li-title" style="font-weight:600">${esc(c.name)}</span>
+          ${canEdit ? `<span style="display:flex;gap:6px"><button class="btn sm outline" data-cedit="${c.id}">تعديل</button><button class="btn sm danger" data-cdel="${c.id}">حذف</button></span>` : ''}
+        </div>
+        ${c.phone ? `<div class="li-sub">📞 ${esc(c.phone)}</div>
+          <div class="btn-row" style="margin-top:4px"><a class="btn sm" href="tel:${esc(tel)}">📞 اتصال</a>${wa ? `<a class="btn sm outline" href="https://wa.me/${esc(wa)}" target="_blank" rel="noopener">💬 واتساب</a>` : ''}</div>` : ''}
+        ${c.notes ? `<div class="li-sub">📝 ${esc(c.notes)}</div>` : ''}
+      </div>`;
+    }).join('') + '</div>';
+  });
+  view().innerHTML = `<div class="muted" style="margin-bottom:8px">أرقام تواصلك المهمّة محفوظة على جهازك: زبائن، بيطري، معالج شعبي، موردون…</div>
+    ${canEdit ? `<button class="btn" id="c_add">➕ إضافة جهة تواصل</button>` : ''}
+    ${body || '<div class="muted" style="margin-top:10px">لا يوجد جهات تواصل بعد — أضِف أول جهة.</div>'}`;
+  const ca = document.getElementById('c_add'); if (ca) ca.addEventListener('click', () => contactModal(null));
+  view().querySelectorAll('[data-cedit]').forEach(b => b.addEventListener('click', () => { const c = loadContacts().find(x => String(x.id) === b.dataset.cedit); if (c) contactModal(c); }));
+  view().querySelectorAll('[data-cdel]').forEach(b => b.addEventListener('click', async () => {
+    if (!await confirm2('حذف جهة التواصل هذه؟')) return;
+    saveContacts(loadContacts().filter(x => String(x.id) !== b.dataset.cdel));
+    toast('حُذفت'); screenContacts();
+  }));
+}
+function contactModal(c) {
+  openModal(c ? 'تعديل جهة تواصل' : 'إضافة جهة تواصل', `
+    ${fInput('الاسم', 'ct_name', c && c.name)}
+    ${fSelect('التصنيف', 'ct_cat', CONTACT_CATS, c ? c.category : 'buyer')}
+    ${fInput('رقم الجوال', 'ct_phone', c && c.phone, 'tel', 'inputmode="tel"')}
+    ${fTextarea('ملاحظات (اختياري)', 'ct_notes', c && c.notes)}
+    <button class="btn" id="ct_save">حفظ</button>`, () => {
+    document.getElementById('ct_save').addEventListener('click', () => {
+      const name = val('ct_name').trim(); if (!name) { toast('اكتب الاسم'); return; }
+      const list = loadContacts();
+      const obj = { name, category: val('ct_cat'), phone: val('ct_phone').trim(), notes: val('ct_notes').trim() };
+      if (c) { const i = list.findIndex(x => String(x.id) === String(c.id)); if (i >= 0) list[i] = Object.assign({}, list[i], obj); }
+      else { obj.id = 'c' + new Date().getTime(); list.push(obj); }
+      saveContacts(list); closeModal(); toast('تم الحفظ'); screenContacts();
+    });
+  });
 }
 
 /* ===== عمليات بالجملة (قائمة) ===== */
@@ -2064,6 +2193,7 @@ function screenMore() {
     ].filter(Boolean) },
     { key: 'ops', title: '⚙️ العمليات والبيانات', items: [
       I(can('animals', 'add') || can('animals', 'edit') || can('vaccines', 'edit') || can('treatments', 'edit') || can('breeding', 'edit'), '⚙️ عمليات جماعية (تطعيم/علاج/بيع…)', '#/bulk'),
+      I(can('animals', 'view'), '📇 دليل التواصل (زبائن/بيطري…)', '#/contacts'),
       I(can('backup', 'view'), '💾 النسخ الاحتياطي', '#/backup'),
     ].filter(Boolean) },
     { key: 'guides', title: '📖 الأدلة', items: [
