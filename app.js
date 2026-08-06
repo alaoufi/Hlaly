@@ -570,7 +570,7 @@ const ROUTES = {
   alerts: { t: 'التنبيهات', back: false, fn: screenAlerts },
   more: { t: 'المزيد', back: false, fn: screenMore },
   animal: { t: 'سجل البهيمة', back: true, fn: screenAnimalDetail },
-  sires: { t: 'فحول المراح', back: true, fn: screenSires },
+  sires: { t: 'فحول المراح', back: false, fn: screenSires },
   'animal-edit': { t: 'بهيمة', back: true, fn: screenAnimalEdit },
   mating: { t: 'تلقيح / حمل', back: true, fn: screenMating },
   pregnancies: { t: 'الحمل والمتابعة', back: true, fn: screenPregnancies },
@@ -3111,6 +3111,7 @@ const noPerm = () => '<div class="center-empty">ليست لديك صلاحية �
 function buildNav() {
   const tabs = [['#/home', '🏠', 'الرئيسية']];
   if (can('animals', 'view')) tabs.push(['#/animals', '🐑', 'الحلال']);
+  if (can('animals', 'view')) tabs.push(['#/sires', '🐏', 'الفحول']);
   if (can('animals', 'view')) tabs.push(['#/finance', '💰', 'الميزانية']);
   if (can('animals', 'view') || can('breeding', 'view') || can('vaccines', 'view') || can('treatments', 'view')) tabs.push(['#/alerts', '🔔', 'التنبيهات']);
   tabs.push(['#/more', '☰', 'المزيد']);
