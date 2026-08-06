@@ -570,6 +570,7 @@ const ROUTES = {
   alerts: { t: 'التنبيهات', back: false, fn: screenAlerts },
   more: { t: 'المزيد', back: false, fn: screenMore },
   animal: { t: 'سجل البهيمة', back: true, fn: screenAnimalDetail },
+  sires: { t: 'فحول المراح', back: true, fn: screenSires },
   'animal-edit': { t: 'بهيمة', back: true, fn: screenAnimalEdit },
   mating: { t: 'تلقيح / حمل', back: true, fn: screenMating },
   pregnancies: { t: 'الحمل والمتابعة', back: true, fn: screenPregnancies },
@@ -1153,6 +1154,9 @@ function screenAnimalDetail(arg) {
       ${a.status === 'slaughtered' ? row('تاريخ الذبح', fmtDate(a.slaughter_date)) : ''}
       <div class="btn-row" style="margin-top:8px">
         <button class="btn sm outline" id="qShare">📤 مشاركة البطاقة</button>
+        ${can('animals', 'edit') && a.sex === 'male' ? (a.purpose === 'sire'
+          ? `<button class="btn sm outline" id="qUnsire">↩ إلغاء الفحل</button>`
+          : `<button class="btn sm" id="qSire">🐏 تعيينه فحلاً</button>`) : ''}
         ${can('animals', 'edit') ? (a.status === 'present'
           ? `<button class="btn sm" id="qSell">💰 بيع</button><button class="btn sm danger" id="qDead">📉 نفوق</button><button class="btn sm" id="qGift">🎁 إهداء</button><button class="btn sm outline" id="qMissing">🔎 فقد</button><button class="btn sm danger" id="qSlaughter">🔪 ذبح</button>${!inHerdCount(a) ? `<button class="btn sm outline" id="qCount">➕ احتساب</button>` : (a.counted === true ? `<button class="btn sm outline" id="qUncount">➖ إخراج</button>` : '')}`
           : `<button class="btn sm outline" id="qBack">↩ إعادة للحظيرة</button>`) : ''}
@@ -1180,6 +1184,8 @@ function screenAnimalDetail(arg) {
   const qm = document.getElementById('qMissing'); if (qm) qm.addEventListener('click', () => quickMissing(a));
   const qsl = document.getElementById('qSlaughter'); if (qsl) qsl.addEventListener('click', () => quickSlaughter(a));
   const qsh = document.getElementById('qShare'); if (qsh) qsh.addEventListener('click', () => shareAnimalCard(a));
+  const qsi = document.getElementById('qSire'); if (qsi) qsi.addEventListener('click', () => makeSireModal(a));
+  const qus = document.getElementById('qUnsire'); if (qus) qus.addEventListener('click', () => unmakeSire(a));
   const ao = document.getElementById('addOffspring'); if (ao) ao.addEventListener('click', () => addOffspringModal(a));
   const am = document.getElementById('addMating'); if (am) am.addEventListener('click', () => setHash('#/mating/' + id));
   const aso = document.getElementById('addSonar'); if (aso) aso.addEventListener('click', () => animalSonarModal(a));
@@ -1984,7 +1990,52 @@ function contactModal(c) {
   });
 }
 
-/* ===== عمليات بالجملة (قائمة) ===== */
+/* ===== فحول المراح — كل ذكر غرضه «فحل للقطيع» (شراءً أو مولوداً أو تحويلاً) ===== */
+function screenSires() {
+  if (!can('animals', 'view')) { view().innerHTML = noPerm(); return; }
+  const sires = C.animals.filter(a => a.sex === 'male' && a.purpose === 'sire');
+  const present = sires.filter(s => s.status === 'present').sort((a, b) => b.id - a.id);
+  const others = sires.filter(s => s.status !== 'present').sort((a, b) => b.id - a.id);
+  const card = (s) => {
+    const off = C.animals.filter(x => x.father_id === s.id).length;
+    const ic = STATUS_ICON[s.status] || '';
+    return `<div class="card click" data-aid="${s.id}" style="margin:6px 0">
+      <div class="li-title">🐏 ${display(s)}</div>
+      <div class="li-sub">${arOf(TYPES, s.type)}${s.birth ? ' • ' + (ageText(s.birth) || '') : ''}${s.pen ? ' • 🏠 ' + esc(s.pen) : ''}${s.status !== 'present' ? ' • ' + ic + ' ' + arOf(STATUS, s.status) : ''}</div>
+      ${off ? `<div class="li-sub">👶 نتاجه: ${off}</div>` : ''}
+      <div class="li-sub muted">المصدر: ${arOf(SOURCE, s.source || 'purchased')}</div></div>`;
+  };
+  view().innerHTML = `<div class="muted" style="margin-bottom:8px">فحول القطيع = الذكور المُعيَّنة «🐏 فحل للقطيع» — تُضاف شراءً أو من المواليد، أو تُحوَّل من أي ذكر لاحقاً من سجله.</div>
+    <div class="stats" style="grid-template-columns:1fr 1fr"><div class="stat green"><div class="n">${present.length}</div><div class="l">فحول في الحظيرة</div></div><div class="stat"><div class="n">${sires.length}</div><div class="l">إجمالي الفحول</div></div></div>
+    ${can('animals', 'add') ? `<button class="btn" id="s_addbuy" style="margin:8px 0">➕ إضافة فحل (شراء)</button>` : ''}
+    <div class="card"><h3>🟢 فحول في الحظيرة (${present.length})</h3>${present.length ? present.map(card).join('') : noItem()}</div>
+    ${others.length ? `<div class="card"><h3>خارج الحظيرة (${others.length})</h3>${others.map(card).join('')}</div>` : ''}
+    <div class="muted" style="font-size:.82rem;margin-top:8px">لتحويل ذكر إلى فحل: افتح سجله ← تبويب «📋 البيانات» ← «🐏 تعيينه فحلاً».</div>`;
+  bindCards(view());
+  const ab = document.getElementById('s_addbuy'); if (ab) ab.addEventListener('click', () => { animalFilter = 'sheep'; setHash('#/animal-edit/0'); });
+}
+// تعيين ذكر فحلاً (تحويل) مع تحديث معرّفه/اسمه
+function makeSireModal(a) {
+  openModal('تعيين فحلاً', `
+    <div class="muted" style="margin-bottom:8px">تُعيَّن «${display(a)}» فحلاً للقطيع 🐏. يمكنك إعطاؤها اسماً/رقماً الآن.</div>
+    ${fSelect('نوع المعرّف', 'ms_kind', IDKIND, a.idkind || 'number')}
+    ${fInput('المعرّف / الوسم', 'ms_code', a.code)}
+    ${fInput('الاسم (اختياري)', 'ms_name', a.name)}
+    <button class="btn" id="ms_save">🐏 تعيين فحلاً</button>`, () => {
+    document.getElementById('ms_save').addEventListener('click', async () => {
+      const idkind = val('ms_kind'); let code = val('ms_code').trim();
+      if (!['number', 'tag', 'chip', 'name'].includes(idkind)) code = '';
+      const ok = await guard(async () => { await dbUpdate('animals', a.id, { purpose: 'sire', idkind, code, name: val('ms_name').trim() }); });
+      if (ok) { closeModal(); toast('تم تعيينها فحلاً 🐏'); await loadAll(); screenAnimalDetail(String(a.id)); }
+    });
+  });
+}
+// إلغاء صفة الفحولة عن ذكر
+async function unmakeSire(a) {
+  if (!await confirm2('إلغاء صفة الفحل عن هذه البهيمة؟')) return;
+  const ok = await guard(async () => { await dbUpdate('animals', a.id, { purpose: '' }); });
+  if (ok) { toast('أُلغيت صفة الفحل'); await loadAll(); screenAnimalDetail(String(a.id)); }
+}
 let bulkOp = 'vaccinate';
 let bulkRows = [];          // قائمة الرؤوس المُجهَّزة للإضافة الجماعية: {sex, code}
 const bulkSel = new Set();
@@ -2176,6 +2227,7 @@ function screenMore() {
   const cats = [
     { key: 'herd', title: '🐑 الحلال والمتابعة', items: [
       I(can('animals', 'view'), '🔍 تفقد الحلال وإحصائيات', '#/inspect'),
+      I(can('animals', 'view'), '🐏 فحول المراح', '#/sires'),
       I(can('animals', 'add'), '📋 إضافة جماعية (دفعة)', '#/bulk/buy'),
       I(can('breeding', 'view'), '🤰 الحمل والمتابعة', '#/pregnancies'),
       I(can('animals', 'edit'), '⚙️ إعدادات الحظيرة', '#/herdsettings'),
