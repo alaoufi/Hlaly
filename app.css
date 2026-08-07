@@ -101,7 +101,8 @@ main { padding: 14px; max-width: 760px; margin: 0 auto; }
 .btn.amber { background:var(--amber); color:#222; }
 .btn.danger { background:#fff; color:var(--danger); border:1.5px solid var(--danger); }
 .btn.sm { width:auto; padding:8px 14px; font-size:.9rem; }
-.btn-row { display:flex; gap:8px; } .btn-row .btn { margin-top:0; }
+.btn-row { display:flex; gap:8px; flex-wrap:wrap; } .btn-row .btn { margin-top:0; }
+.btn-row .btn.sm { flex:1 1 auto; min-width:96px; padding:9px 10px; }
 .fab { position:fixed; bottom:86px; inset-inline-start:16px; background:var(--green); color:#fff; border:0; border-radius:999px; padding:14px 20px; font-weight:700; box-shadow:0 3px 10px rgba(0,0,0,.25); cursor:pointer; z-index:15; }
 
 .li-title { font-weight: 700; font-size: 1.05rem; }
