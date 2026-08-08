@@ -47,6 +47,16 @@ function countRuleFor(type) { const v = loadCountAge()[type]; if (v == null) ret
 // خيار عام: احتساب الذكور والفحول ضمن عدد الحظيرة (الافتراضي: نعم)
 function countIncludeMales() { try { return localStorage.getItem('mrahi_count_males') !== '0'; } catch (e) { return true; } }
 function countIncludeSires() { try { return localStorage.getItem('mrahi_count_sires') !== '0'; } catch (e) { return true; } }
+// ترتيب عرض قوائم الحلال (الترقيم/تاريخ الإدخال/العمر) — يُضبط من الإعدادات
+const SORT_MODES = [{ k: 'entry', ar: 'تاريخ الإدخال (الأحدث أولاً)' }, { k: 'code', ar: 'الترقيم (تصاعدي)' }, { k: 'age', ar: 'العمر (الأكبر أولاً)' }];
+function animalSortMode() { try { const v = localStorage.getItem('mrahi_sort'); return ['entry', 'code', 'age'].includes(v) ? v : 'entry'; } catch (e) { return 'entry'; } }
+function sortAnimals(arr) {
+  const m = animalSortMode(), a2 = arr.slice();
+  if (m === 'code') a2.sort((x, y) => { const nx = codeNumOf(x), ny = codeNumOf(y); if (nx == null && ny == null) return y.id - x.id; if (nx == null) return 1; if (ny == null) return -1; return nx - ny; });
+  else if (m === 'age') a2.sort((x, y) => { const bx = x.birth || '', by = y.birth || ''; if (!bx && !by) return y.id - x.id; if (!bx) return 1; if (!by) return -1; return bx.localeCompare(by); });   // الأقدم ميلاداً = الأكبر عمراً أولاً
+  else a2.sort((x, y) => y.id - x.id);   // الأحدث إدخالاً أولاً
+  return a2;
+}
 function inHerdCount(a) {
   if (!a || a.status !== 'present') return false;
   if (a.counted === true) return true;    // أُضيفت يدوياً للعدّ
@@ -793,7 +803,7 @@ function screenAnimals() {
   const sexChips = `<div class="chips">${SEX.map(s => `<span class="chip ${animalSexSel.includes(s.k) ? 'active' : ''}" data-sex="${s.k}">${cb(animalSexSel.includes(s.k))}${s.k === 'male' ? '♂ ' : '♀ '}${s.ar}</span>`).join('')}</div>`;
   // إخفاء الذكور/الفحول من صفحة الحلال إن أُوقف احتسابهم (يبقون في صفحة الفحول ويظهرون عند تحديد مرشّح «ذكر»)
   const hideMale = (a) => a.status === 'present' && a.sex === 'male' && !animalSexSel.includes('male') && (a.purpose === 'sire' ? !countIncludeSires() : !countIncludeMales());
-  const list = C.animals.filter(a => (!animalFilter || a.type === animalFilter) && (!animalStatusSel.length || animalStatusSel.includes(a.status)) && (!animalSourceSel.length || animalSourceSel.some(s => s === 'sale' ? (a.designation === 'sale' || a.purpose === 'sale') : (a.source || 'purchased') === s)) && (!animalSexSel.length || animalSexSel.includes(a.sex)) && !hideMale(a)).sort((a, b) => b.id - a.id);
+  const list = sortAnimals(C.animals.filter(a => (!animalFilter || a.type === animalFilter) && (!animalStatusSel.length || animalStatusSel.includes(a.status)) && (!animalSourceSel.length || animalSourceSel.some(s => s === 'sale' ? (a.designation === 'sale' || a.purpose === 'sale') : (a.source || 'purchased') === s)) && (!animalSexSel.length || animalSexSel.includes(a.sex)) && !hideMale(a)));
   const canEdit = can('animals', 'edit');
   // عند خلو الحلال كلياً: حالة ترحيبية بزرّ إضافة واضح. وعند خلو التصنيف فقط: رسالة عادية.
   const empty = C.animals.length === 0
@@ -2029,8 +2039,8 @@ function contactModal(c) {
 function screenSires() {
   if (!can('animals', 'view')) { view().innerHTML = noPerm(); return; }
   const sires = C.animals.filter(a => a.sex === 'male' && a.purpose === 'sire');
-  const present = sires.filter(s => s.status === 'present').sort((a, b) => b.id - a.id);
-  const others = sires.filter(s => s.status !== 'present').sort((a, b) => b.id - a.id);
+  const present = sortAnimals(sires.filter(s => s.status === 'present'));
+  const others = sortAnimals(sires.filter(s => s.status !== 'present'));
   const card = (s) => {
     const off = C.animals.filter(x => x.father_id === s.id).length;
     const ic = STATUS_ICON[s.status] || '';
@@ -2818,8 +2828,12 @@ function screenHerdSettings() {
     ['🏷️', 'شكل ولون الرقم', '#/taglists'],
     ['🔔', 'تنبيهات مخصّصة (للبيع/التطعيم…)', '#/reminders'],
   ];
-  view().innerHTML = `<div class="muted" style="margin-bottom:8px">كل إعدادات الحظيرة في مكان واحد.</div>`
+  view().innerHTML = `<div class="muted" style="margin-bottom:8px">كل إعدادات الحظيرة في مكان واحد.</div>
+    <div class="card"><h3>🔃 ترتيب عرض القوائم</h3>
+      ${fSelect('الترتيب المعتمد', 'hs_sort', SORT_MODES, animalSortMode())}
+      <div class="muted" style="font-size:.8rem">يُطبَّق على قوائم «الحلال» و«الفحول».</div></div>`
     + items.map(([ic, label, hash]) => `<div class="card click" data-h="${hash}"><div class="li-title">${ic} ${label}</div></div>`).join('');
+  { const ss = document.getElementById('hs_sort'); if (ss) ss.addEventListener('change', () => { try { localStorage.setItem('mrahi_sort', ss.value); } catch (e) {} toast('تم تغيير الترتيب'); }); }
   view().querySelectorAll('[data-h]').forEach(c => c.addEventListener('click', () => setHash(c.dataset.h)));
 }
 // عمر احتساب المولود في الحظيرة (لكل نوع + لأي جنس تنطبق القاعدة)
