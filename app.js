@@ -44,10 +44,15 @@ function loadCountAge() { try { const v = JSON.parse(localStorage.getItem('mrahi
 function saveCountAge(o) { try { localStorage.setItem('mrahi_count_age', JSON.stringify(o || {})); } catch (e) {} }
 // قاعدة الاحتساب لكل نوع: { age: أشهر, sex: 'both'|'male'|'female' } (تدعم القيمة القديمة كرقم)
 function countRuleFor(type) { const v = loadCountAge()[type]; if (v == null) return { mode: 'age', age: 0, sex: 'both' }; if (typeof v === 'number') { return { mode: 'age', age: v > 0 ? v : 0, sex: 'both' }; } const age = parseInt(v.age, 10); return { mode: v.mode === 'manual' ? 'manual' : 'age', age: age > 0 ? age : 0, sex: (v.sex === 'male' || v.sex === 'female') ? v.sex : 'both' }; }
+// خيار عام: احتساب الذكور والفحول ضمن عدد الحظيرة (الافتراضي: نعم)
+function countIncludeMales() { try { return localStorage.getItem('mrahi_count_males') !== '0'; } catch (e) { return true; } }
+function countIncludeSires() { try { return localStorage.getItem('mrahi_count_sires') !== '0'; } catch (e) { return true; } }
 function inHerdCount(a) {
   if (!a || a.status !== 'present') return false;
   if (a.counted === true) return true;    // أُضيفت يدوياً للعدّ
   if (a.counted === false) return false;   // أُخرجت يدوياً من العدّ
+  // خيار عام: استبعاد الذكور/الفحول من العدّ إن أُوقف من الإعدادات
+  if (a.sex === 'male') { const isSire = a.purpose === 'sire'; if (isSire && !countIncludeSires()) return false; if (!isSire && !countIncludeMales()) return false; }
   const c = countRuleFor(a.type);
   if (c.sex !== 'both' && a.sex !== c.sex) return true;   // القاعدة لا تنطبق على هذا الجنس
   if (c.mode === 'manual') return a.source !== 'born';     // المواليد تُضاف يدوياً؛ المشترى/الاهداء يُحتسب
@@ -1122,7 +1127,7 @@ function screenAnimalDetail(arg) {
       ${monPreg && can('breeding', 'edit') ? `<button class="btn outline danger" id="addAbort" style="margin-top:6px">🩸 تسجيل إجهاض</button>` : ''}
       ${matings.map(m => row('تلقيح ' + fmtDate(m.date), 'الفحل: ' + (esc(m.sire_name) || esc(m.sire_code) || '—'))).join('')}
       ${pregs.map(p => p.status === 'aborted'
-        ? row('حمل (🩸 أجهضت)', '🩸 ' + fmtDate(p.abort_date) + (p.abort_gest_days != null ? ' • عمر الحمل ' + p.abort_gest_days + ' يوم' : '') + (p.abort_cause ? ' • السبب: ' + esc(p.abort_cause) : ''))
+        ? row('حمل (🩸 أجهضت)', (p.abort_gest_days != null ? 'عمر الحمل عند الإجهاض ' + p.abort_gest_days + ' يوم' : 'مسجّل') + (p.abort_cause ? ' • السبب: ' + esc(p.abort_cause) : ''))
         : row('حمل (' + arOf(PREG, p.status) + ')' + (p.confirmed ? ' 🔊' : ''), 'الولادة التقريبية ' + fmtDate(p.expected) + ' • مدة الحمل ' + p.gest + ' يوم')).join('')}
       ${!matings.length && !pregs.length ? noItem() : ''}</div>` : ''}`;
   REC.medical = `<div class="card"><h3>🩺 السجل المرضي (${treats.length})</h3>
@@ -1388,8 +1393,8 @@ function screenPregnancies() {
         <button class="btn sm danger" data-abort="${p.id}">🩸 إجهاض</button>
         <button class="btn sm outline" data-nope="${p.id}">لم يثبت</button></div>` : '';
     const age = p.mating_date ? Math.max(0, -daysUntil(p.mating_date)) : null;
-    const abortRow = p.status === 'aborted' ? row('🩸 الإجهاض', fmtDate(p.abort_date) + (p.abort_gest_days != null ? ' • عمر الحمل ' + p.abort_gest_days + ' يوم' : '') + (p.abort_cause ? ' • السبب: ' + esc(p.abort_cause) : ' • بلا سبب مسجّل')) : '';
-    const infoRows = p.status === 'aborted' ? row('مدة حمل النوع', p.gest + ' يوم') + abortRow : row('عمر الحمل الحالي', (age != null ? age : '—') + ' يوم') + row('مدة حمل النوع', p.gest + ' يوم') + row('الولادة التقريبية', fmtDate(p.expected));
+    const abortRow = p.status === 'aborted' ? row('🩸 الإجهاض', (p.abort_gest_days != null ? 'عمر الحمل عند الإجهاض ' + p.abort_gest_days + ' يوم' : 'مسجّل') + (p.abort_cause ? ' • السبب: ' + esc(p.abort_cause) : ' • بلا سبب مسجّل')) : '';
+    const infoRows = p.status === 'aborted' ? abortRow : row('عمر الحمل الحالي', (age != null ? age : '—') + ' يوم') + row('مدة حمل النوع', p.gest + ' يوم') + row('الولادة التقريبية', fmtDate(p.expected));
     return `<div class="card"><h3>${display(a)}</h3>${infoRows}${row('الحالة', arOf(PREG, p.status))}${sonarRow}${actions}</div>`;
   }).join('');
   const startBtn = can('breeding', 'edit') ? '<button class="btn" id="startPreg" style="margin:0 0 8px">🔊 متابعة الحمل بالسونار (إدخال/تعديل)</button>' : '';
@@ -2818,7 +2823,12 @@ function screenCountAge() {
   if (!can('animals', 'edit')) { view().innerHTML = noPerm(); return; }
   const SEXSCOPE = [{ k: 'both', ar: 'كلاهما' }, { k: 'female', ar: 'الإناث' }, { k: 'male', ar: 'الذكور' }];
   const MODES = [{ k: 'age', ar: 'يظهر مع المجموع عند عمر معيّن' }, { k: 'manual', ar: 'لا يظهر — يُضاف يدوياً' }];
+  const chk = (v) => v ? 'checked' : '';
   view().innerHTML = `
+    <div class="card"><h3>احتساب الذكور والفحول في الحظيرة</h3>
+      <div class="muted" style="font-size:.82rem;margin-bottom:8px">اختر إن كانت الذكور والفحول تُحتسب ضمن عدد «في الحظيرة» مع بقية حلالك.</div>
+      <label class="check"><input type="checkbox" id="cnt_males" ${chk(countIncludeMales())}> احتساب الذكور مع حلالي في الحظيرة</label>
+      <label class="check"><input type="checkbox" id="cnt_sires" ${chk(countIncludeSires())}> احتساب الفحول مع حلالي في الحظيرة</label></div>
     <div class="muted" style="margin-bottom:8px">لكل نوع: متى يُحتسب المولود ضمن «في الحظيرة». <b>عند عمر</b>: يُضاف تلقائياً عند بلوغه العمر. <b>يدوي</b>: لا يُحتسب حتى تضيفه بنفسك من سجل البهيمة. أصغر من ذلك «يتبع أمّه» ويبقى ظاهراً في القائمة. المشترى/الاهداء يُحتسب دائماً.</div>
     ${TYPES.map(t => { const r = countRuleFor(t.k); return `<div class="card"><h3>${esc(t.ar)}</h3>${fSelect('طريقة الاحتساب', 'cm_' + t.k, MODES, r.mode)}<div id="cab_${t.k}">${fInput('العمر (أشهر) — صفر = يُحتسب الجميع', 'ca_' + t.k, r.age || '', 'number', 'min="0" inputmode="numeric"')}</div>${fSelect('تنطبق على', 'cas_' + t.k, SEXSCOPE, r.sex)}</div>`; }).join('')}
     <button class="btn" id="ca_save">حفظ</button>`;
@@ -2827,7 +2837,9 @@ function screenCountAge() {
   document.getElementById('ca_save').addEventListener('click', () => {
     const o = {};
     TYPES.forEach(t => { const mode = val('cm_' + t.k) === 'manual' ? 'manual' : 'age'; const n = parseInt(val('ca_' + t.k), 10) || 0; const sex = val('cas_' + t.k) || 'both'; if (mode === 'manual') o[t.k] = { mode: 'manual', age: 0, sex }; else if (n > 0) o[t.k] = { mode: 'age', age: n, sex }; });
-    saveCountAge(o); toast('تم الحفظ'); goBack();
+    saveCountAge(o);
+    try { localStorage.setItem('mrahi_count_males', document.getElementById('cnt_males').checked ? '1' : '0'); localStorage.setItem('mrahi_count_sires', document.getElementById('cnt_sires').checked ? '1' : '0'); } catch (e) {}
+    toast('تم الحفظ'); goBack();
   });
 }
 function screenPens() {
