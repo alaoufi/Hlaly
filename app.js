@@ -51,8 +51,9 @@ function inHerdCount(a) {
   if (!a || a.status !== 'present') return false;
   if (a.counted === true) return true;    // أُضيفت يدوياً للعدّ
   if (a.counted === false) return false;   // أُخرجت يدوياً من العدّ
-  // خيار عام: استبعاد الذكور/الفحول من العدّ إن أُوقف من الإعدادات
-  if (a.sex === 'male') { const isSire = a.purpose === 'sire'; if (isSire && !countIncludeSires()) return false; if (!isSire && !countIncludeMales()) return false; }
+  // الذكور: الفحل بالغٌ لا يخضع لقاعدة «يتبع أمّه» — يُحتسب إن كان الخيار مفعّلاً ويُستبعد إن أُوقف.
+  // الذكر العادي: يُستبعد إن أُوقف الخيار، وإلا يخضع لقاعدة العمر كالمعتاد.
+  if (a.sex === 'male') { if (a.purpose === 'sire') return countIncludeSires(); if (!countIncludeMales()) return false; }
   const c = countRuleFor(a.type);
   if (c.sex !== 'both' && a.sex !== c.sex) return true;   // القاعدة لا تنطبق على هذا الجنس
   if (c.mode === 'manual') return a.source !== 'born';     // المواليد تُضاف يدوياً؛ المشترى/الاهداء يُحتسب
