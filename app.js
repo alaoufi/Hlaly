@@ -20,7 +20,7 @@ const MALE_PURPOSE = [{ k: 'sire', ar: '🐏 فحل للقطيع' }, { k: 'sale'
 const DESIGN = [{ k: 'raise', ar: '🌱 تربية' }, { k: 'sale', ar: '💰 للبيع' }];
 const TREAT_FORM = [{ k: 'injection', ar: 'إبر' }, { k: 'oral', ar: 'تجريع' }, { k: 'spray', ar: 'رش' }, { k: 'topical', ar: 'دهن' }];
 const IDKIND = [{ k: 'number', ar: 'رقم' }, { k: 'tag', ar: 'وسم' }, { k: 'chip', ar: 'شريحة إلكترونية' }, { k: 'name', ar: 'اسم / مسمى' }, { k: 'color', ar: 'لون / علامة' }, { k: 'none', ar: 'بدون' }];
-const PREG = [{ k: 'monitoring', ar: 'تحت المتابعة' }, { k: 'born', ar: 'ولدت' }, { k: 'not_confirmed', ar: 'لم يثبت الحمل' }];
+const PREG = [{ k: 'monitoring', ar: 'تحت المتابعة' }, { k: 'born', ar: 'ولدت' }, { k: 'not_confirmed', ar: 'لم يثبت الحمل' }, { k: 'aborted', ar: '🩸 أجهضت' }];
 const arOf = (arr, k) => (arr.find(x => x.k === k) || {}).ar || '—';
 const gestOf = (t) => (TYPES.find(x => x.k === t) || TYPES[1]).gest;
 const pubertyOf = (t) => (TYPES.find(x => x.k === t) || {}).puberty;   // سن البلوغ (أشهر) أو undefined
@@ -1083,6 +1083,7 @@ function screenAnimalDetail(arg) {
   // ===== كفاءة الإنجاب (تُحتسب من النتاج والتلقيح) =====
   const birthDates = Array.from(new Set(offspring.map(o => o.birth).filter(Boolean))).sort();
   const parities = birthDates.length;                                  // عدد الولادات (تواريخ ميلاد مختلفة)
+  const abortions = pregs.filter(p => p.status === 'aborted').length;   // عدد الإجهاضات المسجّلة
   const avgLitter = parities ? Math.round((offspring.length / parities) * 10) / 10 : 0;
   let intervalMonths = null;
   if (birthDates.length >= 2) {
@@ -1112,13 +1113,17 @@ function screenAnimalDetail(arg) {
       ${intervalMonths != null ? row('متوسط الفترة بين الولادات', intervalMonths + ' شهر تقريباً') : ''}
       ${fertilityPct != null ? row('معدل الإخصاب', fertilityPct + '% (' + parities + ' ولادة ÷ ' + matings.length + ' تلقيح)') : ''}
       ${lastBirth ? row('آخر ولادة', fmtDate(lastBirth)) : ''}
+      ${abortions ? row('🩸 عدد الإجهاضات', String(abortions)) : ''}
       ${monPreg ? row('الحمل الحالي', 'ولادة متوقّعة ' + fmtDate(monPreg.expected)) : ''}
-      ${!parities && !matings.length ? noItem() : ''}</div>
+      ${!parities && !matings.length && !abortions ? noItem() : ''}</div>
     ${a.sex === 'female' && breedingAge ? `<div class="card"><h3>🤰 التلقيح والحمل (${matings.length})</h3>
       ${can('breeding', 'edit') ? `<button class="btn outline" id="addMating">إضافة تلقيح / متابعة حمل</button>` : ''}
       ${can('breeding', 'edit') && a.status === 'present' ? `<button class="btn outline" id="addSonar" style="margin-top:6px">🔊 فحص حمل بالسونار</button>` : ''}
+      ${monPreg && can('breeding', 'edit') ? `<button class="btn outline danger" id="addAbort" style="margin-top:6px">🩸 تسجيل إجهاض</button>` : ''}
       ${matings.map(m => row('تلقيح ' + fmtDate(m.date), 'الفحل: ' + (esc(m.sire_name) || esc(m.sire_code) || '—'))).join('')}
-      ${pregs.map(p => row('حمل (' + arOf(PREG, p.status) + ')' + (p.confirmed ? ' 🔊' : ''), 'الولادة التقريبية ' + fmtDate(p.expected) + ' • مدة الحمل ' + p.gest + ' يوم')).join('')}
+      ${pregs.map(p => p.status === 'aborted'
+        ? row('حمل (🩸 أجهضت)', '🩸 ' + fmtDate(p.abort_date) + (p.abort_gest_days != null ? ' • عمر الحمل ' + p.abort_gest_days + ' يوم' : '') + (p.abort_cause ? ' • السبب: ' + esc(p.abort_cause) : ''))
+        : row('حمل (' + arOf(PREG, p.status) + ')' + (p.confirmed ? ' 🔊' : ''), 'الولادة التقريبية ' + fmtDate(p.expected) + ' • مدة الحمل ' + p.gest + ' يوم')).join('')}
       ${!matings.length && !pregs.length ? noItem() : ''}</div>` : ''}`;
   REC.medical = `<div class="card"><h3>🩺 السجل المرضي (${treats.length})</h3>
       <div class="muted" style="font-size:.82rem;margin-bottom:6px">الحالات التي أصابت البهيمة (مصدرها سجل العلاجات).</div>
@@ -1189,6 +1194,7 @@ function screenAnimalDetail(arg) {
   const ao = document.getElementById('addOffspring'); if (ao) ao.addEventListener('click', () => addOffspringModal(a));
   const am = document.getElementById('addMating'); if (am) am.addEventListener('click', () => setHash('#/mating/' + id));
   const aso = document.getElementById('addSonar'); if (aso) aso.addEventListener('click', () => animalSonarModal(a));
+  const aab = document.getElementById('addAbort'); if (aab && monPreg) aab.addEventListener('click', () => abortModal(monPreg));
   const av = document.getElementById('addVacc'); if (av) av.addEventListener('click', () => setHash('#/vaccinate/' + id));
   const at = document.getElementById('addTreat'); if (at) at.addEventListener('click', () => setHash('#/treat/' + id));
   if (can('animals', 'edit')) addFab('✎ تعديل', () => setHash('#/animal-edit/' + id));
@@ -1379,9 +1385,12 @@ function screenPregnancies() {
     const actions = (p.status === 'monitoring' && can('breeding', 'edit')) ? `<div class="btn-row" style="margin-top:8px">
         <button class="btn sm" data-birth="${p.id}">تسجيل ولادة</button>
         <button class="btn sm outline" data-sonar="${p.id}">🔊 فحص بالسونار</button>
+        <button class="btn sm danger" data-abort="${p.id}">🩸 إجهاض</button>
         <button class="btn sm outline" data-nope="${p.id}">لم يثبت</button></div>` : '';
     const age = p.mating_date ? Math.max(0, -daysUntil(p.mating_date)) : null;
-    return `<div class="card"><h3>${display(a)}</h3>${row('عمر الحمل الحالي', (age != null ? age : '—') + ' يوم')}${row('مدة حمل النوع', p.gest + ' يوم')}${row('الولادة التقريبية', fmtDate(p.expected))}${row('الحالة', arOf(PREG, p.status))}${sonarRow}${actions}</div>`;
+    const abortRow = p.status === 'aborted' ? row('🩸 الإجهاض', fmtDate(p.abort_date) + (p.abort_gest_days != null ? ' • عمر الحمل ' + p.abort_gest_days + ' يوم' : '') + (p.abort_cause ? ' • السبب: ' + esc(p.abort_cause) : ' • بلا سبب مسجّل')) : '';
+    const infoRows = p.status === 'aborted' ? row('مدة حمل النوع', p.gest + ' يوم') + abortRow : row('عمر الحمل الحالي', (age != null ? age : '—') + ' يوم') + row('مدة حمل النوع', p.gest + ' يوم') + row('الولادة التقريبية', fmtDate(p.expected));
+    return `<div class="card"><h3>${display(a)}</h3>${infoRows}${row('الحالة', arOf(PREG, p.status))}${sonarRow}${actions}</div>`;
   }).join('');
   const startBtn = can('breeding', 'edit') ? '<button class="btn" id="startPreg" style="margin:0 0 8px">🔊 متابعة الحمل بالسونار (إدخال/تعديل)</button>' : '';
   const bulkBtn = (monitoring.length && can('breeding', 'edit')) ? '<button class="btn outline" id="bulkSonar" style="margin:0 0 10px">🔊 فحص جماعي بالسونار</button>' : '';
@@ -1395,6 +1404,7 @@ function screenPregnancies() {
     if (ok) { await loadAll(); screenPregnancies(); }
   }));
   view().querySelectorAll('[data-sonar]').forEach(b => b.addEventListener('click', () => sonarModal(C.pregnancies.find(x => x.id === parseInt(b.dataset.sonar, 10)))));
+  view().querySelectorAll('[data-abort]').forEach(b => b.addEventListener('click', () => abortModal(C.pregnancies.find(x => x.id === parseInt(b.dataset.abort, 10)))));
   view().querySelectorAll('[data-birth]').forEach(b => b.addEventListener('click', () => openBirthModal(C.pregnancies.find(x => x.id === parseInt(b.dataset.birth, 10)))));
 }
 // بدء/تعديل متابعة حمل بالسونار — حفظ تلقائي فور كتابة عمر الحمل.
@@ -1564,6 +1574,22 @@ function openBirthModal(preg) {
         await dbUpdate('pregnancies', preg.id, { status: 'born' });
       });
       if (ok) { closeModal(); toast(`تم تسجيل الولادة (${n})`); await loadAll(); screenPregnancies(); }
+    });
+  });
+}
+// تسجيل إجهاض — أرشيف فقط (لا يُحتسب مواليد)؛ يُحسب منه عمر الحمل عند الإجهاض
+function abortModal(preg) {
+  const mother = animalById(preg.animal_id);
+  openModal('تسجيل إجهاض — ' + display(mother), `
+    <div class="muted" style="font-size:.82rem;margin-bottom:6px">يُسجَّل للأرشيف فقط (لا يُحتسب مواليد) — لمعرفة عدد الإجهاضات وأسبابها. ويُحسب منه عمر الحمل عند الإجهاض.</div>
+    ${fInput('سبب الإجهاض (اختياري)', 'ab_cause', '')}
+    ${fInput('تاريخ الإجهاض', 'ab_date', todayStr(), 'date')}
+    <button class="btn danger" id="ab_save">🩸 حفظ الإجهاض</button>`, () => {
+    document.getElementById('ab_save').addEventListener('click', async () => {
+      const date = val('ab_date') || todayStr();
+      const gestDays = preg.mating_date ? Math.max(0, Math.round((new Date(date + 'T00:00:00') - new Date(preg.mating_date + 'T00:00:00')) / 86400000)) : null;
+      const ok = await guard(async () => { await dbUpdate('pregnancies', preg.id, { status: 'aborted', abort_date: date, abort_cause: val('ab_cause').trim() || null, abort_gest_days: gestDays }); });
+      if (ok) { closeModal(); toast('سُجّل الإجهاض'); await loadAll(); (parseHash().name === 'pregnancies' ? screenPregnancies() : screenAnimalDetail(String(preg.animal_id))); }
     });
   });
 }
