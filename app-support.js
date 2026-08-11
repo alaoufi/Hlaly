@@ -38,7 +38,12 @@
   function matingIdsForAnimal(matings, animalId) {
     return (Array.isArray(matings) ? matings : []).filter(m => m && m.animal_id === animalId && m.id != null).map(m => m.id);
   }
+  function staleActivePregnancyIdsForAnimal(pregnancies, animalId) {
+    const active = (Array.isArray(pregnancies) ? pregnancies : [])
+      .filter(p => p && p.animal_id === animalId && p.status === 'monitoring' && p.id != null)
+      .sort((a, b) => (b.mating_date || '').localeCompare(a.mating_date || '') || Number(b.id) - Number(a.id));
+    return active.slice(1).map(p => p.id);
+  }
   function closedPregnancyPatch(status) { return { status, mating_date: null, expected: null }; }
-  return { normalizeTheme, applyTheme, isRestorableSnapshot, shouldShowAnimal, herdVisibility, matingIdsForAnimal, closedPregnancyPatch };
+  return { normalizeTheme, applyTheme, isRestorableSnapshot, shouldShowAnimal, herdVisibility, matingIdsForAnimal, staleActivePregnancyIdsForAnimal, closedPregnancyPatch };
 });
-

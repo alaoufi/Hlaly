@@ -47,3 +47,14 @@ test('clears mating dates when a pregnancy is closed', () => {
   assert.deepEqual(support.closedPregnancyPatch('aborted'), { status: 'aborted', mating_date: null, expected: null });
 });
 
+test('keeps only the newest active pregnancy per mother', () => {
+  assert.deepEqual(
+    support.staleActivePregnancyIdsForAnimal([
+      { id: 4, animal_id: 7, status: 'monitoring', mating_date: '2026-05-12' },
+      { id: 8, animal_id: 7, status: 'monitoring', mating_date: '2026-07-07' },
+      { id: 9, animal_id: 7, status: 'aborted', mating_date: '2026-04-01' },
+      { id: 10, animal_id: 8, status: 'monitoring', mating_date: '2026-08-01' }
+    ], 7),
+    [4]
+  );
+});

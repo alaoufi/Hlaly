@@ -237,6 +237,7 @@ async function loadAll() {
     else C[k] = data;
   });
   await purgeDuplicateMatings();
+  await purgeDuplicateActivePregnancies();
   // أنواع الحلال القابلة للإدارة (تُحدّث القائمة العامة TYPES)
   try {
     const tr = await sb.from('mrahi_types').select('*');
@@ -261,6 +262,18 @@ async function purgeDuplicateMatings() {
   grouped.forEach(rows => rows.sort((a, b) => (b.date || '').localeCompare(a.date || '') || b.id - a.id).slice(1).forEach(m => remove.push(m.id)));
   for (const id of remove) { const { error } = await sb.from(TABLES.matings).delete().eq('id', id); if (error) throw error; }
   if (remove.length) { const gone = new Set(remove); C.matings = C.matings.filter(m => !gone.has(m.id)); C._matings = (C._matings || []).filter(m => !gone.has(m.id)); }
+}
+async function purgeDuplicateActivePregnancies() {
+  const ids = [];
+  const mothers = new Set(C.pregnancies.filter(p => p && p.status === 'monitoring').map(p => p.animal_id));
+  for (const animalId of mothers) {
+    const stale = window.MrahiSupport && window.MrahiSupport.staleActivePregnancyIdsForAnimal
+      ? window.MrahiSupport.staleActivePregnancyIdsForAnimal(C.pregnancies, animalId)
+      : [];
+    ids.push(...stale);
+  }
+  for (const id of ids) { const { error } = await sb.from(TABLES.pregnancies).delete().eq('id', id); if (error) throw error; }
+  if (ids.length) { const gone = new Set(ids); C.pregnancies = C.pregnancies.filter(p => !gone.has(p.id)); }
 }
 // خرائط أنواع البهائم: من المفاتيح الإنجليزية إلى الأسماء العربية في التطبيق
 const SP_AR = { sheep: ['نعيم', 'حري', 'نجد', 'غنم'], goat: ['ماعز'], camel: ['إبل'], cattle: ['بقر'] };
@@ -565,7 +578,7 @@ async function deleteMatingsForAnimal(animalId) {
 }
 async function deleteMonitoringPregnanciesForAnimal(animalId) {
   const ids = C.pregnancies.filter(p => p && p.animal_id === animalId && p.status === 'monitoring').map(p => p.id);
-  for (const id of ids) await dbDelete('pregnancies', id);
+  for (const id of ids) { const { error } = await sb.from(TABLES.pregnancies).delete().eq('id', id); if (error) throw error; }
   C.pregnancies = C.pregnancies.filter(p => !(p.animal_id === animalId && p.status === 'monitoring'));
 }
 async function guard(fn) { try { await fn(); } catch (e) { const msg = (e.message || '' + e); toast(/Could not find the table|schema cache/i.test(msg) ? 'هذه الميزة تحتاج تنفيذ سكربت قاعدة البيانات أولاً (راجع التعليمات).' : 'تعذّر الحفظ: ' + msg); return false; } return true; }
@@ -2373,9 +2386,9 @@ function screenMore() {
 
 /* ===== دليل الاستخدام (كتاب ثلاثي الأبعاد) ===== */
 function screenAbout() {
-  const version = window.MRAH_VERSION || '1.0.134';
+  const version = window.MRAH_VERSION || '1.0.137';
   view().innerHTML = `<div class="about-hero"><img src="icon-192.png" alt="حلالي"><div><h2>حلالي</h2><div class="muted">الإصدار ${esc(version)}</div></div></div>
-    <div class="card"><h3>سجل التعديلات — 1.0.136</h3><ul class="about-changes"><li>اعتماد آخر تلقيح فقط لكل أم وحذف التلقيحات الأقدم نهائيًا.</li><li>عند الولادة أو الإجهاض يمسح تاريخ التلقيح وموعد الولادة المتوقع.</li><li>تبقى الولادة والمواليد، ويبقى سبب الإجهاض وعمر الحمل للدراسة.</li><li>تنظيم «المزيد» ومرشح ذكي للذكور والفحول.</li><li>أيقونة حلالي الأصلية ومظاهر هادئة قابلة للاختيار.</li></ul></div>
+    <div class="card"><h3>سجل التعديلات — 1.0.137</h3><ul class="about-changes"><li>اعتماد آخر تلقيح وسجل متابعة نشط فقط لكل أم، مع حذف السجلات المكررة نهائيًا.</li><li>عند الولادة أو الإجهاض يمسح تاريخ التلقيح وموعد الولادة المتوقع.</li><li>تبقى الولادة والمواليد، ويبقى سبب الإجهاض وعمر الحمل للدراسة.</li><li>تنظيم «المزيد» ومرشح ذكي للذكور والفحول.</li><li>أيقونة حلالي الأصلية ومظاهر هادئة قابلة للاختيار.</li></ul></div>
     <div class="card"><h3>بياناتك محفوظة</h3><div class="muted">التحديث يثبت فوق النسخة السابقة ويحافظ على بياناتك المحلية.</div></div>`;
 }
 function guideBooks() {
