@@ -371,6 +371,8 @@ html[data-theme] .card { border:1px solid color-mix(in srgb,var(--accent-3d),tra
 .herd-filter-group .chip { min-height:34px; }
 .herd-settings-intro { margin:2px 0 12px; padding:12px 14px; border-radius:14px; background:color-mix(in srgb,var(--surface-3d),#fff 42%); border:1px solid color-mix(in srgb,var(--accent-3d),transparent 72%); line-height:1.75; }
 .herd-settings-grid { display:grid; gap:10px; }
+.newborn-policy-card { border-inline-start:4px solid var(--accent-3d); }
+.newborn-policy-card .field { margin-bottom:9px; }
 
 /* تنقل «المزيد»: مجموعة واحدة مفتوحة، وصفوف لمس مختصرة وواضحة. */
 .more-group-head { display:flex; align-items:center; justify-content:space-between; min-height:58px; margin:10px 0 0; padding:13px 15px; border-radius:16px; box-shadow:0 5px 14px #26452c14; }

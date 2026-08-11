@@ -4,6 +4,8 @@
   root.MrahiSupport = api;
 })(typeof window !== 'undefined' ? window : globalThis, function () {
   const THEMES = new Set(['desert', 'emerald', 'midnight']);
+  const NEWBORN_MODES = new Set(['immediate', 'with_mother']);
+  const NEWBORN_UNITS = new Set(['days', 'months']);
   const normalizeTheme = value => THEMES.has(value) ? value : 'desert';
   function applyTheme(value, doc) {
     const theme = normalizeTheme(value);
@@ -44,6 +46,29 @@
       .sort((a, b) => (b.mating_date || '').localeCompare(a.mating_date || '') || Number(b.id) - Number(a.id));
     return active.slice(1).map(p => p.id);
   }
+  function normalizeNewbornPolicy(value) {
+    const input = value && typeof value === 'object' ? value : {};
+    const mode = NEWBORN_MODES.has(input.mode) ? input.mode : 'with_mother';
+    const unit = NEWBORN_UNITS.has(input.unit) ? input.unit : 'days';
+    const age = Number.isFinite(Number(input.age)) ? Math.max(0, Math.floor(Number(input.age))) : 0;
+    return { mode, age, unit };
+  }
+  function newbornAgeDays(birth, asOf) {
+    if (!birth || !asOf) return null;
+    const start = new Date(String(birth).slice(0, 10) + 'T00:00:00');
+    const end = new Date(String(asOf).slice(0, 10) + 'T00:00:00');
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
+    return Math.max(0, Math.floor((end - start) / 86400000));
+  }
+  function shouldCountNewborn(animal, policy, asOf) {
+    if (!animal || animal.source !== 'born') return true;
+    const normalized = normalizeNewbornPolicy(policy);
+    if (normalized.mode === 'immediate') return true;
+    const age = newbornAgeDays(animal.birth, asOf || new Date().toISOString().slice(0, 10));
+    if (age == null) return true;
+    const threshold = normalized.age * (normalized.unit === 'months' ? 30 : 1);
+    return age >= threshold;
+  }
   function closedPregnancyPatch(status) { return { status, mating_date: null, expected: null }; }
-  return { normalizeTheme, applyTheme, isRestorableSnapshot, shouldShowAnimal, herdVisibility, matingIdsForAnimal, staleActivePregnancyIdsForAnimal, closedPregnancyPatch };
+  return { normalizeTheme, applyTheme, isRestorableSnapshot, shouldShowAnimal, herdVisibility, matingIdsForAnimal, staleActivePregnancyIdsForAnimal, normalizeNewbornPolicy, newbornAgeDays, shouldCountNewborn, closedPregnancyPatch };
 });

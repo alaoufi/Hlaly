@@ -3,7 +3,7 @@
 import { mkdirSync, rmSync, copyFileSync, writeFileSync, readFileSync } from 'node:fs';
 
 const WWW = 'www';
-const VERSION = process.env.APP_VERSION || '1.0.138';
+const VERSION = process.env.APP_VERSION || '1.0.139';
 rmSync(WWW, { recursive: true, force: true });
 mkdirSync(WWW, { recursive: true });
 

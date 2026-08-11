@@ -58,3 +58,22 @@ test('keeps only the newest active pregnancy per mother', () => {
     [4]
   );
 });
+
+test('normalizes newborn policy and converts months to a day threshold', () => {
+  assert.deepEqual(
+    support.normalizeNewbornPolicy({ mode: 'with_mother', age: 2, unit: 'months' }),
+    { mode: 'with_mother', age: 2, unit: 'months' }
+  );
+  assert.deepEqual(
+    support.normalizeNewbornPolicy({ mode: 'bad', age: -4, unit: 'bad' }),
+    { mode: 'with_mother', age: 0, unit: 'days' }
+  );
+  assert.equal(support.newbornAgeDays('2026-01-01', '2026-02-15'), 45);
+});
+
+test('counts newborn immediately or after its configured age', () => {
+  const newborn = { source: 'born', birth: '2026-01-01', status: 'present', sex: 'female' };
+  assert.equal(support.shouldCountNewborn(newborn, { mode: 'immediate', age: 0, unit: 'days' }, '2026-01-02'), true);
+  assert.equal(support.shouldCountNewborn(newborn, { mode: 'with_mother', age: 2, unit: 'months' }, '2026-02-15'), false);
+  assert.equal(support.shouldCountNewborn(newborn, { mode: 'with_mother', age: 2, unit: 'months' }, '2026-03-02'), true);
+});

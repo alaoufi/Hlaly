@@ -42,6 +42,13 @@ function ageText(birth) { const m = ageMonths(birth); if (m == null) return null
 // عمر احتساب المولود في الحظيرة (لكل نوع، بالأشهر): أصغر منه «يتبع أمّه» ولا يُعدّ في «في الحظيرة» (لكن يبقى ظاهراً)
 function loadCountAge() { try { const v = JSON.parse(localStorage.getItem('mrahi_count_age')); return (v && typeof v === 'object') ? v : {}; } catch (e) { return {}; } }
 function saveCountAge(o) { try { localStorage.setItem('mrahi_count_age', JSON.stringify(o || {})); } catch (e) {} }
+function loadNewbornPolicies() { try { const v = JSON.parse(localStorage.getItem('mrahi_newborn_policy')); return (v && typeof v === 'object') ? v : {}; } catch (e) { return {}; } }
+function saveNewbornPolicies(o) { try { localStorage.setItem('mrahi_newborn_policy', JSON.stringify(o || {})); } catch (e) {} }
+function newbornPolicyFor(type) {
+  const stored = loadNewbornPolicies()[type];
+  if (window.MrahiSupport && window.MrahiSupport.normalizeNewbornPolicy) return window.MrahiSupport.normalizeNewbornPolicy(stored || { mode: 'immediate', age: 0, unit: 'days' });
+  return stored || { mode: 'immediate', age: 0, unit: 'days' };
+}
 // قاعدة الاحتساب لكل نوع: { age: أشهر, sex: 'both'|'male'|'female' } (تدعم القيمة القديمة كرقم)
 function countRuleFor(type) { const v = loadCountAge()[type]; if (v == null) return { mode: 'age', age: 0, sex: 'both' }; if (typeof v === 'number') { return { mode: 'age', age: v > 0 ? v : 0, sex: 'both' }; } const age = parseInt(v.age, 10); return { mode: v.mode === 'manual' ? 'manual' : 'age', age: age > 0 ? age : 0, sex: (v.sex === 'male' || v.sex === 'female') ? v.sex : 'both' }; }
 // خيار عام: احتساب الذكور والفحول ضمن عدد الحظيرة (الافتراضي: نعم)
@@ -61,6 +68,8 @@ function inHerdCount(a) {
   if (!a || a.status !== 'present') return false;
   if (a.counted === true) return true;    // أُضيفت يدوياً للعدّ
   if (a.counted === false) return false;   // أُخرجت يدوياً من العدّ
+  if (a.source === 'born' && window.MrahiSupport && window.MrahiSupport.shouldCountNewborn
+    && !window.MrahiSupport.shouldCountNewborn(a, newbornPolicyFor(a.type), todayStr())) return false;
   // الذكور: الفحل بالغٌ لا يخضع لقاعدة «يتبع أمّه» — يُحتسب إن كان الخيار مفعّلاً ويُستبعد إن أُوقف.
   // الذكر العادي: يُستبعد إن أُوقف الخيار، وإلا يخضع لقاعدة العمر كالمعتاد.
   if (a.sex === 'male') { if (a.purpose === 'sire') return countIncludeSires(); if (!countIncludeMales()) return false; }
@@ -1273,6 +1282,7 @@ function addOffspringModal(mother) {
   const KIND_LABEL = { number: 'الرقم', tag: 'الوسم', chip: 'رقم الشريحة', name: 'الاسم/المسمى' };
   openModal('مواليد ' + display(mother), `
     ${fSelect('الجنس', 'of_sex', SEX, 'female')}
+    <div id="of_purposeBox">${fSelect('غرض الذكر عند الولادة', 'of_purpose', MALE_PURPOSE, '', '— لم نقرر —')}</div>
     ${fInput('العدد', 'of_count', '', 'number', 'min="1" inputmode="numeric"')}
     ${fInput('تاريخ الميلاد', 'of_birth', todayStr(), 'date')}
     ${penField('of_pen', mother.pen || '', mother.type)}
@@ -1301,6 +1311,9 @@ function addOffspringModal(mother) {
       document.getElementById('ofNone').classList.toggle('hidden', omode !== 'none');
       if (omode === 'num') setHint();
     }));
+    const syncOfPurpose = () => { const box = document.getElementById('of_purposeBox'); if (box) box.style.display = val('of_sex') === 'male' ? '' : 'none'; };
+    const ofSex = document.getElementById('of_sex'); if (ofSex) ofSex.addEventListener('change', syncOfPurpose);
+    syncOfPurpose();
     // عند العدد > 1: تُفتح بطاقة كاملة مستقلّة لكل مولود (نفس منطق شاشة الإضافة)
     const renderOfRows = () => {
       const box = document.getElementById('ofRows'); if (!box) return;
@@ -1388,7 +1401,7 @@ function addOffspringModal(mother) {
         codes = new Array(n).fill('');   // بدون ترقيم
       }
       if (!await confirm2(`إضافة ${codes.length} مولوداً وربطها بـ${display(mother)}؟`)) return;
-      const single = Object.assign({}, base, { sex: val('of_sex'), color: '', birth: val('of_birth') || null });
+      const single = Object.assign({}, base, { sex: val('of_sex'), purpose: val('of_sex') === 'male' ? val('of_purpose') : '', color: '', birth: val('of_birth') || null });
       const ok = await guard(async () => {
         for (const code of codes) {
           const created = await dbInsert('animals', { ...single, idkind: idkindFor(code), code, name: '' });
@@ -1620,6 +1633,7 @@ function openBirthModal(preg) {
   openModal('تسجيل ولادة — ' + display(mother), `
     ${fInput('عدد المواليد', 'b_count', '1', 'number', 'min="1" inputmode="numeric"')}
     ${fSelect('الجنس', 'b_sex', SEX, 'female')}
+    <div id="b_purposeBox">${fSelect('غرض الذكر عند الولادة', 'b_purpose', MALE_PURPOSE, '', '— لم نقرر —')}</div>
     ${fInput('تاريخ الولادة', 'b_date', todayStr(), 'date')}
     ${fInput('الأب / الفحل', 'b_father', '')}
     <div class="chips"><span class="chip active" data-bom="none">⭕ بدون ترقيم</span><span class="chip" data-bom="num">🔢 بترقيم</span></div>
@@ -1631,6 +1645,9 @@ function openBirthModal(preg) {
     ${fTextarea('ملاحظات', 'b_notes', '')}
     <button class="btn" id="b_save">حفظ الولادة</button>`, () => {
     let bom = 'none';
+    const syncBirthPurpose = () => { const box = document.getElementById('b_purposeBox'); if (box) box.style.display = val('b_sex') === 'male' ? '' : 'none'; };
+    const birthSex = document.getElementById('b_sex'); if (birthSex) birthSex.addEventListener('change', syncBirthPurpose);
+    syncBirthPurpose();
     document.querySelectorAll('[data-bom]').forEach(c => c.addEventListener('click', () => {
       bom = c.dataset.bom;
       document.querySelectorAll('[data-bom]').forEach(x => x.classList.toggle('active', x.dataset.bom === bom));
@@ -1639,14 +1656,14 @@ function openBirthModal(preg) {
     }));
     document.getElementById('b_save').addEventListener('click', async () => {
       const n = parseInt(val('b_count'), 10) || 0; if (n <= 0) { toast('أدخل عدد المواليد'); return; }
-      const sex = val('b_sex'), date = val('b_date') || todayStr(), father = val('b_father').trim(), notes = val('b_notes').trim(), create = document.getElementById('b_create').checked;
+      const sex = val('b_sex'), purpose = sex === 'male' ? val('b_purpose') : '', date = val('b_date') || todayStr(), father = val('b_father').trim(), notes = val('b_notes').trim(), create = document.getElementById('b_create').checked;
       let codes;
       if (bom === 'num') { const sr = val('b_start').trim(); if (sr === '') { toast('اكتب بداية الترقيم أو اختر «بدون ترقيم»'); return; } codes = genSeq(val('b_prefix'), sr, n); }
       else codes = new Array(n).fill('');
       const ok = await guard(async () => {
         for (const code of codes) {
           let offId = null;
-          if (create) { const created = await dbInsert('animals', { type: mother.type, pen: mother.pen || '', idkind: idkindFor(code), code, name: '', sex, source: 'born', birth: date, color: '', status: 'present', mother_id: mother.id, father_name: father, notes }); offId = created.id; }
+          if (create) { const created = await dbInsert('animals', { type: mother.type, pen: mother.pen || '', idkind: idkindFor(code), code, name: '', sex, purpose, source: 'born', birth: date, color: '', status: 'present', mother_id: mother.id, father_name: father, notes }); offId = created.id; }
           await dbInsert('births', { mother_id: mother.id, offspring_id: offId, offspring_code: code, date, sex, father_name: father, notes });
         }
         await finalizeBirthForAnimal(mother.id);
@@ -2902,26 +2919,25 @@ function screenHerdSettings() {
   { const ss = document.getElementById('hs_sort'); if (ss) ss.addEventListener('change', () => { try { localStorage.setItem('mrahi_sort', ss.value); } catch (e) {} toast('تم تغيير الترتيب'); }); }
   view().querySelectorAll('[data-h]').forEach(c => c.addEventListener('click', () => setHash(c.dataset.h)));
 }
-// عمر احتساب المولود في الحظيرة (لكل نوع + لأي جنس تنطبق القاعدة)
+// سياسة المواليد وعمر احتسابهم في الحظيرة (لكل نوع)
 function screenCountAge() {
   if (!can('animals', 'edit')) { view().innerHTML = noPerm(); return; }
-  const SEXSCOPE = [{ k: 'both', ar: 'كلاهما' }, { k: 'female', ar: 'الإناث' }, { k: 'male', ar: 'الذكور' }];
-  const MODES = [{ k: 'age', ar: 'يظهر مع المجموع عند عمر معيّن' }, { k: 'manual', ar: 'لا يظهر — يُضاف يدوياً' }];
+  const MODES = [{ k: 'immediate', ar: 'إضافة مباشرة مع قائمة الحلال' }, { k: 'with_mother', ar: 'يتبع الأم حتى العمر المحدد' }];
+  const UNITS = [{ k: 'days', ar: 'يوم' }, { k: 'months', ar: 'شهر' }];
   const chk = (v) => v ? 'checked' : '';
   view().innerHTML = `
     <div class="card"><h3>احتساب الذكور والفحول في الحظيرة</h3>
       <div class="muted" style="font-size:.82rem;margin-bottom:8px">اختر إن كانت الذكور والفحول تُحتسب ضمن عدد «في الحظيرة» مع بقية حلالك.</div>
       <label class="check"><input type="checkbox" id="cnt_males" ${chk(countIncludeMales())}> احتساب الذكور مع حلالي في الحظيرة</label>
       <label class="check"><input type="checkbox" id="cnt_sires" ${chk(countIncludeSires())}> احتساب الفحول مع حلالي في الحظيرة</label></div>
-    <div class="muted" style="margin-bottom:8px">لكل نوع: متى يُحتسب المولود ضمن «في الحظيرة». <b>عند عمر</b>: يُضاف تلقائياً عند بلوغه العمر. <b>يدوي</b>: لا يُحتسب حتى تضيفه بنفسك من سجل البهيمة. أصغر من ذلك «يتبع أمّه» ويبقى ظاهراً في القائمة. المشترى/الاهداء يُحتسب دائماً.</div>
-    ${TYPES.map(t => { const r = countRuleFor(t.k); return `<div class="card"><h3>${esc(t.ar)}</h3>${fSelect('طريقة الاحتساب', 'cm_' + t.k, MODES, r.mode)}<div id="cab_${t.k}">${fInput('العمر (أشهر) — صفر = يُحتسب الجميع', 'ca_' + t.k, r.age || '', 'number', 'min="0" inputmode="numeric"')}</div>${fSelect('تنطبق على', 'cas_' + t.k, SEXSCOPE, r.sex)}</div>`; }).join('')}
+    <div class="herd-settings-intro">حدد لكل نوع هل تُضاف المواليد مباشرة، أو تبقى مع أمها حتى عمر تختاره. اكتب رقمًا ثم حدد الوحدة: يوم أو شهر. الإعداد يطبّق على الذكور والإناث، بينما يبقى غرض الذكر مستقلًا عند تسجيل المولود.</div>
+    ${TYPES.map(t => { const r = newbornPolicyFor(t.k); return `<div class="card newborn-policy-card"><h3>${esc(t.ar)}</h3>${fSelect('طريقة إضافة المولود', 'nm_' + t.k, MODES, r.mode)}<div id="nab_${t.k}">${fInput('العمر', 'na_' + t.k, r.age || '', 'number', 'min="0" inputmode="numeric"')}${fSelect('الوحدة', 'nu_' + t.k, UNITS, r.unit)}</div></div>`; }).join('')}
     <button class="btn" id="ca_save">حفظ</button>`;
-  // حقل العمر يظهر فقط في وضع «عند عمر»
-  TYPES.forEach(t => { const sel = document.getElementById('cm_' + t.k); const box = document.getElementById('cab_' + t.k); if (!sel) return; const sync = () => { if (box) box.style.display = sel.value === 'age' ? '' : 'none'; }; sel.addEventListener('change', sync); sync(); });
+  TYPES.forEach(t => { const sel = document.getElementById('nm_' + t.k); const box = document.getElementById('nab_' + t.k); if (!sel) return; const sync = () => { if (box) box.style.display = sel.value === 'with_mother' ? '' : 'none'; }; sel.addEventListener('change', sync); sync(); });
   document.getElementById('ca_save').addEventListener('click', () => {
     const o = {};
-    TYPES.forEach(t => { const mode = val('cm_' + t.k) === 'manual' ? 'manual' : 'age'; const n = parseInt(val('ca_' + t.k), 10) || 0; const sex = val('cas_' + t.k) || 'both'; if (mode === 'manual') o[t.k] = { mode: 'manual', age: 0, sex }; else if (n > 0) o[t.k] = { mode: 'age', age: n, sex }; });
-    saveCountAge(o);
+    TYPES.forEach(t => { const mode = val('nm_' + t.k) === 'with_mother' ? 'with_mother' : 'immediate'; const n = Math.max(0, parseInt(val('na_' + t.k), 10) || 0); const unit = val('nu_' + t.k) === 'months' ? 'months' : 'days'; o[t.k] = { mode, age: n, unit }; });
+    saveNewbornPolicies(o);
     try { localStorage.setItem('mrahi_count_males', document.getElementById('cnt_males').checked ? '1' : '0'); localStorage.setItem('mrahi_count_sires', document.getElementById('cnt_sires').checked ? '1' : '0'); } catch (e) {}
     toast('تم الحفظ'); goBack();
   });
