@@ -3,7 +3,7 @@
 import { mkdirSync, rmSync, copyFileSync, writeFileSync, readFileSync } from 'node:fs';
 
 const WWW = 'www';
-const VERSION = process.env.APP_VERSION || 'dev';
+const VERSION = process.env.APP_VERSION || '1.0.139';
 rmSync(WWW, { recursive: true, force: true });
 mkdirSync(WWW, { recursive: true });
 
@@ -11,7 +11,7 @@ mkdirSync(WWW, { recursive: true });
 // (يمنع WebView من تشغيل app.js/app.css قديمة بعد تحديث التطبيق).
 const html = readFileSync('index.local.html', 'utf8').replace(/__BUILDV__/g, encodeURIComponent(VERSION));
 writeFileSync(`${WWW}/index.html`, html);
-for (const f of ['app.js', 'app.css', 'guide.js', 'local-db.js', 'updater.js', 'license.js', 'icon.svg', 'icon-192.png', 'icon-512.png', 'icon-180.png']) {
+for (const f of ['app.js', 'app-support.js', 'app.css', 'guide.js', 'local-db.js', 'updater.js', 'license.js', 'icon.svg', 'icon-192.png', 'icon-512.png', 'icon-180.png']) {
   copyFileSync(f, `${WWW}/${f}`);
 }
 // مكتبة tweetnacl (Ed25519) للتحقّق من ترخيص التفعيل

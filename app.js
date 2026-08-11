@@ -42,11 +42,18 @@ function ageText(birth) { const m = ageMonths(birth); if (m == null) return null
 // عمر احتساب المولود في الحظيرة (لكل نوع، بالأشهر): أصغر منه «يتبع أمّه» ولا يُعدّ في «في الحظيرة» (لكن يبقى ظاهراً)
 function loadCountAge() { try { const v = JSON.parse(localStorage.getItem('mrahi_count_age')); return (v && typeof v === 'object') ? v : {}; } catch (e) { return {}; } }
 function saveCountAge(o) { try { localStorage.setItem('mrahi_count_age', JSON.stringify(o || {})); } catch (e) {} }
+function loadNewbornPolicies() { try { const v = JSON.parse(localStorage.getItem('mrahi_newborn_policy')); return (v && typeof v === 'object') ? v : {}; } catch (e) { return {}; } }
+function saveNewbornPolicies(o) { try { localStorage.setItem('mrahi_newborn_policy', JSON.stringify(o || {})); } catch (e) {} }
+function newbornPolicyFor(type) {
+  const stored = loadNewbornPolicies()[type];
+  if (window.MrahiSupport && window.MrahiSupport.normalizeNewbornPolicy) return window.MrahiSupport.normalizeNewbornPolicy(stored || { mode: 'immediate', age: 0, unit: 'days' });
+  return stored || { mode: 'immediate', age: 0, unit: 'days' };
+}
 // قاعدة الاحتساب لكل نوع: { age: أشهر, sex: 'both'|'male'|'female' } (تدعم القيمة القديمة كرقم)
 function countRuleFor(type) { const v = loadCountAge()[type]; if (v == null) return { mode: 'age', age: 0, sex: 'both' }; if (typeof v === 'number') { return { mode: 'age', age: v > 0 ? v : 0, sex: 'both' }; } const age = parseInt(v.age, 10); return { mode: v.mode === 'manual' ? 'manual' : 'age', age: age > 0 ? age : 0, sex: (v.sex === 'male' || v.sex === 'female') ? v.sex : 'both' }; }
 // خيار عام: احتساب الذكور والفحول ضمن عدد الحظيرة (الافتراضي: نعم)
-function countIncludeMales() { try { return localStorage.getItem('mrahi_count_males') !== '0'; } catch (e) { return true; } }
-function countIncludeSires() { try { return localStorage.getItem('mrahi_count_sires') !== '0'; } catch (e) { return true; } }
+function countIncludeMales() { try { return localStorage.getItem('mrahi_count_males') === '1'; } catch (e) { return false; } }
+function countIncludeSires() { try { return localStorage.getItem('mrahi_count_sires') === '1'; } catch (e) { return false; } }
 // ترتيب عرض قوائم الحلال (الترقيم/تاريخ الإدخال/العمر) — يُضبط من الإعدادات
 const SORT_MODES = [{ k: 'entry', ar: 'تاريخ الإدخال (الأحدث أولاً)' }, { k: 'code', ar: 'الترقيم (تصاعدي)' }, { k: 'age', ar: 'العمر (الأكبر أولاً)' }];
 function animalSortMode() { try { const v = localStorage.getItem('mrahi_sort'); return ['entry', 'code', 'age'].includes(v) ? v : 'entry'; } catch (e) { return 'entry'; } }
@@ -61,6 +68,8 @@ function inHerdCount(a) {
   if (!a || a.status !== 'present') return false;
   if (a.counted === true) return true;    // أُضيفت يدوياً للعدّ
   if (a.counted === false) return false;   // أُخرجت يدوياً من العدّ
+  if (a.source === 'born' && window.MrahiSupport && window.MrahiSupport.shouldCountNewborn
+    && !window.MrahiSupport.shouldCountNewborn(a, newbornPolicyFor(a.type), todayStr())) return false;
   // الذكور: الفحل بالغٌ لا يخضع لقاعدة «يتبع أمّه» — يُحتسب إن كان الخيار مفعّلاً ويُستبعد إن أُوقف.
   // الذكر العادي: يُستبعد إن أُوقف الخيار، وإلا يخضع لقاعدة العمر كالمعتاد.
   if (a.sex === 'male') { if (a.purpose === 'sire') return countIncludeSires(); if (!countIncludeMales()) return false; }
@@ -236,6 +245,8 @@ async function loadAll() {
     if (HERD_KEYS.includes(k)) { C['_' + k] = data; C[k] = data.filter(r => mineHerdRow(r)); }
     else C[k] = data;
   });
+  await purgeDuplicateMatings();
+  await purgeDuplicateActivePregnancies();
   // أنواع الحلال القابلة للإدارة (تُحدّث القائمة العامة TYPES)
   try {
     const tr = await sb.from('mrahi_types').select('*');
@@ -252,6 +263,26 @@ async function loadAll() {
     C.tips = tp.error ? [] : (tp.data || []);
   } catch (e) { C.tips = []; }
   try { await sb.rpc('mrahi_purge_trash'); } catch (e) { /* تنظيف أفضل جهد */ }
+}
+async function purgeDuplicateMatings() {
+  const grouped = new Map();
+  C.matings.forEach(m => { const rows = grouped.get(m.animal_id) || []; rows.push(m); grouped.set(m.animal_id, rows); });
+  const remove = [];
+  grouped.forEach(rows => rows.sort((a, b) => (b.date || '').localeCompare(a.date || '') || b.id - a.id).slice(1).forEach(m => remove.push(m.id)));
+  for (const id of remove) { const { error } = await sb.from(TABLES.matings).delete().eq('id', id); if (error) throw error; }
+  if (remove.length) { const gone = new Set(remove); C.matings = C.matings.filter(m => !gone.has(m.id)); C._matings = (C._matings || []).filter(m => !gone.has(m.id)); }
+}
+async function purgeDuplicateActivePregnancies() {
+  const ids = [];
+  const mothers = new Set(C.pregnancies.filter(p => p && p.status === 'monitoring').map(p => p.animal_id));
+  for (const animalId of mothers) {
+    const stale = window.MrahiSupport && window.MrahiSupport.staleActivePregnancyIdsForAnimal
+      ? window.MrahiSupport.staleActivePregnancyIdsForAnimal(C.pregnancies, animalId)
+      : [];
+    ids.push(...stale);
+  }
+  for (const id of ids) { const { error } = await sb.from(TABLES.pregnancies).delete().eq('id', id); if (error) throw error; }
+  if (ids.length) { const gone = new Set(ids); C.pregnancies = C.pregnancies.filter(p => !gone.has(p.id)); }
 }
 // خرائط أنواع البهائم: من المفاتيح الإنجليزية إلى الأسماء العربية في التطبيق
 const SP_AR = { sheep: ['نعيم', 'حري', 'نجد', 'غنم'], goat: ['ماعز'], camel: ['إبل'], cattle: ['بقر'] };
@@ -547,6 +578,23 @@ async function trashSnap(key, id, action) {
 async function dbInsert(key, obj) { const { data, error } = await sb.from(TABLES[key]).insert(obj).select().single(); if (error) throw error; return data; }
 async function dbUpdate(key, id, obj) { await trashSnap(key, id, 'edit'); const { error } = await sb.from(TABLES[key]).update(obj).eq('id', id); if (error) throw error; }
 async function dbDelete(key, id) { await trashSnap(key, id, 'delete'); const { error } = await sb.from(TABLES[key]).delete().eq('id', id); if (error) throw error; }
+async function deleteMatingsForAnimal(animalId) {
+  const ids = window.MrahiSupport && window.MrahiSupport.matingIdsForAnimal
+    ? window.MrahiSupport.matingIdsForAnimal(C.matings, animalId)
+    : C.matings.filter(m => m && m.animal_id === animalId).map(m => m.id);
+  for (const id of ids) await dbDelete('matings', id);
+  C.matings = C.matings.filter(m => m.animal_id !== animalId);
+}
+async function deleteMonitoringPregnanciesForAnimal(animalId) {
+  const ids = C.pregnancies.filter(p => p && p.animal_id === animalId && p.status === 'monitoring').map(p => p.id);
+  for (const id of ids) { const { error } = await sb.from(TABLES.pregnancies).delete().eq('id', id); if (error) throw error; }
+  C.pregnancies = C.pregnancies.filter(p => !(p.animal_id === animalId && p.status === 'monitoring'));
+}
+async function finalizeBirthForAnimal(animalId) {
+  const active = C.pregnancies.filter(p => p && p.animal_id === animalId && p.status === 'monitoring');
+  for (const p of active) await dbUpdate('pregnancies', p.id, window.MrahiSupport.closedPregnancyPatch('born'));
+  await deleteMatingsForAnimal(animalId);
+}
 async function guard(fn) { try { await fn(); } catch (e) { const msg = (e.message || '' + e); toast(/Could not find the table|schema cache/i.test(msg) ? 'هذه الميزة تحتاج تنفيذ سكربت قاعدة البيانات أولاً (راجع التعليمات).' : 'تعذّر الحفظ: ' + msg); return false; } return true; }
 // حوار تأكيد احترافي داخل التطبيق (بدل نافذة المتصفح)
 function uiConfirm(message, opts = {}) {
@@ -612,7 +660,9 @@ const ROUTES = {
   trash: { t: 'سلة المحذوفات', back: true, fn: screenTrash },
   tips: { t: 'النصائح والمعلومات', back: true, fn: screenTips },
   guide: { t: 'دليل الاستخدام', back: true, fn: screenGuide },
+  about: { t: 'عن حلالي', back: true, fn: screenAbout },
 };
+ROUTES.theme = { t: 'المظهر', back: true, fn: screenTheme };
 function parseHash() { const raw = (location.hash || '#/home').replace(/^#\//, ''); const p = raw.split('/'); return { name: p[0] || 'home', arg: p[1] }; }
 
 function render() {
@@ -793,6 +843,13 @@ function offspringListModal(motherId) {
 }
 function screenAnimals() {
   if (!can('animals', 'view')) { view().innerHTML = noPerm(); return; }
+  const herdUi = window.MrahiSupport && window.MrahiSupport.herdVisibility
+    ? window.MrahiSupport.herdVisibility(C.animals, { males: countIncludeMales(), sires: countIncludeSires() })
+    : { maleFilter: countIncludeMales(), sireRoute: countIncludeSires(), maleSetting: true, sireSetting: true };
+  if (!herdUi.maleFilter && animalSexSel.includes('male')) {
+    animalSexSel = animalSexSel.filter(s => s !== 'male');
+    saveAnimalFilters();
+  }
   const chips = `<div class="chips"><span class="chip ${!animalFilter ? 'active' : ''}" data-f="">الكل</span>${TYPES.map(t => `<span class="chip ${animalFilter === t.k ? 'active' : ''}" data-f="${t.k}">${t.ar}</span>`).join('')}</div>`;
   // مرشّحات متعدّدة الاختيار (يمكن اختيار أكثر من تصنيف؛ «الكل» يمسح التحديد)
   // مربّع اختيار (☐/☑) ليوضّح أنها متعدّدة الاختيار
@@ -800,9 +857,10 @@ function screenAnimals() {
   // بلا زرّ «الكل» — إلغاء تحديد الجميع (أو تحديدهم كلهم) يعرض الكل
   const stChips = `<div class="chips"><span class="chip ${animalStatusSel.includes('present') ? 'active' : ''}" data-s="present">${cb(animalStatusSel.includes('present'))}في الحظيرة</span><span class="chip ${animalStatusSel.includes('sold') ? 'active' : ''}" data-s="sold">${cb(animalStatusSel.includes('sold'))}مباعة</span><span class="chip ${animalStatusSel.includes('dead') ? 'active' : ''}" data-s="dead">${cb(animalStatusSel.includes('dead'))}نافقة</span><span class="chip ${animalStatusSel.includes('given') ? 'active' : ''}" data-s="given">${cb(animalStatusSel.includes('given'))}🎁 اهداء</span><span class="chip ${animalStatusSel.includes('missing') ? 'active' : ''}" data-s="missing">${cb(animalStatusSel.includes('missing'))}🔎 مفقودة</span><span class="chip ${animalStatusSel.includes('slaughtered') ? 'active' : ''}" data-s="slaughtered">${cb(animalStatusSel.includes('slaughtered'))}🔪 ذُبحت</span></div>`;
   const srcChips = `<div class="chips"><span class="chip ${animalSourceSel.includes('born') ? 'active' : ''}" data-src="born">${cb(animalSourceSel.includes('born'))}👶 مواليد</span><span class="chip ${animalSourceSel.includes('purchased') ? 'active' : ''}" data-src="purchased">${cb(animalSourceSel.includes('purchased'))}🛒 شراء</span><span class="chip ${animalSourceSel.includes('gift') ? 'active' : ''}" data-src="gift">${cb(animalSourceSel.includes('gift'))}🎁 اهداء</span><span class="chip ${animalSourceSel.includes('sale') ? 'active' : ''}" data-src="sale">${cb(animalSourceSel.includes('sale'))}💰 للبيع (المعدّ للبيع)</span></div>`;
-  const sexChips = `<div class="chips">${SEX.map(s => `<span class="chip ${animalSexSel.includes(s.k) ? 'active' : ''}" data-sex="${s.k}">${cb(animalSexSel.includes(s.k))}${s.k === 'male' ? '♂ ' : '♀ '}${s.ar}</span>`).join('')}</div>`;
+  const availableSexes = SEX.filter(s => s.k !== 'male' || herdUi.maleFilter);
+  const sexChips = `<div class="chips">${availableSexes.map(s => `<span class="chip ${animalSexSel.includes(s.k) ? 'active' : ''}" data-sex="${s.k}">${cb(animalSexSel.includes(s.k))}${s.k === 'male' ? '♂ ' : '♀ '}${s.ar}</span>`).join('')}</div>`;
   // إخفاء الذكور/الفحول من صفحة الحلال إن أُوقف احتسابهم (يبقون في صفحة الفحول ويظهرون عند تحديد مرشّح «ذكر»)
-  const hideMale = (a) => a.status === 'present' && a.sex === 'male' && !animalSexSel.includes('male') && (a.purpose === 'sire' ? !countIncludeSires() : !countIncludeMales());
+  const hideMale = (a) => window.MrahiSupport && !window.MrahiSupport.shouldShowAnimal(a, { males: countIncludeMales(), sires: countIncludeSires() });
   const list = sortAnimals(C.animals.filter(a => (!animalFilter || a.type === animalFilter) && (!animalStatusSel.length || animalStatusSel.includes(a.status)) && (!animalSourceSel.length || animalSourceSel.some(s => s === 'sale' ? (a.designation === 'sale' || a.purpose === 'sale') : (a.source || 'purchased') === s)) && (!animalSexSel.length || animalSexSel.includes(a.sex)) && !hideMale(a)));
   const canEdit = can('animals', 'edit');
   // عند خلو الحلال كلياً: حالة ترحيبية بزرّ إضافة واضح. وعند خلو التصنيف فقط: رسالة عادية.
@@ -820,7 +878,7 @@ function screenAnimals() {
     const other = list.filter(a => !known.has(a.type));
     if (other.length) listHtml += `<div class="li-title" style="margin:12px 2px 6px">أخرى (${other.length})</div>` + other.map(animalCard).join('');
   } else { listHtml = list.map(animalCard).join(''); }
-  view().innerHTML = chips + stChips + srcChips + sexChips + countRow + (list.length ? listHtml : empty);
+  view().innerHTML = `<div class="herd-filter-stack"><div class="herd-filter-group">${chips}</div><div class="herd-filter-group">${stChips}</div><div class="herd-filter-group">${srcChips}</div><div class="herd-filter-group">${sexChips}</div></div>` + countRow + (list.length ? listHtml : empty);
   view().querySelectorAll('[data-f]').forEach(c => c.addEventListener('click', () => { animalFilter = c.dataset.f; screenAnimals(); }));
   view().querySelectorAll('[data-s]').forEach(c => c.addEventListener('click', () => { const v = c.dataset.s; if (v === '') animalStatusSel = []; else toggleSel(animalStatusSel, v); saveAnimalFilters(); screenAnimals(); }));
   view().querySelectorAll('[data-src]').forEach(c => c.addEventListener('click', () => { const v = c.dataset.src; if (v === '') animalSourceSel = []; else toggleSel(animalSourceSel, v); saveAnimalFilters(); screenAnimals(); }));
@@ -1224,6 +1282,7 @@ function addOffspringModal(mother) {
   const KIND_LABEL = { number: 'الرقم', tag: 'الوسم', chip: 'رقم الشريحة', name: 'الاسم/المسمى' };
   openModal('مواليد ' + display(mother), `
     ${fSelect('الجنس', 'of_sex', SEX, 'female')}
+    <div id="of_purposeBox">${fSelect('غرض الذكر عند الولادة', 'of_purpose', MALE_PURPOSE, '', '— لم نقرر —')}</div>
     ${fInput('العدد', 'of_count', '', 'number', 'min="1" inputmode="numeric"')}
     ${fInput('تاريخ الميلاد', 'of_birth', todayStr(), 'date')}
     ${penField('of_pen', mother.pen || '', mother.type)}
@@ -1252,6 +1311,9 @@ function addOffspringModal(mother) {
       document.getElementById('ofNone').classList.toggle('hidden', omode !== 'none');
       if (omode === 'num') setHint();
     }));
+    const syncOfPurpose = () => { const box = document.getElementById('of_purposeBox'); if (box) box.style.display = val('of_sex') === 'male' ? '' : 'none'; };
+    const ofSex = document.getElementById('of_sex'); if (ofSex) ofSex.addEventListener('change', syncOfPurpose);
+    syncOfPurpose();
     // عند العدد > 1: تُفتح بطاقة كاملة مستقلّة لكل مولود (نفس منطق شاشة الإضافة)
     const renderOfRows = () => {
       const box = document.getElementById('ofRows'); if (!box) return;
@@ -1318,8 +1380,10 @@ function addOffspringModal(mother) {
             if (!['number', 'tag', 'chip', 'name'].includes(o.idkind)) o.code = '';
             if (!['tag', 'color'].includes(o.idkind)) o.tag_color = '';
             if (o.idkind !== 'tag') o.tag_shape = '';
-            await dbInsert('animals', o);
+            const created = await dbInsert('animals', o);
+            await dbInsert('births', { mother_id: mother.id, offspring_id: created.id, offspring_code: o.code, date: o.birth, sex: o.sex, father_name: '', notes: o.notes || '' });
           }
+          await finalizeBirthForAnimal(mother.id);
         });
         if (ok) { closeModal(); lastPen = pen; try { localStorage.setItem('mrahi_last_pen', pen); } catch (e) {} toast(`أُضيف ${n} مولوداً`); await loadAll(); screenAnimalDetail(String(mother.id)); }
         return;
@@ -1337,8 +1401,14 @@ function addOffspringModal(mother) {
         codes = new Array(n).fill('');   // بدون ترقيم
       }
       if (!await confirm2(`إضافة ${codes.length} مولوداً وربطها بـ${display(mother)}؟`)) return;
-      const single = Object.assign({}, base, { sex: val('of_sex'), color: '', birth: val('of_birth') || null });
-      const ok = await guard(async () => { for (const code of codes) await dbInsert('animals', { ...single, idkind: idkindFor(code), code, name: '' }); });
+      const single = Object.assign({}, base, { sex: val('of_sex'), purpose: val('of_sex') === 'male' ? val('of_purpose') : '', color: '', birth: val('of_birth') || null });
+      const ok = await guard(async () => {
+        for (const code of codes) {
+          const created = await dbInsert('animals', { ...single, idkind: idkindFor(code), code, name: '' });
+          await dbInsert('births', { mother_id: mother.id, offspring_id: created.id, offspring_code: code, date: single.birth, sex: single.sex, father_name: '', notes: '' });
+        }
+        await finalizeBirthForAnimal(mother.id);
+      });
       if (ok) { closeModal(); lastPen = pen; try { localStorage.setItem('mrahi_last_pen', pen); } catch (e) {} toast(`أُضيف ${codes.length} مولوداً`); await loadAll(); screenAnimalDetail(String(mother.id)); }
     });
   });
@@ -1367,6 +1437,8 @@ function screenMating(arg) {
     const a = preset || animalById(parseInt(val('m_animal'), 10)); const d = val('m_date');
     if (!a) { toast('اختر البهيمة'); return; } if (!d) { toast('أدخل التاريخ'); return; }
     const ok = await guard(async () => {
+      await deleteMatingsForAnimal(a.id);
+      await deleteMonitoringPregnanciesForAnimal(a.id);
       await dbInsert('matings', { animal_id: a.id, date: d, sire_code: val('m_sireCode').trim(), sire_name: val('m_sireName').trim(), notes: val('m_notes').trim() });
       if (document.getElementById('m_preg').checked) { const g = gestOf(a.type); await dbInsert('pregnancies', { animal_id: a.id, mating_date: d, gest: g, expected: addDays(d, g), status: 'monitoring', notes: val('m_notes').trim() }); }
     });
@@ -1561,6 +1633,7 @@ function openBirthModal(preg) {
   openModal('تسجيل ولادة — ' + display(mother), `
     ${fInput('عدد المواليد', 'b_count', '1', 'number', 'min="1" inputmode="numeric"')}
     ${fSelect('الجنس', 'b_sex', SEX, 'female')}
+    <div id="b_purposeBox">${fSelect('غرض الذكر عند الولادة', 'b_purpose', MALE_PURPOSE, '', '— لم نقرر —')}</div>
     ${fInput('تاريخ الولادة', 'b_date', todayStr(), 'date')}
     ${fInput('الأب / الفحل', 'b_father', '')}
     <div class="chips"><span class="chip active" data-bom="none">⭕ بدون ترقيم</span><span class="chip" data-bom="num">🔢 بترقيم</span></div>
@@ -1572,6 +1645,9 @@ function openBirthModal(preg) {
     ${fTextarea('ملاحظات', 'b_notes', '')}
     <button class="btn" id="b_save">حفظ الولادة</button>`, () => {
     let bom = 'none';
+    const syncBirthPurpose = () => { const box = document.getElementById('b_purposeBox'); if (box) box.style.display = val('b_sex') === 'male' ? '' : 'none'; };
+    const birthSex = document.getElementById('b_sex'); if (birthSex) birthSex.addEventListener('change', syncBirthPurpose);
+    syncBirthPurpose();
     document.querySelectorAll('[data-bom]').forEach(c => c.addEventListener('click', () => {
       bom = c.dataset.bom;
       document.querySelectorAll('[data-bom]').forEach(x => x.classList.toggle('active', x.dataset.bom === bom));
@@ -1580,17 +1656,17 @@ function openBirthModal(preg) {
     }));
     document.getElementById('b_save').addEventListener('click', async () => {
       const n = parseInt(val('b_count'), 10) || 0; if (n <= 0) { toast('أدخل عدد المواليد'); return; }
-      const sex = val('b_sex'), date = val('b_date') || todayStr(), father = val('b_father').trim(), notes = val('b_notes').trim(), create = document.getElementById('b_create').checked;
+      const sex = val('b_sex'), purpose = sex === 'male' ? val('b_purpose') : '', date = val('b_date') || todayStr(), father = val('b_father').trim(), notes = val('b_notes').trim(), create = document.getElementById('b_create').checked;
       let codes;
       if (bom === 'num') { const sr = val('b_start').trim(); if (sr === '') { toast('اكتب بداية الترقيم أو اختر «بدون ترقيم»'); return; } codes = genSeq(val('b_prefix'), sr, n); }
       else codes = new Array(n).fill('');
       const ok = await guard(async () => {
         for (const code of codes) {
           let offId = null;
-          if (create) { const created = await dbInsert('animals', { type: mother.type, pen: mother.pen || '', idkind: idkindFor(code), code, name: '', sex, source: 'born', birth: date, color: '', status: 'present', mother_id: mother.id, father_name: father, notes }); offId = created.id; }
+          if (create) { const created = await dbInsert('animals', { type: mother.type, pen: mother.pen || '', idkind: idkindFor(code), code, name: '', sex, purpose, source: 'born', birth: date, color: '', status: 'present', mother_id: mother.id, father_name: father, notes }); offId = created.id; }
           await dbInsert('births', { mother_id: mother.id, offspring_id: offId, offspring_code: code, date, sex, father_name: father, notes });
         }
-        await dbUpdate('pregnancies', preg.id, { status: 'born' });
+        await finalizeBirthForAnimal(mother.id);
       });
       if (ok) { closeModal(); toast(`تم تسجيل الولادة (${n})`); await loadAll(); screenPregnancies(); }
     });
@@ -1607,7 +1683,7 @@ function abortModal(preg) {
     document.getElementById('ab_save').addEventListener('click', async () => {
       const date = val('ab_date') || todayStr();
       const gestDays = preg.mating_date ? Math.max(0, Math.round((new Date(date + 'T00:00:00') - new Date(preg.mating_date + 'T00:00:00')) / 86400000)) : null;
-      const ok = await guard(async () => { await dbUpdate('pregnancies', preg.id, { status: 'aborted', abort_date: date, abort_cause: val('ab_cause').trim() || null, abort_gest_days: gestDays }); });
+      const ok = await guard(async () => { await dbUpdate('pregnancies', preg.id, Object.assign(window.MrahiSupport.closedPregnancyPatch('aborted'), { abort_date: date, abort_cause: val('ab_cause').trim() || null, abort_gest_days: gestDays })); await deleteMatingsForAnimal(preg.animal_id); });
       if (ok) { closeModal(); toast('سُجّل الإجهاض'); await loadAll(); (parseHash().name === 'pregnancies' ? screenPregnancies() : screenAnimalDetail(String(preg.animal_id))); }
     });
   });
@@ -2254,7 +2330,7 @@ async function bulkApply() {
     for (const id of ids) {
       const a = animalById(id); if (!a) continue;
       if (bulkOp === 'vaccinate') await dbInsert('vaccinations', { animal_id: id, type_id: vt.id, date: d, withdrawal_end: addDays(d, vtWithdrawDays(vt)), next_due: val('bk_next') || null, notes });
-      else if (bulkOp === 'mate') { await dbInsert('matings', { animal_id: id, date: d, sire_code: val('bk_sirecode').trim(), sire_name: val('bk_sirename').trim(), notes }); if (document.getElementById('bk_preg').checked) { const g = gestOf(a.type); await dbInsert('pregnancies', { animal_id: id, mating_date: d, gest: g, expected: addDays(d, g), status: 'monitoring', notes }); } }
+      else if (bulkOp === 'mate') { await deleteMatingsForAnimal(id); await deleteMonitoringPregnanciesForAnimal(id); await dbInsert('matings', { animal_id: id, date: d, sire_code: val('bk_sirecode').trim(), sire_name: val('bk_sirename').trim(), notes }); if (document.getElementById('bk_preg').checked) { const g = gestOf(a.type); await dbInsert('pregnancies', { animal_id: id, mating_date: d, gest: g, expected: addDays(d, g), status: 'monitoring', notes }); } }
       else if (bulkOp === 'treat') { const days = num('bk_days'); await dbInsert('treatments', { animal_id: id, treatment_type: val('bk_ttype').trim(), med_name: val('bk_med').trim(), withdrawal_days: days, date: d, withdrawal_end: addDays(d, days), next_due: val('bk_tnext') || null, action: val('bk_action').trim(), notes }); }
       else if (bulkOp === 'sell') { const price = val('bk_price') !== '' ? parseFloat(val('bk_price')) : null; await dbUpdate('animals', id, { status: 'sold', sale_date: d, sale_price: price, dead_date: null }); }
     }
@@ -2263,7 +2339,7 @@ async function bulkApply() {
 }
 
 /* ===== المزيد ===== */
-const moreOpen = new Set(['herd']);   // التصنيفات المفتوحة (الشائع «الحلال» مفتوح افتراضياً)
+let moreOpen = 'herd';   // قسم واحد فقط مفتوح لتفادي التداخل البصري.
 // لون خلفية خفيف لكل مجال في «المزيد» لتمييز الأقسام بصرياً
 const MORE_BG = { herd: '#e8f5e9', health: '#e3f2fd', finance: '#fff3e0', ops: '#fff8e1', guides: '#f3e5f5', admin: '#ffebee', app: '#eceff1' };
 function screenMore() {
@@ -2293,17 +2369,16 @@ function screenMore() {
       I(can('animals', 'view'), '📇 دليل التواصل (زبائن/بيطري…)', '#/contacts'),
       I(can('backup', 'view'), '💾 النسخ الاحتياطي', '#/backup'),
     ].filter(Boolean) },
-    { key: 'guides', title: '📖 الأدلة', items: [
+    { key: 'guides', title: '📖 المساعدة والدليل', items: [
       I(true, '📘 دليل الاستخدام', '#/guide'),
+      I(true, 'ℹ️ عن حلالي وسجل التعديلات', '#/about'),
+      I(window.MRAH_APK, '🔄 تحقق من وجود تحديث', '__checkupdate'),
+      I(true, '📧 ملاحظات ومقترحات', '__feedback'),
     ].filter(Boolean) },
     { key: 'admin', title: '🛡️ الإدارة', items: [
       I(isAdmin(), '🐑 أنواع الحلال (مدة الحمل/البلوغ)', '#/types'),
       I(isAdmin(), '🗑️ سلة المحذوفات', '#/trash'),
       I(isSys(), '💡 النصائح والمعلومات', '#/tips'),
-    ].filter(Boolean) },
-    { key: 'app', title: '📱 التطبيق', items: [
-      I(window.MRAH_APK, '🔄 تحقق من وجود تحديث', '__checkupdate'),
-      I(true, '📧 ملاحظات ومقترحات', '__feedback'),
     ].filter(Boolean) },
   ].filter(c => c.items.length);
 
@@ -2321,14 +2396,14 @@ function screenMore() {
     حلالي — تطبيق محلّي • بياناتك على جهازك${ver}${licLine}</div>`;
 
   view().innerHTML = topUpdate + cats.map(c => {
-    const open = moreOpen.has(c.key);
+    const open = moreOpen === c.key;
     const bg = MORE_BG[c.key] || 'var(--card)';
-    return `<div class="acc-head card click" data-cat="${c.key}" style="display:flex;align-items:center;justify-content:space-between;background:${bg}">
+    return `<div class="more-group-head card click" data-cat="${c.key}" style="background:${bg}">
         <span class="li-title" style="margin:0">${c.title}</span><span style="color:var(--muted);font-size:1.1rem">${open ? '▾' : '▸'}</span></div>`
-      + (open ? `<div style="margin:0 8px 8px">${c.items.map(([l, h]) => `<div class="card click" data-go="${h}" style="margin:6px 0;background:${bg}"><div class="li-title">${l}</div></div>`).join('')}</div>` : '');
+      + (open ? `<div class="more-group-body">${c.items.map(([l, h]) => `<div class="more-action card click" data-go="${h}" style="background:${bg}"><div class="li-title">${l}</div><span>‹</span></div>`).join('')}</div>` : '');
   }).join('') + footer;
 
-  view().querySelectorAll('[data-cat]').forEach(h => h.addEventListener('click', () => { const k = h.dataset.cat; moreOpen.has(k) ? moreOpen.delete(k) : moreOpen.add(k); screenMore(); }));
+  view().querySelectorAll('[data-cat]').forEach(h => h.addEventListener('click', () => { const k = h.dataset.cat; moreOpen = moreOpen === k ? '' : k; screenMore(); }));
   view().querySelectorAll('[data-go]').forEach(c => c.addEventListener('click', () => {
     const h = c.dataset.go;
     if (h === '__checkupdate') return (typeof window.mrahiCheckUpdate === 'function') ? window.mrahiCheckUpdate() : toast('التحديث متاح في تطبيق الجوال');
@@ -2339,6 +2414,12 @@ function screenMore() {
 }
 
 /* ===== دليل الاستخدام (كتاب ثلاثي الأبعاد) ===== */
+function screenAbout() {
+  const version = window.MRAH_VERSION || '1.0.138';
+  view().innerHTML = `<div class="about-hero"><img src="icon-192.png" alt="حلالي"><div><h2>حلالي</h2><div class="muted">الإصدار ${esc(version)}</div></div></div>
+    <div class="card"><h3>سجل التعديلات — 1.0.138</h3><ul class="about-changes"><li>اعتماد آخر تلقيح وسجل متابعة نشط فقط لكل أم، مع حذف السجلات المكررة نهائيًا.</li><li>عند حفظ الولادة أو الإجهاض يمسح تاريخ التلقيح والحمل النشط ويحذف سجل التلقيح والفحل فورًا.</li><li>تبقى الولادة والمواليد، ويبقى سبب الإجهاض وعمر الحمل للدراسة.</li><li>تنظيم «المزيد» ومرشح ذكي للذكور والفحول.</li><li>أيقونة حلالي الأصلية ومظاهر هادئة قابلة للاختيار.</li></ul></div>
+    <div class="card"><h3>بياناتك محفوظة</h3><div class="muted">التحديث يثبت فوق النسخة السابقة ويحافظ على بياناتك المحلية.</div></div>`;
+}
 function guideBooks() {
   // الكتب المتاحة حسب الصلاحيات: الجميع يرى دليل الاستخدام العام،
   // وأصحاب الحلال يرون دليلهم، والمدير يرى دليل الإدارة أيضاً.
@@ -2426,6 +2507,7 @@ async function restoreBackup(id) {
   if (!isAdmin()) { toast('الاستعادة للمدير فقط (تستبدل بيانات المزرعة)'); return; }
   if (!await confirm2('استعادة هذه النسخة ستستبدل بيانات المزرعة الحالية بالكامل. متابعة؟')) return;
   const p = bk.payload;
+  if (window.MrahiSupport && !window.MrahiSupport.isRestorableSnapshot(p)) { toast('ملف النسخة الاحتياطية غير صالح'); return; }
   const ok = await guard(async () => {
     // حذف الحالي بترتيب يحترم المفاتيح الأجنبية
     for (const t of ['mrahi_treatments', 'mrahi_vaccinations', 'mrahi_births', 'mrahi_pregnancies', 'mrahi_matings', 'mrahi_vaccine_types']) {
@@ -2821,6 +2903,7 @@ function screenTagLists() {
 function screenHerdSettings() {
   if (!can('animals', 'edit')) { view().innerHTML = noPerm(); return; }
   const items = [
+    ['🎨', 'المظهر ثلاثي الأبعاد', '#/theme'],
     ['🐑', 'أنواع الحلال (إبل/بقر/ماعز/نجدي/حري…) — إضافة/تعديل/حذف', '#/types'],
     ['🏠', 'الحظائر (إضافة/تعديل)', '#/pens'],
     ['📅', 'عمر احتساب المولود في الحظيرة', '#/countage'],
@@ -2836,26 +2919,25 @@ function screenHerdSettings() {
   { const ss = document.getElementById('hs_sort'); if (ss) ss.addEventListener('change', () => { try { localStorage.setItem('mrahi_sort', ss.value); } catch (e) {} toast('تم تغيير الترتيب'); }); }
   view().querySelectorAll('[data-h]').forEach(c => c.addEventListener('click', () => setHash(c.dataset.h)));
 }
-// عمر احتساب المولود في الحظيرة (لكل نوع + لأي جنس تنطبق القاعدة)
+// سياسة المواليد وعمر احتسابهم في الحظيرة (لكل نوع)
 function screenCountAge() {
   if (!can('animals', 'edit')) { view().innerHTML = noPerm(); return; }
-  const SEXSCOPE = [{ k: 'both', ar: 'كلاهما' }, { k: 'female', ar: 'الإناث' }, { k: 'male', ar: 'الذكور' }];
-  const MODES = [{ k: 'age', ar: 'يظهر مع المجموع عند عمر معيّن' }, { k: 'manual', ar: 'لا يظهر — يُضاف يدوياً' }];
+  const MODES = [{ k: 'immediate', ar: 'إضافة مباشرة مع قائمة الحلال' }, { k: 'with_mother', ar: 'يتبع الأم حتى العمر المحدد' }];
+  const UNITS = [{ k: 'days', ar: 'يوم' }, { k: 'months', ar: 'شهر' }];
   const chk = (v) => v ? 'checked' : '';
   view().innerHTML = `
     <div class="card"><h3>احتساب الذكور والفحول في الحظيرة</h3>
       <div class="muted" style="font-size:.82rem;margin-bottom:8px">اختر إن كانت الذكور والفحول تُحتسب ضمن عدد «في الحظيرة» مع بقية حلالك.</div>
       <label class="check"><input type="checkbox" id="cnt_males" ${chk(countIncludeMales())}> احتساب الذكور مع حلالي في الحظيرة</label>
       <label class="check"><input type="checkbox" id="cnt_sires" ${chk(countIncludeSires())}> احتساب الفحول مع حلالي في الحظيرة</label></div>
-    <div class="muted" style="margin-bottom:8px">لكل نوع: متى يُحتسب المولود ضمن «في الحظيرة». <b>عند عمر</b>: يُضاف تلقائياً عند بلوغه العمر. <b>يدوي</b>: لا يُحتسب حتى تضيفه بنفسك من سجل البهيمة. أصغر من ذلك «يتبع أمّه» ويبقى ظاهراً في القائمة. المشترى/الاهداء يُحتسب دائماً.</div>
-    ${TYPES.map(t => { const r = countRuleFor(t.k); return `<div class="card"><h3>${esc(t.ar)}</h3>${fSelect('طريقة الاحتساب', 'cm_' + t.k, MODES, r.mode)}<div id="cab_${t.k}">${fInput('العمر (أشهر) — صفر = يُحتسب الجميع', 'ca_' + t.k, r.age || '', 'number', 'min="0" inputmode="numeric"')}</div>${fSelect('تنطبق على', 'cas_' + t.k, SEXSCOPE, r.sex)}</div>`; }).join('')}
+    <div class="herd-settings-intro">حدد لكل نوع هل تُضاف المواليد مباشرة، أو تبقى مع أمها حتى عمر تختاره. اكتب رقمًا ثم حدد الوحدة: يوم أو شهر. الإعداد يطبّق على الذكور والإناث، بينما يبقى غرض الذكر مستقلًا عند تسجيل المولود.</div>
+    ${TYPES.map(t => { const r = newbornPolicyFor(t.k); return `<div class="card newborn-policy-card"><h3>${esc(t.ar)}</h3>${fSelect('طريقة إضافة المولود', 'nm_' + t.k, MODES, r.mode)}<div id="nab_${t.k}">${fInput('العمر', 'na_' + t.k, r.age || '', 'number', 'min="0" inputmode="numeric"')}${fSelect('الوحدة', 'nu_' + t.k, UNITS, r.unit)}</div></div>`; }).join('')}
     <button class="btn" id="ca_save">حفظ</button>`;
-  // حقل العمر يظهر فقط في وضع «عند عمر»
-  TYPES.forEach(t => { const sel = document.getElementById('cm_' + t.k); const box = document.getElementById('cab_' + t.k); if (!sel) return; const sync = () => { if (box) box.style.display = sel.value === 'age' ? '' : 'none'; }; sel.addEventListener('change', sync); sync(); });
+  TYPES.forEach(t => { const sel = document.getElementById('nm_' + t.k); const box = document.getElementById('nab_' + t.k); if (!sel) return; const sync = () => { if (box) box.style.display = sel.value === 'with_mother' ? '' : 'none'; }; sel.addEventListener('change', sync); sync(); });
   document.getElementById('ca_save').addEventListener('click', () => {
     const o = {};
-    TYPES.forEach(t => { const mode = val('cm_' + t.k) === 'manual' ? 'manual' : 'age'; const n = parseInt(val('ca_' + t.k), 10) || 0; const sex = val('cas_' + t.k) || 'both'; if (mode === 'manual') o[t.k] = { mode: 'manual', age: 0, sex }; else if (n > 0) o[t.k] = { mode: 'age', age: n, sex }; });
-    saveCountAge(o);
+    TYPES.forEach(t => { const mode = val('nm_' + t.k) === 'with_mother' ? 'with_mother' : 'immediate'; const n = Math.max(0, parseInt(val('na_' + t.k), 10) || 0); const unit = val('nu_' + t.k) === 'months' ? 'months' : 'days'; o[t.k] = { mode, age: n, unit }; });
+    saveNewbornPolicies(o);
     try { localStorage.setItem('mrahi_count_males', document.getElementById('cnt_males').checked ? '1' : '0'); localStorage.setItem('mrahi_count_sires', document.getElementById('cnt_sires').checked ? '1' : '0'); } catch (e) {}
     toast('تم الحفظ'); goBack();
   });
@@ -3167,7 +3249,10 @@ const noPerm = () => '<div class="center-empty">ليست لديك صلاحية �
 function buildNav() {
   const tabs = [['#/home', '🏠', 'الرئيسية']];
   if (can('animals', 'view')) tabs.push(['#/animals', '🐑', 'الحلال']);
-  if (can('animals', 'view')) tabs.push(['#/sires', '🐏', 'الفحول']);
+  const herdUi = window.MrahiSupport && window.MrahiSupport.herdVisibility
+    ? window.MrahiSupport.herdVisibility(C.animals, { males: countIncludeMales(), sires: countIncludeSires() })
+    : { sireRoute: countIncludeSires() };
+  if (can('animals', 'view') && herdUi.sireRoute) tabs.push(['#/sires', '🐏', 'الفحول']);
   if (can('animals', 'view')) tabs.push(['#/finance', '💰', 'الميزانية']);
   if (can('animals', 'view') || can('breeding', 'view') || can('vaccines', 'view') || can('treatments', 'view')) tabs.push(['#/alerts', '🔔', 'التنبيهات']);
   tabs.push(['#/more', '☰', 'المزيد']);
@@ -3194,7 +3279,24 @@ function pinField(label, id) {
 }
 
 // الوضع المحلي: قاعدة بيانات محلية، مستخدم واحد، بلا تسجيل دخول
+function screenTheme() {
+  const current = window.MrahiSupport ? window.MrahiSupport.normalizeTheme(localStorage.getItem('mrahi_theme')) : 'desert';
+  const cards = [
+    ['desert', 'الصحراوي ثلاثي الأبعاد', 'درجات الرمال الدافئة — الافتراضي'],
+    ['emerald', 'الواحة ثلاثي الأبعاد', 'بديل أخضر هادئ'],
+    ['midnight', 'الليل الهادئ', 'راحة أكثر في الإضاءة المنخفضة'],
+  ];
+  view().innerHTML = `<div class="card"><h3>🎨 اختر مظهر التطبيق</h3><p class="muted">يحفظ الاختيار على هذا الجهاز ولا يؤثر في سجلات الحلال.</p><div class="theme-grid">${cards.map(([key, title, note]) => `<button class="theme-choice ${key} ${current === key ? 'active' : ''}" data-theme-choice="${key}"><span>${title}</span><small>${note}</small></button>`).join('')}</div></div>`;
+  view().querySelectorAll('[data-theme-choice]').forEach(button => button.addEventListener('click', () => {
+    const theme = window.MrahiSupport.applyTheme(button.dataset.themeChoice);
+    localStorage.setItem('mrahi_theme', theme);
+    toast('تم حفظ المظهر');
+    screenTheme();
+  }));
+}
+
 async function startLocalMode() {
+  if (window.MrahiSupport) window.MrahiSupport.applyTheme(localStorage.getItem('mrahi_theme'));
   window.MRAH_LOCAL = true;
   document.getElementById('auth').classList.add('hidden');
   sb = window.createMrahLocalClient();

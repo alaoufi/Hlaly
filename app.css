@@ -350,3 +350,35 @@ main { padding: 14px; max-width: 760px; margin: 0 auto; }
   .gd-leaf { transition-duration: .01ms; }
   .gd-cover, .gd-book, .gd-bar-fill { animation: none; transition: none; }
 }
+
+/* المظهر ثلاثي الأبعاد: طبقة مستقلة تحافظ على ألوان التنبيه والتحذير. */
+:root,[data-theme="desert"] { --surface-3d:#fff7e8; --ink-3d:#3d2618; --primary-3d:#8b5327; --accent-3d:#e6ac5c; }
+[data-theme="emerald"] { --surface-3d:#f0fbf4; --ink-3d:#153c31; --primary-3d:#176a4e; --accent-3d:#72b78d; }
+[data-theme="midnight"] { --surface-3d:#101a31; --ink-3d:#edf5ff; --primary-3d:#86b7ff; --accent-3d:#426eae; }
+html[data-theme] body { background:var(--surface-3d); color:var(--ink-3d); }
+html[data-theme] .appbar, html[data-theme] .bottomnav { background:linear-gradient(145deg,var(--primary-3d),color-mix(in srgb,var(--primary-3d),#000 18%)); box-shadow:0 10px 26px color-mix(in srgb,var(--primary-3d),transparent 68%); }
+html[data-theme] .card { border:1px solid color-mix(in srgb,var(--accent-3d),transparent 68%); box-shadow:0 10px 22px color-mix(in srgb,var(--primary-3d),transparent 86%), inset 0 1px 0 #fff9; }
+.theme-grid { display:grid; gap:12px; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); }
+.theme-choice { border:0; min-height:130px; border-radius:18px; color:#fff; text-align:right; padding:18px; font:inherit; font-weight:800; box-shadow:0 12px 22px #0003; display:flex; flex-direction:column; justify-content:space-between; }
+.theme-choice small { font-weight:600; opacity:.92; }.theme-choice.desert { background:linear-gradient(145deg,#5a3419,#ba7838 55%,#f4c878); }.theme-choice.emerald { background:linear-gradient(145deg,#123f35,#258b6b 55%,#b8e4ba); }.theme-choice.midnight { background:linear-gradient(145deg,#101a31,#2b4c86 55%,#9cc4ff); }
+.theme-choice.active { outline:3px solid #fff; outline-offset:-7px; }
+@media (prefers-reduced-motion: reduce) { .theme-choice { transition:none!important; } }
+
+/* واجهة الحظيرة: مجموعات مرشحات هادئة ومنتظمة، بلا حركات مشتتة. */
+.herd-filter-stack { display:grid; gap:10px; margin:2px 0 14px; }
+.herd-filter-group { padding:10px 11px; border:1px solid color-mix(in srgb,var(--accent-3d),transparent 70%); border-radius:14px; background:color-mix(in srgb,var(--surface-3d),#fff 50%); box-shadow:inset 0 1px 0 #fff8; }
+.herd-filter-group .chips { margin:0; gap:7px; }
+.herd-filter-group .chip { min-height:34px; }
+.herd-settings-intro { margin:2px 0 12px; padding:12px 14px; border-radius:14px; background:color-mix(in srgb,var(--surface-3d),#fff 42%); border:1px solid color-mix(in srgb,var(--accent-3d),transparent 72%); line-height:1.75; }
+.herd-settings-grid { display:grid; gap:10px; }
+.newborn-policy-card { border-inline-start:4px solid var(--accent-3d); }
+.newborn-policy-card .field { margin-bottom:9px; }
+
+/* تنقل «المزيد»: مجموعة واحدة مفتوحة، وصفوف لمس مختصرة وواضحة. */
+.more-group-head { display:flex; align-items:center; justify-content:space-between; min-height:58px; margin:10px 0 0; padding:13px 15px; border-radius:16px; box-shadow:0 5px 14px #26452c14; }
+.more-group-body { display:grid; gap:7px; margin:7px 8px 10px; padding:2px 0 1px; }
+.more-action { display:flex; align-items:center; justify-content:space-between; min-height:48px; margin:0; padding:10px 13px; border-radius:13px; box-shadow:none; border:1px solid color-mix(in srgb,var(--accent-3d),transparent 76%); }
+.more-action > span { color:var(--muted); font-size:1.45rem; line-height:1; }
+.about-hero { display:flex; align-items:center; gap:14px; padding:18px; margin:2px 0 12px; border-radius:18px; background:linear-gradient(135deg,var(--surface-3d),color-mix(in srgb,var(--accent-3d),#fff 65%)); border:1px solid color-mix(in srgb,var(--accent-3d),transparent 62%); }
+.about-hero img { width:64px; height:64px; border-radius:16px; object-fit:cover; box-shadow:0 5px 14px #0002; }.about-hero h2 { margin:0 0 4px; color:var(--primary-3d); }.about-changes { margin:8px 0 0; padding-inline-start:20px; line-height:1.9; }
+@media (prefers-reduced-motion: reduce) { .more-group-head, .more-action { transition:none!important; } }
