@@ -581,6 +581,11 @@ async function deleteMonitoringPregnanciesForAnimal(animalId) {
   for (const id of ids) { const { error } = await sb.from(TABLES.pregnancies).delete().eq('id', id); if (error) throw error; }
   C.pregnancies = C.pregnancies.filter(p => !(p.animal_id === animalId && p.status === 'monitoring'));
 }
+async function finalizeBirthForAnimal(animalId) {
+  const active = C.pregnancies.filter(p => p && p.animal_id === animalId && p.status === 'monitoring');
+  for (const p of active) await dbUpdate('pregnancies', p.id, window.MrahiSupport.closedPregnancyPatch('born'));
+  await deleteMatingsForAnimal(animalId);
+}
 async function guard(fn) { try { await fn(); } catch (e) { const msg = (e.message || '' + e); toast(/Could not find the table|schema cache/i.test(msg) ? 'هذه الميزة تحتاج تنفيذ سكربت قاعدة البيانات أولاً (راجع التعليمات).' : 'تعذّر الحفظ: ' + msg); return false; } return true; }
 // حوار تأكيد احترافي داخل التطبيق (بدل نافذة المتصفح)
 function uiConfirm(message, opts = {}) {
@@ -1362,8 +1367,10 @@ function addOffspringModal(mother) {
             if (!['number', 'tag', 'chip', 'name'].includes(o.idkind)) o.code = '';
             if (!['tag', 'color'].includes(o.idkind)) o.tag_color = '';
             if (o.idkind !== 'tag') o.tag_shape = '';
-            await dbInsert('animals', o);
+            const created = await dbInsert('animals', o);
+            await dbInsert('births', { mother_id: mother.id, offspring_id: created.id, offspring_code: o.code, date: o.birth, sex: o.sex, father_name: '', notes: o.notes || '' });
           }
+          await finalizeBirthForAnimal(mother.id);
         });
         if (ok) { closeModal(); lastPen = pen; try { localStorage.setItem('mrahi_last_pen', pen); } catch (e) {} toast(`أُضيف ${n} مولوداً`); await loadAll(); screenAnimalDetail(String(mother.id)); }
         return;
@@ -1382,7 +1389,13 @@ function addOffspringModal(mother) {
       }
       if (!await confirm2(`إضافة ${codes.length} مولوداً وربطها بـ${display(mother)}؟`)) return;
       const single = Object.assign({}, base, { sex: val('of_sex'), color: '', birth: val('of_birth') || null });
-      const ok = await guard(async () => { for (const code of codes) await dbInsert('animals', { ...single, idkind: idkindFor(code), code, name: '' }); });
+      const ok = await guard(async () => {
+        for (const code of codes) {
+          const created = await dbInsert('animals', { ...single, idkind: idkindFor(code), code, name: '' });
+          await dbInsert('births', { mother_id: mother.id, offspring_id: created.id, offspring_code: code, date: single.birth, sex: single.sex, father_name: '', notes: '' });
+        }
+        await finalizeBirthForAnimal(mother.id);
+      });
       if (ok) { closeModal(); lastPen = pen; try { localStorage.setItem('mrahi_last_pen', pen); } catch (e) {} toast(`أُضيف ${codes.length} مولوداً`); await loadAll(); screenAnimalDetail(String(mother.id)); }
     });
   });
@@ -1636,8 +1649,7 @@ function openBirthModal(preg) {
           if (create) { const created = await dbInsert('animals', { type: mother.type, pen: mother.pen || '', idkind: idkindFor(code), code, name: '', sex, source: 'born', birth: date, color: '', status: 'present', mother_id: mother.id, father_name: father, notes }); offId = created.id; }
           await dbInsert('births', { mother_id: mother.id, offspring_id: offId, offspring_code: code, date, sex, father_name: father, notes });
         }
-        await dbUpdate('pregnancies', preg.id, window.MrahiSupport.closedPregnancyPatch('born'));
-        await deleteMatingsForAnimal(mother.id);
+        await finalizeBirthForAnimal(mother.id);
       });
       if (ok) { closeModal(); toast(`تم تسجيل الولادة (${n})`); await loadAll(); screenPregnancies(); }
     });
@@ -2386,9 +2398,9 @@ function screenMore() {
 
 /* ===== دليل الاستخدام (كتاب ثلاثي الأبعاد) ===== */
 function screenAbout() {
-  const version = window.MRAH_VERSION || '1.0.137';
+  const version = window.MRAH_VERSION || '1.0.138';
   view().innerHTML = `<div class="about-hero"><img src="icon-192.png" alt="حلالي"><div><h2>حلالي</h2><div class="muted">الإصدار ${esc(version)}</div></div></div>
-    <div class="card"><h3>سجل التعديلات — 1.0.137</h3><ul class="about-changes"><li>اعتماد آخر تلقيح وسجل متابعة نشط فقط لكل أم، مع حذف السجلات المكررة نهائيًا.</li><li>عند الولادة أو الإجهاض يمسح تاريخ التلقيح وموعد الولادة المتوقع.</li><li>تبقى الولادة والمواليد، ويبقى سبب الإجهاض وعمر الحمل للدراسة.</li><li>تنظيم «المزيد» ومرشح ذكي للذكور والفحول.</li><li>أيقونة حلالي الأصلية ومظاهر هادئة قابلة للاختيار.</li></ul></div>
+    <div class="card"><h3>سجل التعديلات — 1.0.138</h3><ul class="about-changes"><li>اعتماد آخر تلقيح وسجل متابعة نشط فقط لكل أم، مع حذف السجلات المكررة نهائيًا.</li><li>عند حفظ الولادة أو الإجهاض يمسح تاريخ التلقيح والحمل النشط ويحذف سجل التلقيح والفحل فورًا.</li><li>تبقى الولادة والمواليد، ويبقى سبب الإجهاض وعمر الحمل للدراسة.</li><li>تنظيم «المزيد» ومرشح ذكي للذكور والفحول.</li><li>أيقونة حلالي الأصلية ومظاهر هادئة قابلة للاختيار.</li></ul></div>
     <div class="card"><h3>بياناتك محفوظة</h3><div class="muted">التحديث يثبت فوق النسخة السابقة ويحافظ على بياناتك المحلية.</div></div>`;
 }
 function guideBooks() {

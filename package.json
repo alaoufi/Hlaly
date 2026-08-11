@@ -1,6 +1,6 @@
 {
   "name": "mrahi-app",
-  "version": "1.0.137",
+  "version": "1.0.138",
   "private": true,
   "description": "حلالي — تطبيق إدارة الحلال (نسخة محلية لأندرويد بقاعدة بيانات IndexedDB)",
   "scripts": {
