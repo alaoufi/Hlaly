@@ -1099,7 +1099,16 @@ function screenAnimalDetail(arg) {
   const vtName = (tid) => { const v = C.vaccineTypes.find(x => x.id === tid); return v ? esc(v.name) : 'تطعيم'; };
   // ملخّص فوري: العمر • المواليد • حالة الحمل • تحت التحريم
   const offCount = C.animals.filter(x => x.mother_id === id || x.father_id === id).length;
-  const monPreg = C.pregnancies.find(p => p.animal_id === id && p.status === 'monitoring');
+  const monPreg = pregs.filter(p => p.status === 'monitoring').sort((x, y) => y.id - x.id)[0];   // الأحدث دائماً (لا يبقى معلَّقاً على تلقيح قديم)
+  // سطر حالة إنجابية ثابت لا يختفي أبداً: يعكس آخر نشاط (حمل حالي، أو نتيجة آخر تلقيح مهما كانت)
+  const reproStatusLine = (() => {
+    if (monPreg) return row('🤰 الحالة الحالية', 'حامل — تلقيح ' + fmtDate(monPreg.mating_date) + ' • ولادة متوقّعة ' + fmtDate(monPreg.expected));
+    const latestPreg = pregs.slice().sort((x, y) => y.id - x.id)[0];
+    if (latestPreg) return row('الحالة الحالية', (latestPreg.status === 'aborted' ? '🩸 آخر حمل انتهى بإجهاض' : latestPreg.status === 'born' ? '👶 آخر حمل انتهى بولادة' : '⭕ لم يثبت آخر حمل') + ' — تلقيح ' + fmtDate(latestPreg.mating_date));
+    const latestMating = matings.slice().sort((x, y) => (y.date || '').localeCompare(x.date || ''))[0];
+    if (latestMating) return row('الحالة الحالية', 'آخر تلقيح ' + fmtDate(latestMating.date) + ' — بلا متابعة حمل');
+    return row('الحالة الحالية', 'لا يوجد تلقيح مسجّل بعد');
+  })();
   const withItems = [...treats, ...vaccs].filter(r => r.withdrawal_end && daysUntil(r.withdrawal_end) >= 0).sort((x, y) => (y.withdrawal_end || '').localeCompare(x.withdrawal_end || ''));
   const summary = `<div class="card" style="display:flex;flex-wrap:wrap;gap:6px">
       ${a.birth ? `<span class="badge">🎂 ${ageText(a.birth)}</span>` : ''}
@@ -1152,6 +1161,7 @@ function screenAnimalDetail(arg) {
       ${monPreg ? row('الحمل الحالي', 'ولادة متوقّعة ' + fmtDate(monPreg.expected)) : ''}
       ${!parities && !matings.length && !abortions ? noItem() : ''}</div>
     ${a.sex === 'female' && breedingAge ? `<div class="card"><h3>🤰 التلقيح والحمل (${matings.length})</h3>
+      ${reproStatusLine}
       ${can('breeding', 'edit') ? `<button class="btn outline" id="addMating">إضافة تلقيح / متابعة حمل</button>` : ''}
       ${can('breeding', 'edit') && a.status === 'present' ? `<button class="btn outline" id="addSonar" style="margin-top:6px">🔊 فحص حمل بالسونار</button>` : ''}
       ${monPreg && can('breeding', 'edit') ? `<button class="btn outline danger" id="addAbort" style="margin-top:6px">🩸 تسجيل إجهاض</button>` : ''}
@@ -1243,6 +1253,8 @@ function addOffspringModal(mother) {
     ${fInput('تاريخ الميلاد', 'of_birth', todayStr(), 'date')}
     ${penField('of_pen', mother.pen || '', mother.type)}
     <div id="ofSingle">
+      <div id="of_purposeBox">${fSelect('غرض الذكر', 'of_purpose', MALE_PURPOSE, '', '— غير محدّد —')}</div>
+      ${fSelect('الغرض', 'of_des', DESIGN, '', '— غير محدّد —')}
       <div class="chips"><span class="chip active" data-om="none">⭕ بدون ترقيم</span><span class="chip" data-om="num">🔢 بترقيم</span></div>
       <div id="ofNone" class="muted" style="font-size:.82rem">تُضاف بلا رقم — رقّمها لاحقاً عند الكبر.</div>
       <div id="ofNum" class="hidden">
@@ -1253,6 +1265,9 @@ function addOffspringModal(mother) {
     <div id="ofRows"></div>
     <button class="btn" id="of_save">➕ إضافة المواليد</button>`, () => {
     bindPenField('of_pen');
+    // غرض الذكر (في وضع مولود واحد) يظهر للذكور فقط
+    const syncOfPurpose = () => { const pb = document.getElementById('of_purposeBox'); if (pb) pb.style.display = val('of_sex') === 'male' ? '' : 'none'; };
+    { const os = document.getElementById('of_sex'); if (os) os.addEventListener('change', syncOfPurpose); } syncOfPurpose();
     let omode = 'none';   // الافتراضي بدون ترقيم — لا نفرض أرقاماً
     const setHint = () => {
       const h = document.getElementById('of_hint'); if (!h) return;
@@ -1324,7 +1339,8 @@ function addOffspringModal(mother) {
         codes = new Array(n).fill('');   // بدون ترقيم
       }
       if (!await confirm2(`إضافة ${codes.length} مولوداً وربطها بـ${display(mother)}؟`)) return;
-      const single = Object.assign({}, base, { sex: val('of_sex'), color: '', birth: val('of_birth') || null });
+      const sex = val('of_sex');
+      const single = Object.assign({}, base, { sex, purpose: sex === 'male' ? val('of_purpose') : '', designation: val('of_des'), color: '', birth: val('of_birth') || null });
       const ok = await guard(async () => { for (const code of codes) await dbInsert('animals', { ...single, idkind: idkindFor(code), code, name: '' }); });
       if (ok) { closeModal(); lastPen = pen; try { localStorage.setItem('mrahi_last_pen', pen); } catch (e) {} toast(`أُضيف ${codes.length} مولوداً`); await loadAll(); screenAnimalDetail(String(mother.id)); }
     });
@@ -1353,9 +1369,14 @@ function screenMating(arg) {
   document.getElementById('m_save').addEventListener('click', async () => {
     const a = preset || animalById(parseInt(val('m_animal'), 10)); const d = val('m_date');
     if (!a) { toast('اختر البهيمة'); return; } if (!d) { toast('أدخل التاريخ'); return; }
+    const wantsPreg = document.getElementById('m_preg').checked;
+    // إن كان لديها حمل تحت المتابعة من تلقيح سابق ونريد بدء متابعة جديدة: نسأل قبل إنهاء القديم (لا يبقى تلقيحان نشطان معاً)
+    const activePreg = wantsPreg ? C.pregnancies.filter(p => p.animal_id === a.id && p.status === 'monitoring').sort((x, y) => y.id - x.id)[0] : null;
+    if (activePreg && !await confirm2(`لدى ${display(a)} حمل تحت المتابعة من تلقيح ${fmtDate(activePreg.mating_date)} — إنهاؤه (لم يثبت) وبدء متابعة التلقيح الجديد؟`)) return;
     const ok = await guard(async () => {
+      if (activePreg) await dbUpdate('pregnancies', activePreg.id, { status: 'not_confirmed' });
       const matingRow = await dbInsert('matings', { animal_id: a.id, date: d, sire_code: val('m_sireCode').trim(), sire_name: val('m_sireName').trim(), notes: val('m_notes').trim() });
-      if (document.getElementById('m_preg').checked) { const g = gestOf(a.type); await dbInsert('pregnancies', { animal_id: a.id, mating_id: matingRow.id, mating_date: d, gest: g, expected: addDays(d, g), status: 'monitoring', notes: val('m_notes').trim() }); }
+      if (wantsPreg) { const g = gestOf(a.type); await dbInsert('pregnancies', { animal_id: a.id, mating_id: matingRow.id, mating_date: d, gest: g, expected: addDays(d, g), status: 'monitoring', notes: val('m_notes').trim() }); }
     });
     if (ok) { toast('تم الحفظ'); await loadAll(); goBack(); }
   });
@@ -1547,34 +1568,81 @@ function openBirthModal(preg) {
   const mother = animalById(preg.animal_id);
   openModal('تسجيل ولادة — ' + display(mother), `
     ${fInput('عدد المواليد', 'b_count', '1', 'number', 'min="1" inputmode="numeric"')}
-    ${fSelect('الجنس', 'b_sex', SEX, 'female')}
     ${fInput('تاريخ الولادة', 'b_date', todayStr(), 'date')}
     ${fInput('الأب / الفحل', 'b_father', '')}
-    <div class="chips"><span class="chip active" data-bom="none">⭕ بدون ترقيم</span><span class="chip" data-bom="num">🔢 بترقيم</span></div>
-    <div id="bomNum" class="hidden">
-      ${fInput('بداية الترقيم', 'b_start', '', 'number', 'inputmode="numeric"')}
-      ${fInput('بادئة (اختياري)', 'b_prefix', '')}
-      <div id="b_hint" class="muted" style="font-size:.82rem"></div></div>
+    <div id="bSingle">
+      ${fSelect('الجنس', 'b_sex', SEX, 'female')}
+      <div id="b_purposeBox">${fSelect('غرض الذكر', 'b_purpose', MALE_PURPOSE, '', '— غير محدّد —')}</div>
+      ${fSelect('الغرض', 'b_des', DESIGN, '', '— غير محدّد —')}
+      <div class="chips"><span class="chip active" data-bom="none">⭕ بدون ترقيم</span><span class="chip" data-bom="num">🔢 بترقيم</span></div>
+      <div id="bomNum" class="hidden">
+        ${fInput('بداية الترقيم', 'b_start', '', 'number', 'inputmode="numeric"')}
+        ${fInput('بادئة (اختياري)', 'b_prefix', '')}
+        <div id="b_hint" class="muted" style="font-size:.82rem"></div></div>
+    </div>
+    <div id="bRows"></div>
     <div class="check"><input type="checkbox" id="b_create" checked><label for="b_create" style="margin:0">إضافة المواليد كبهائم جديدة (مربوطة بالأم)</label></div>
     ${fTextarea('ملاحظات', 'b_notes', '')}
     <button class="btn" id="b_save">حفظ الولادة</button>`, () => {
     let bom = 'none';
+    const syncBPurpose = () => { const pb = document.getElementById('b_purposeBox'); if (pb) pb.style.display = val('b_sex') === 'male' ? '' : 'none'; };
+    { const bs = document.getElementById('b_sex'); if (bs) bs.addEventListener('change', syncBPurpose); } syncBPurpose();
     document.querySelectorAll('[data-bom]').forEach(c => c.addEventListener('click', () => {
       bom = c.dataset.bom;
       document.querySelectorAll('[data-bom]').forEach(x => x.classList.toggle('active', x.dataset.bom === bom));
       document.getElementById('bomNum').classList.toggle('hidden', bom !== 'num');
       if (bom === 'num') { const s = suggestStart(''); const el = document.getElementById('b_start'); if (el && el.value.trim() === '' && s !== '') el.value = String(s); const h = document.getElementById('b_hint'); if (h) h.textContent = s !== '' ? `اقتراح يبدأ من ${s} (قابل للتعديل)` : 'اكتب البداية التي تريدها'; }
     }));
+    // عند العدد > 1: تُفتح بطاقة كاملة مستقلّة لكل مولود (جنس/غرض/معرّف مختلف لكل واحد)
+    const renderBRows = () => {
+      const box = document.getElementById('bRows'); if (!box) return;
+      const n = parseInt(val('b_count'), 10) || 0;
+      const multi = n > 1;
+      const single = document.getElementById('bSingle'); if (single) single.style.display = multi ? 'none' : '';
+      if (!multi) { box.innerHTML = ''; return; }
+      const defBirth = val('b_date') || todayStr();
+      let html = '';
+      for (let i = 1; i <= n; i++) html += newbornFieldsHtml('nb', i, 'female', defBirth);
+      box.innerHTML = html;
+      for (let i = 1; i <= n; i++) bindNewbornFieldSync('nb', i);
+    };
+    { const bc = document.getElementById('b_count'); if (bc) bc.addEventListener('input', renderBRows); }
     document.getElementById('b_save').addEventListener('click', async () => {
       const n = parseInt(val('b_count'), 10) || 0; if (n <= 0) { toast('أدخل عدد المواليد'); return; }
-      const sex = val('b_sex'), date = val('b_date') || todayStr(), father = val('b_father').trim(), notes = val('b_notes').trim(), create = document.getElementById('b_create').checked;
+      const date = val('b_date') || todayStr(), father = val('b_father').trim(), notes = val('b_notes').trim(), create = document.getElementById('b_create').checked;
+      const base = { type: mother.type, pen: mother.pen || '', source: 'born', status: 'present', mother_id: mother.id, father_name: father, notes };
+      // العدد > 1: لكل مولود حقوله الكاملة المستقلّة (جنس/غرض/معرّف)
+      if (n > 1) {
+        if (!await confirm2(`تسجيل ولادة ${n} مولوداً وربطها بـ${display(mother)}؟`)) return;
+        const ok = await guard(async () => {
+          for (let i = 1; i <= n; i++) {
+            const sex = val('nb_sex_' + i) || 'female';
+            const idkind = val('nb_kind_' + i) || 'number';
+            const code = val('nb_code_' + i).trim();
+            let offId = null;
+            if (create) {
+              const o = Object.assign({}, base, { idkind, code, name: val('nb_name_' + i).trim(), sex, purpose: sex === 'male' ? val('nb_purpose_' + i) : '', designation: val('nb_des_' + i), tag_color: val('nb_tagcolor_' + i), tag_shape: val('nb_tagshape_' + i), birth: val('nb_birth_' + i) || date, color: val('nb_color_' + i).trim() });
+              if (!['number', 'tag', 'chip', 'name'].includes(o.idkind)) o.code = '';
+              if (!['tag', 'color'].includes(o.idkind)) o.tag_color = '';
+              if (o.idkind !== 'tag') o.tag_shape = '';
+              const created = await dbInsert('animals', o); offId = created.id;
+            }
+            await dbInsert('births', { mother_id: mother.id, offspring_id: offId, offspring_code: code, date, sex, father_name: father, notes });
+          }
+          await dbUpdate('pregnancies', preg.id, { status: 'born' });
+        });
+        if (ok) { closeModal(); toast(`تم تسجيل الولادة (${n})`); await loadAll(); screenPregnancies(); }
+        return;
+      }
+      // مولود واحد: الحقول المشتركة (جنس/غرض) + خيار الترقيم
+      const sex = val('b_sex');
       let codes;
       if (bom === 'num') { const sr = val('b_start').trim(); if (sr === '') { toast('اكتب بداية الترقيم أو اختر «بدون ترقيم»'); return; } codes = genSeq(val('b_prefix'), sr, n); }
       else codes = new Array(n).fill('');
       const ok = await guard(async () => {
         for (const code of codes) {
           let offId = null;
-          if (create) { const created = await dbInsert('animals', { type: mother.type, pen: mother.pen || '', idkind: idkindFor(code), code, name: '', sex, source: 'born', birth: date, color: '', status: 'present', mother_id: mother.id, father_name: father, notes }); offId = created.id; }
+          if (create) { const created = await dbInsert('animals', Object.assign({}, base, { idkind: idkindFor(code), code, name: '', sex, purpose: sex === 'male' ? val('b_purpose') : '', designation: val('b_des'), color: '', birth: date })); offId = created.id; }
           await dbInsert('births', { mother_id: mother.id, offspring_id: offId, offspring_code: code, date, sex, father_name: father, notes });
         }
         await dbUpdate('pregnancies', preg.id, { status: 'born' });
