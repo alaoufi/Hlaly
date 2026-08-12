@@ -723,7 +723,7 @@ function screenHome() {
   const present = pres.filter(inHerdCount).length;   // لا يُحتسب المولود أصغر من عمر الاحتساب لنوعه
   const sold = C.animals.filter(a => a.status === 'sold').length;
   const dead = C.animals.filter(a => a.status === 'dead').length;
-  const born = pres.filter(a => a.source === 'born');
+  const born = pres.filter(a => a.source === 'born' && !inHerdCount(a));   // مواليد حقيقيون فقط (لسّه يتبعون أمّهم ولم يُحتسبوا في الحظيرة بعد)
   const bornM = born.filter(a => a.sex === 'male').length, bornF = born.filter(a => a.sex === 'female').length;
   const births = upcomingBirths(), vaccs = upcomingVacc(), treats = activeTreatments();
   const hasHerd = can('animals', 'view');
@@ -756,8 +756,8 @@ function screenHome() {
   view().querySelectorAll('[data-go]').forEach(c => c.addEventListener('click', () => setHash(c.dataset.go)));
   // بطاقات الحالة: تفتح قائمة الحلال مُرشَّحة (في الحظيرة/مباعة/نافقة)
   view().querySelectorAll('[data-sfilter]').forEach(c => c.addEventListener('click', () => { animalFilter = ''; animalSourceSel = []; animalSexSel = []; animalStatusSel = [c.dataset.sfilter]; saveAnimalFilters(); setHash('#/animals'); }));
-  // بطاقات المواليد: تفتح المواليد (مصدر=ولادة) مُرشَّحة بالجنس
-  view().querySelectorAll('[data-born]').forEach(c => c.addEventListener('click', () => { animalFilter = ''; animalStatusSel = ['present']; animalSourceSel = ['born']; animalSexSel = c.dataset.born === 'all' ? [] : [c.dataset.born]; saveAnimalFilters(); setHash('#/animals'); }));
+  // بطاقات المواليد: تفتح المواليد الحقيقيين فقط (لسّه يتبعون أمّهم) مُرشَّحة بالجنس — نفس عدد البطاقة بالضبط
+  view().querySelectorAll('[data-born]').forEach(c => c.addEventListener('click', () => { pendingNewbornFilter = c.dataset.born; setHash('#/animals'); }));
   const q = document.getElementById('q');
   if (q) q.addEventListener('input', () => {
     const term = q.value.trim().toLowerCase(); const box = document.getElementById('qr');
@@ -832,6 +832,8 @@ let animalRecTab = 'basic';
 let animalStatusSel = loadFilterArr('mrahi_f_status', ['present']);   // 'present'|'sold'|'dead'
 let animalSourceSel = loadFilterArr('mrahi_f_source', []);            // 'born'|'purchased'|'sale'
 let animalSexSel = loadFilterArr('mrahi_f_sex', []);                  // 'male'|'female'
+// طلب لمرة واحدة من بطاقات «المواليد» بالرئيسية: يعرض المواليد الحقيقيين فقط (غير المحتسَبين بعد) — يُستهلَك عند أول عرض ثم يُمسح
+let pendingNewbornFilter = null;   // 'male'|'female'|'all'|null
 // آخر «رقم حظيرة» مُدخَل — يُثبَّت تلقائياً في إضافة البهيمة التالية حتى يُغيَّر (إدخال أسرع للدفعات)
 let lastPen = (() => { try { return localStorage.getItem('mrahi_last_pen') || ''; } catch (e) { return ''; } })();
 // آخر بهيمة مُدخَلة (لِزر «نسخ من آخر إدخال» — تسريع الإدخال المتكرّر)
@@ -865,6 +867,12 @@ function offspringListModal(motherId) {
 }
 function screenAnimals() {
   if (!can('animals', 'view')) { view().innerHTML = noPerm(); return; }
+  // استهلاك طلب «مواليد حقيقيون فقط» لمرة واحدة (من بطاقات الرئيسية) — يزول عند أي تفاعل لاحق مع المرشّحات
+  let onlyRealNewborn = false;
+  if (pendingNewbornFilter !== null) {
+    animalFilter = ''; animalStatusSel = ['present']; animalSourceSel = []; animalSexSel = pendingNewbornFilter === 'all' ? [] : [pendingNewbornFilter];
+    saveAnimalFilters(); onlyRealNewborn = true; pendingNewbornFilter = null;
+  }
   const chips = `<div class="chips"><span class="chip ${!animalFilter ? 'active' : ''}" data-f="">الكل</span>${TYPES.map(t => `<span class="chip ${animalFilter === t.k ? 'active' : ''}" data-f="${t.k}">${t.ar}</span>`).join('')}</div>`;
   // مرشّحات متعدّدة الاختيار (يمكن اختيار أكثر من تصنيف؛ «الكل» يمسح التحديد)
   // مربّع اختيار (☐/☑) ليوضّح أنها متعدّدة الاختيار
@@ -877,7 +885,7 @@ function screenAnimals() {
   const hideMale = (a) => a.status === 'present' && a.sex === 'male' && !animalSexSel.includes('male') && (a.purpose === 'sire' ? !countIncludeSires() : !countIncludeMales());
   // إخفاء المولود غير المحتسَب (يتبع أمّه) من القائمة كلياً إن أُوقف خيار «إظهار المواليد غير المحتسَبة»
   const hideUncounted = (a) => a.status === 'present' && !showUncountedInList() && !inHerdCount(a);
-  const list = sortAnimals(C.animals.filter(a => (!animalFilter || a.type === animalFilter) && (!animalStatusSel.length || animalStatusSel.includes(a.status)) && (!animalSourceSel.length || animalSourceSel.some(s => s === 'sale' ? (a.designation === 'sale' || a.purpose === 'sale') : (a.source || 'purchased') === s)) && (!animalSexSel.length || animalSexSel.includes(a.sex)) && !hideMale(a) && !hideUncounted(a)));
+  const list = sortAnimals(C.animals.filter(a => (!animalFilter || a.type === animalFilter) && (!animalStatusSel.length || animalStatusSel.includes(a.status)) && (!animalSourceSel.length || animalSourceSel.some(s => s === 'sale' ? (a.designation === 'sale' || a.purpose === 'sale') : (a.source || 'purchased') === s)) && (!animalSexSel.length || animalSexSel.includes(a.sex)) && !hideMale(a) && !hideUncounted(a) && (!onlyRealNewborn || (a.source === 'born' && !inHerdCount(a)))));
   const canEdit = can('animals', 'edit');
   // عند خلو الحلال كلياً: حالة ترحيبية بزرّ إضافة واضح. وعند خلو التصنيف فقط: رسالة عادية.
   const empty = C.animals.length === 0
