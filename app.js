@@ -92,15 +92,8 @@ function isEditLocked() {
 function editUnlockRemainingMs() {
   try { const until = parseInt(localStorage.getItem(EDIT_UNLOCK_KEY) || '0', 10); return Math.max(0, until - Date.now()); } catch (e) { return 0; }
 }
-function unlockEditFor(minutes) { try { localStorage.setItem(EDIT_UNLOCK_KEY, String(Date.now() + minutes * 60000)); } catch (e) {} refreshControlIcon(); }
-function lockEditNow() { try { localStorage.removeItem(EDIT_UNLOCK_KEY); } catch (e) {} refreshControlIcon(); }
-// أيقونة ⋮ أعلى الشاشة تعكس حالة القفل الحالية (🔒/🔓)
-function refreshControlIcon() {
-  const b = document.getElementById('controlBtn'); if (!b) return;
-  const locked = isEditLocked();
-  b.textContent = locked ? '🔒' : '🔓';
-  b.title = locked ? 'التعديل مقفول — التحكّم والإدارة' : 'التعديل مفتوح — التحكّم والإدارة';
-}
+function unlockEditFor(minutes) { try { localStorage.setItem(EDIT_UNLOCK_KEY, String(Date.now() + minutes * 60000)); } catch (e) {} }
+function lockEditNow() { try { localStorage.removeItem(EDIT_UNLOCK_KEY); } catch (e) {} }
 // ترتيب عرض قوائم الحلال (الترقيم/تاريخ الإدخال/العمر) — يُضبط من الإعدادات
 const SORT_MODES = [{ k: 'entry', ar: 'تاريخ الإدخال (الأحدث أولاً)' }, { k: 'code', ar: 'الترقيم (تصاعدي)' }, { k: 'age', ar: 'العمر (الأكبر أولاً)' }];
 function animalSortMode() { try { const v = localStorage.getItem('mrahi_sort'); return ['entry', 'code', 'age'].includes(v) ? v : 'entry'; } catch (e) { return 'entry'; } }
@@ -655,7 +648,8 @@ const ROUTES = {
   home: { t: 'حلالي', back: false, fn: screenHome },
   animals: { t: 'الحلال', back: false, fn: screenAnimals },
   alerts: { t: 'التنبيهات', back: false, fn: screenAlerts },
-  more: { t: 'المزيد', back: false, fn: screenMore },
+  quick: { t: 'الأدوات والعمليات', back: true, fn: screenQuickMenu },
+  settings: { t: 'الإعدادات والإدارة', back: true, fn: screenSettingsMenu },
   animal: { t: 'سجل البهيمة', back: true, fn: screenAnimalDetail },
   sires: { t: 'فحول المراح', back: false, fn: screenSires },
   control: { t: 'التحكّم والإدارة', back: true, fn: screenControl },
@@ -2449,20 +2443,39 @@ async function bulkApply() {
   if (ok) { toast(`تم تطبيق العملية على ${ids.length} بهيمة`); bulkSel.clear(); await loadAll(); screenBulk(); }
 }
 
-/* ===== المزيد ===== */
-const moreOpen = new Set(['herd']);   // التصنيفات المفتوحة (الشائع «الحلال» مفتوح افتراضياً)
-// لون خلفية خفيف لكل مجال في «المزيد» لتمييز الأقسام بصرياً
-const MORE_BG = { herd: '#e8f5e9', health: '#e3f2fd', finance: '#fff3e0', ops: '#fff8e1', guides: '#f3e5f5', admin: '#ffebee', app: '#eceff1' };
-function screenMore() {
-  const owner = me && me.account_type === 'owner';
+/* ===== قائمتا الهيدر: ⋮ الأدوات والعمليات · ☰ الإعدادات والإدارة ===== */
+const menuOpen = { quick: new Set(['breeding']), settings: new Set(['herd']) };   // التصنيفات المفتوحة لكل قائمة
+const MENU_BG = { breeding: '#e8f5e9', health: '#e3f2fd', tools: '#fff8e1', herd: '#e8f5e9', security: '#ffebee', data: '#f3e5f5', app: '#eceff1' };
+// عارض عام لقائمة أقسام قابلة للطيّ (يشترك بينه ⋮ و☰)
+function renderMenuScreen(menuKey, cats, extraHtml) {
+  extraHtml = extraHtml || '';
+  const open = menuOpen[menuKey];
+  const visible = cats.filter(c => c.items.length);
+  view().innerHTML = extraHtml + visible.map(c => {
+    const isOpen = open.has(c.key);
+    const bg = MENU_BG[c.key] || 'var(--card)';
+    return `<div class="acc-head card click" data-cat="${c.key}" style="display:flex;align-items:center;justify-content:space-between;background:${bg}">
+        <span class="li-title" style="margin:0">${c.title}</span><span style="color:var(--muted);font-size:1.1rem">${isOpen ? '▾' : '▸'}</span></div>`
+      + (isOpen ? `<div style="margin:0 8px 8px">${c.items.map(([l, h]) => `<div class="card click" data-go="${h}" style="margin:6px 0;background:${bg}"><div class="li-title">${l}</div></div>`).join('')}</div>` : '');
+  }).join('');
+  view().querySelectorAll('[data-cat]').forEach(h => h.addEventListener('click', () => { const k = h.dataset.cat; open.has(k) ? open.delete(k) : open.add(k); menuKey === 'quick' ? screenQuickMenu() : screenSettingsMenu(); }));
+  view().querySelectorAll('[data-go]').forEach(c => c.addEventListener('click', () => {
+    const h = c.dataset.go;
+    if (h === '__checkupdate') return (typeof window.mrahiCheckUpdate === 'function') ? window.mrahiCheckUpdate() : toast('التحديث متاح في تطبيق الجوال');
+    if (h === '__feedback') { const v = window.MRAH_VERSION || ''; const subj = encodeURIComponent('ملاحظات حلالي' + (v ? ' — نسخة ' + v : '')); const body = encodeURIComponent('اكتب ملاحظتك أو اقتراحك هنا:\n\n\n——————\nنسخة التطبيق: ' + v); location.href = 'mailto:alaoufi@gmail.com?subject=' + subj + '&body=' + body; return; }
+    if (h === '__deactivate') return (async () => { if (await confirm2('إلغاء تفعيل هذا الجهاز؟ سيُعاد قفل التطبيق حتى تُدخل رمزاً جديداً. (بياناتك لا تُحذف)')) { window.MrahiLicense.deactivate(); location.reload(); } })();
+    setHash(h);
+  }));
+}
+// ⋮ الأدوات والعمليات — كل ما يُستخدم يومياً (الحلال/التكاثر/الصحة/أدوات)
+function screenQuickMenu() {
   const I = (cond, label, hash) => cond ? [label, hash] : null;
   const cats = [
-    { key: 'herd', title: '🐑 الحلال والمتابعة', items: [
+    { key: 'breeding', title: '🐑 الحلال والتكاثر', items: [
       I(can('animals', 'view'), '🔍 تفقد الحلال وإحصائيات', '#/inspect'),
-      I(can('animals', 'view'), '🐏 فحول المراح', '#/sires'),
-      I(can('animals', 'add'), '📋 إضافة جماعية (دفعة)', '#/bulk/buy'),
       I(can('breeding', 'view'), '🤰 الحمل والمتابعة', '#/pregnancies'),
-      I(can('animals', 'edit'), '⚙️ إعدادات الحظيرة', '#/herdsettings'),
+      I(can('animals', 'add'), '📋 إضافة جماعية (دفعة)', '#/bulk/buy'),
+      I(can('animals', 'add') || can('animals', 'edit') || can('vaccines', 'edit') || can('treatments', 'edit') || can('breeding', 'edit'), '⚙️ عمليات جماعية (تطعيم/علاج/بيع…)', '#/bulk'),
     ].filter(Boolean) },
     { key: 'health', title: '💉 الصحة (تطعيم وعلاج)', items: [
       I(can('vaccines', 'edit'), '💉 إعطاء تطعيم', '#/vaccinate/0'),
@@ -2472,56 +2485,47 @@ function screenMore() {
       I(can('treatments', 'view'), '💊 أنواع العلاج', '#/treatment-types'),
       I(can('treatments', 'view'), '📦 مخزون الأدوية واللقاحات', '#/medstock'),
     ].filter(Boolean) },
-    { key: 'finance', title: '💰 المالية', items: [
-      I(can('animals', 'view'), '💰 المصروفات والميزانية', '#/finance'),
-    ].filter(Boolean) },
-    { key: 'ops', title: '⚙️ العمليات والبيانات', items: [
-      I(can('animals', 'add') || can('animals', 'edit') || can('vaccines', 'edit') || can('treatments', 'edit') || can('breeding', 'edit'), '⚙️ عمليات جماعية (تطعيم/علاج/بيع…)', '#/bulk'),
+    { key: 'tools', title: '🗂️ أدوات أخرى', items: [
       I(can('animals', 'view'), '📇 دليل التواصل (زبائن/بيطري…)', '#/contacts'),
       I(can('backup', 'view'), '💾 النسخ الاحتياطي', '#/backup'),
     ].filter(Boolean) },
-    { key: 'guides', title: '📖 الأدلة', items: [
-      I(true, '📘 دليل الاستخدام', '#/guide'),
+  ];
+  renderMenuScreen('quick', cats);
+}
+// ☰ الإعدادات والإدارة — كل ما يُضبط مرّة ونادراً ما يتغيّر
+function screenSettingsMenu() {
+  const I = (cond, label, hash) => cond ? [label, hash] : null;
+  const cats = [
+    { key: 'herd', title: '⚙️ إعدادات الحظيرة', items: [
+      I(can('animals', 'edit'), '⚙️ أنواع الحلال، الحظائر، الترقيم، التنبيهات…', '#/herdsettings'),
     ].filter(Boolean) },
-    { key: 'admin', title: '🛡️ الإدارة العامة', items: [
+    { key: 'security', title: '🔐 الأمان', items: [
+      I(true, '🔐 التحكّم والإدارة (قفل التعديل)', '#/control'),
+    ].filter(Boolean) },
+    { key: 'data', title: '🗂️ البيانات والمحتوى', items: [
       I(isAdmin(), '🗑️ سلة المحذوفات', '#/trash'),
       I(isSys(), '💡 النصائح والمعلومات', '#/tips'),
     ].filter(Boolean) },
-    { key: 'app', title: '📱 التطبيق', items: [
+    { key: 'app', title: '📱 التطبيق والمساعدة', items: [
+      I(true, '📘 دليل الاستخدام', '#/guide'),
       I(window.MRAH_APK, '🔄 تحقق من وجود تحديث', '__checkupdate'),
+      I(window.MRAH_APK && window.MrahiLicense, '🔓 إلغاء تفعيل هذا الجهاز', '__deactivate'),
       I(true, '📧 ملاحظات ومقترحات', '__feedback'),
     ].filter(Boolean) },
-  ].filter(c => c.items.length);
-
+  ];
   // عند توفّر تحديث: بطاقة بارزة دائمة أعلى الصفحة (تسهيل)
   const upd = window.mrahiUpdateInfo;
   const topUpdate = (window.MRAH_APK && upd)
     ? `<div class="card click hl" data-go="__checkupdate"><div class="li-title">🔄 يوجد تحديث جديد (${esc(upd.version)}) — نزّله الآن</div><div class="li-sub">يفتح صفحة التنزيل لتثبيت النسخة الجديدة (بياناتك محفوظة)</div></div>`
     : '';
-
   const ver = window.MRAH_VERSION ? ` • نسخة ${window.MRAH_VERSION}` : '';
   let licLine = '';
   if (window.MRAH_APK && window.MrahiLicense) { const s = window.MrahiLicense.state(); if (s.state === 'active') licLine = `<div>🔐 الترخيص: ${s.permanent ? 'دائم' : 'متبقّ ' + s.daysLeft + ' يوم'}</div>`; }
   const footer = `<div class="muted" style="text-align:center;margin-top:18px;font-size:.85rem">
     <div style="font-weight:700;color:var(--green)">✨ التسهيل · الحفظ · التخطيط</div>
     حلالي — تطبيق محلّي • بياناتك على جهازك${ver}${licLine}</div>`;
-
-  view().innerHTML = topUpdate + cats.map(c => {
-    const open = moreOpen.has(c.key);
-    const bg = MORE_BG[c.key] || 'var(--card)';
-    return `<div class="acc-head card click" data-cat="${c.key}" style="display:flex;align-items:center;justify-content:space-between;background:${bg}">
-        <span class="li-title" style="margin:0">${c.title}</span><span style="color:var(--muted);font-size:1.1rem">${open ? '▾' : '▸'}</span></div>`
-      + (open ? `<div style="margin:0 8px 8px">${c.items.map(([l, h]) => `<div class="card click" data-go="${h}" style="margin:6px 0;background:${bg}"><div class="li-title">${l}</div></div>`).join('')}</div>` : '');
-  }).join('') + footer;
-
-  view().querySelectorAll('[data-cat]').forEach(h => h.addEventListener('click', () => { const k = h.dataset.cat; moreOpen.has(k) ? moreOpen.delete(k) : moreOpen.add(k); screenMore(); }));
-  view().querySelectorAll('[data-go]').forEach(c => c.addEventListener('click', () => {
-    const h = c.dataset.go;
-    if (h === '__checkupdate') return (typeof window.mrahiCheckUpdate === 'function') ? window.mrahiCheckUpdate() : toast('التحديث متاح في تطبيق الجوال');
-    if (h === '__feedback') { const v = window.MRAH_VERSION || ''; const subj = encodeURIComponent('ملاحظات حلالي' + (v ? ' — نسخة ' + v : '')); const body = encodeURIComponent('اكتب ملاحظتك أو اقتراحك هنا:\n\n\n——————\nنسخة التطبيق: ' + v); location.href = 'mailto:alaoufi@gmail.com?subject=' + subj + '&body=' + body; return; }
-    if (h === '__deactivate') return (async () => { if (await confirm2('إلغاء تفعيل هذا الجهاز؟ سيُعاد قفل التطبيق حتى تُدخل رمزاً جديداً. (بياناتك لا تُحذف)')) { window.MrahiLicense.deactivate(); location.reload(); } })();
-    setHash(h);
-  }));
+  renderMenuScreen('settings', cats, topUpdate);
+  view().insertAdjacentHTML('beforeend', footer);
 }
 
 /* ===== دليل الاستخدام (كتاب ثلاثي الأبعاد) ===== */
@@ -2536,7 +2540,7 @@ function guideBooks() {
 function screenGuide(arg) {
   if (!window.MrahiGuide) { view().innerHTML = '<div class="center-empty">تعذّر تحميل الدليل.</div>'; return; }
   const books = guideBooks();
-  // أيقونة (i) في الهيدر تفتح الدليل العام مباشرةً؛ والمدخلات في «المزيد» تفتح كتاب الدور
+  // شعار التطبيق بالهيدر يعرض الأيقونة فقط؛ مدخل «☰ الإعدادات ← دليل الاستخدام» يفتح كتاب الدور
   const wanted = (arg && books.includes(arg)) ? arg : 'visitor';
   window.MrahiGuide.render(view(), wanted, {
     isAdmin: isAdmin(),
@@ -3402,14 +3406,16 @@ function buildNav() {
   if (can('animals', 'view')) tabs.push(['#/sires', '🐏', 'الفحول']);
   if (can('animals', 'view')) tabs.push(['#/finance', '💰', 'الميزانية']);
   if (can('animals', 'view') || can('breeding', 'view') || can('vaccines', 'view') || can('treatments', 'view')) tabs.push(['#/alerts', '🔔', 'التنبيهات']);
-  tabs.push(['#/more', '☰', 'المزيد']);
   const nav = document.getElementById('bottomnav');
   nav.style.gridTemplateColumns = `repeat(${tabs.length},1fr)`;
-  nav.innerHTML = tabs.map(([r, i, l]) => {
-    const badge = (r === '#/more' && window.mrahiUpdateInfo) ? '<span class="nav-badge"></span>' : '';
-    return `<button class="nav-item" data-route="${r}"><span class="nav-ic">${i}${badge}</span>${l}</button>`;
-  }).join('');
+  nav.innerHTML = tabs.map(([r, i, l]) => `<button class="nav-item" data-route="${r}"><span class="nav-ic">${i}</span>${l}</button>`).join('');
   nav.querySelectorAll('.nav-item').forEach(b => b.addEventListener('click', () => setHash(b.dataset.route)));
+  refreshSettingsBadge();   // شارة تحديث متاح تنتقل لأيقونة ☰ بعد إزالة تبويب «المزيد»
+}
+// نقطة حمراء على أيقونة ☰ عند توفّر تحديث جديد (بديل شارة تبويب «المزيد» السابقة)
+function refreshSettingsBadge() {
+  const b = document.getElementById('settingsBtn'); if (!b) return;
+  b.innerHTML = '☰' + (window.MRAH_APK && window.mrahiUpdateInfo ? '<span class="nav-badge"></span>' : '');
 }
 // الدخول بالجوال أو اسم المستخدم — نبني بريداً داخلياً خفياً لكل حساب.
 const normPhone = (s) => (s || '').replace(/\D/g, '');           // أرقام فقط
@@ -3477,11 +3483,11 @@ function renderLicenseGate() {
 async function init() {
   document.getElementById('backBtn').addEventListener('click', goBack);
   document.getElementById('guideBtn').addEventListener('click', showAppIcon);   // شعار التطبيق ← عرض الأيقونة بحجمها الطبيعي
-  document.getElementById('controlBtn').addEventListener('click', () => setHash('#/control'));
-  refreshControlIcon(); setInterval(refreshControlIcon, 30000);   // تحديث أيقونة القفل/الفتح دورياً (كل نصف دقيقة)
+  document.getElementById('quickBtn').addEventListener('click', () => setHash('#/quick'));       // ⋮ الأدوات والعمليات
+  document.getElementById('settingsBtn').addEventListener('click', () => setHash('#/settings'));  // ☰ الإعدادات والإدارة
   window.addEventListener('hashchange', () => { if (me && me.is_active) render(); });
-  // إشارة توفّر تحديث (يطلقها updater.js): نقطة على «المزيد» وإبراز الزر
-  const onUpdSignal = () => { if (!me || !me.is_active) return; buildNav(); if (parseHash().name === 'more') render(); };
+  // إشارة توفّر تحديث (يطلقها updater.js): نقطة حمراء على أيقونة ☰ وإبراز البطاقة
+  const onUpdSignal = () => { if (!me || !me.is_active) return; buildNav(); if (parseHash().name === 'settings') render(); };
   window.addEventListener('mrahi-update-available', onUpdSignal);
   window.addEventListener('mrahi-update-applied', onUpdSignal);
   // تحرير موارد الوسائط (كاميرا/ميكروفون) عند الخلفية أو الخروج — تنظيف عميق للذاكرة
