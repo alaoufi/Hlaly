@@ -139,6 +139,10 @@ function fAnimalSelect(label, id, selectedId, list, blank = '— اختر —') 
   return `<div class="field"><label>${label}</label><select id="${id}">${opts}</select></div>`;
 }
 const row = (k, v) => `<div class="row"><span class="k">${k}</span><span class="v">${v}</span></div>`;
+// صفّ سجل قابل للتعديل: عنوان + تفاصيل + زرّ تعديل صغير (للتلقيح/الحمل/التطعيمات/العلاجات)
+const editRow = (title, sub, attr, id) => `<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;padding:6px 0;border-bottom:1px solid #eee">
+  <div style="flex:1;min-width:0"><div class="li-title" style="font-size:.95rem">${title}</div><div class="li-sub">${sub}</div></div>
+  <button class="btn sm outline" data-${attr}="${id}" style="flex:0 0 auto">✎ تعديل</button></div>`;
 const noItem = () => '<div class="muted">لا يوجد</div>';
 
 /* ===== مساعدات إدخال متقدّمة: إدخال صوتي + مسح بالكاميرا ===== */
@@ -1165,20 +1169,30 @@ function screenAnimalDetail(arg) {
       ${can('breeding', 'edit') ? `<button class="btn outline" id="addMating">إضافة تلقيح / متابعة حمل</button>` : ''}
       ${can('breeding', 'edit') && a.status === 'present' ? `<button class="btn outline" id="addSonar" style="margin-top:6px">🔊 فحص حمل بالسونار</button>` : ''}
       ${monPreg && can('breeding', 'edit') ? `<button class="btn outline danger" id="addAbort" style="margin-top:6px">🩸 تسجيل إجهاض</button>` : ''}
-      ${matings.filter(m => !abortedMatingIds.has(m.id) && !abortedMatingDates.has(m.date)).map(m => row('تلقيح ' + fmtDate(m.date), 'الفحل: ' + (esc(m.sire_name) || esc(m.sire_code) || '—'))).join('')}
-      ${pregs.map(p => p.status === 'aborted'
-        ? row('حمل (🩸 أجهضت)', (p.abort_gest_days != null ? 'عمر الحمل عند الإجهاض ' + p.abort_gest_days + ' يوم' : 'مسجّل') + (p.abort_cause ? ' • السبب: ' + esc(p.abort_cause) : ''))
-        : row('حمل (' + arOf(PREG, p.status) + ')' + (p.confirmed ? ' 🔊' : ''), 'الولادة التقريبية ' + fmtDate(p.expected) + ' • مدة الحمل ' + p.gest + ' يوم')).join('')}
+      ${matings.filter(m => !abortedMatingIds.has(m.id) && !abortedMatingDates.has(m.date)).map(m => can('breeding', 'edit')
+        ? editRow('تلقيح ' + fmtDate(m.date), 'الفحل: ' + (esc(m.sire_name) || esc(m.sire_code) || '—'), 'medit', m.id)
+        : row('تلقيح ' + fmtDate(m.date), 'الفحل: ' + (esc(m.sire_name) || esc(m.sire_code) || '—'))).join('')}
+      ${pregs.map(p => {
+        const sub = p.status === 'aborted'
+          ? (p.abort_gest_days != null ? 'عمر الحمل عند الإجهاض ' + p.abort_gest_days + ' يوم' : 'مسجّل') + (p.abort_cause ? ' • السبب: ' + esc(p.abort_cause) : '')
+          : 'الولادة التقريبية ' + fmtDate(p.expected) + ' • مدة الحمل ' + p.gest + ' يوم';
+        const title = p.status === 'aborted' ? 'حمل (🩸 أجهضت)' : 'حمل (' + arOf(PREG, p.status) + ')' + (p.confirmed ? ' 🔊' : '');
+        return can('breeding', 'edit') ? editRow(title, sub, 'pedit', p.id) : row(title, sub);
+      }).join('')}
       ${!matings.length && !pregs.length ? noItem() : ''}</div>` : ''}`;
   REC.medical = `<div class="card"><h3>🩺 السجل المرضي (${treats.length})</h3>
       <div class="muted" style="font-size:.82rem;margin-bottom:6px">الحالات التي أصابت البهيمة (مصدرها سجل العلاجات).</div>
       ${treats.length ? treats.map(t => row((t.treatment_type ? esc(t.treatment_type) : (t.med_name ? esc(t.med_name) : 'حالة')) + ' — ' + fmtDate(t.date), [t.action ? 'الإجراء: ' + esc(t.action) : '', t.notes ? esc(t.notes) : ''].filter(Boolean).join(' • ') || '—')).join('') : noItem()}</div>`;
   REC.treat = `<div class="card"><h3>💊 سجل العلاجات (${treats.length})</h3>
       ${can('treatments', 'edit') ? `<button class="btn outline" id="addTreat">إعطاء علاج</button>` : ''}
-      ${treats.length ? treats.map(t => row(esc(t.med_name || '') + ' (' + fmtDate(t.date) + ')', 'تحريم حتى ' + fmtDate(t.withdrawal_end) + (t.next_due ? ' • جرعة قادمة ' + fmtDate(t.next_due) : ''))).join('') : noItem()}</div>`;
+      ${treats.length ? treats.map(t => can('treatments', 'edit')
+        ? editRow(esc(t.med_name || '') + ' (' + fmtDate(t.date) + ')', 'تحريم حتى ' + fmtDate(t.withdrawal_end) + (t.next_due ? ' • جرعة قادمة ' + fmtDate(t.next_due) : ''), 'tedit', t.id)
+        : row(esc(t.med_name || '') + ' (' + fmtDate(t.date) + ')', 'تحريم حتى ' + fmtDate(t.withdrawal_end) + (t.next_due ? ' • جرعة قادمة ' + fmtDate(t.next_due) : ''))).join('') : noItem()}</div>`;
   REC.vacc = `<div class="card"><h3>💉 سجل التطعيمات (${vaccs.length})</h3>
       ${can('vaccines', 'edit') ? `<button class="btn outline" id="addVacc">إعطاء تطعيم</button>` : ''}
-      ${vaccs.length ? vaccs.map(v => row(fmtDate(v.date) + ' — ' + vtName(v.type_id), 'تحريم حتى ' + fmtDate(v.withdrawal_end))).join('') : noItem()}</div>`;
+      ${vaccs.length ? vaccs.map(v => can('vaccines', 'edit')
+        ? editRow(fmtDate(v.date) + ' — ' + vtName(v.type_id), 'تحريم حتى ' + fmtDate(v.withdrawal_end), 'vedit', v.id)
+        : row(fmtDate(v.date) + ' — ' + vtName(v.type_id), 'تحريم حتى ' + fmtDate(v.withdrawal_end))).join('') : noItem()}</div>`;
 
   REC.basic = `<div class="card"><h3>📋 البيانات الأساسية</h3>
       ${row('النوع', arOf(TYPES, a.type))}
@@ -1242,6 +1256,10 @@ function screenAnimalDetail(arg) {
   const aab = document.getElementById('addAbort'); if (aab && monPreg) aab.addEventListener('click', () => abortModal(monPreg));
   const av = document.getElementById('addVacc'); if (av) av.addEventListener('click', () => setHash('#/vaccinate/' + id));
   const at = document.getElementById('addTreat'); if (at) at.addEventListener('click', () => setHash('#/treat/' + id));
+  view().querySelectorAll('[data-medit]').forEach(b => b.addEventListener('click', () => { const m = matings.find(x => x.id === parseInt(b.dataset.medit, 10)); if (m) matingEditModal(m); }));
+  view().querySelectorAll('[data-pedit]').forEach(b => b.addEventListener('click', () => { const p = pregs.find(x => x.id === parseInt(b.dataset.pedit, 10)); if (p) pregEditModal(p); }));
+  view().querySelectorAll('[data-tedit]').forEach(b => b.addEventListener('click', () => { const t = treats.find(x => x.id === parseInt(b.dataset.tedit, 10)); if (t) treatEditModal(t); }));
+  view().querySelectorAll('[data-vedit]').forEach(b => b.addEventListener('click', () => { const v = vaccs.find(x => x.id === parseInt(b.dataset.vedit, 10)); if (v) vaccEditModal(v); }));
   if (can('animals', 'edit')) addFab('✎ تعديل', () => setHash('#/animal-edit/' + id));
 }
 
@@ -1381,6 +1399,45 @@ function screenMating(arg) {
     if (ok) { toast('تم الحفظ'); await loadAll(); goBack(); }
   });
 }
+// تعديل سجل تلقيح موجود — إن كان مرتبطاً بحمل تحت المتابعة يُحدَّث موعد ولادته تلقائياً من التاريخ الجديد
+function matingEditModal(m) {
+  const linkedPreg = C.pregnancies.find(p => p.mating_id === m.id && p.status === 'monitoring');
+  openModal('تعديل التلقيح', `
+    ${fInput('تاريخ التلقيح', 'me_date', m.date, 'date')}
+    ${fInput('رقم الفحل', 'me_sireCode', m.sire_code)}
+    ${fInput('اسم الفحل', 'me_sireName', m.sire_name)}
+    ${fTextarea('ملاحظات', 'me_notes', m.notes)}
+    <button class="btn" id="me_save">حفظ التعديل</button>`, () => {
+    document.getElementById('me_save').addEventListener('click', async () => {
+      const d = val('me_date'); if (!d) { toast('أدخل التاريخ'); return; }
+      const msg = linkedPreg
+        ? `⚠️ هذا التلقيح مرتبط بحمل تحت المتابعة — سيُحدَّث موعد الولادة المتوقّعة تلقائياً حسب التاريخ الجديد. متابعة التعديل؟`
+        : `⚠️ تعديل بيانات هذا التلقيح؟ سيتغيّر السجل التاريخي المحفوظ.`;
+      if (!await confirm2(msg, { danger: true })) return;
+      const ok = await guard(async () => {
+        await dbUpdate('matings', m.id, { date: d, sire_code: val('me_sireCode').trim(), sire_name: val('me_sireName').trim(), notes: val('me_notes').trim() });
+        if (linkedPreg) await dbUpdate('pregnancies', linkedPreg.id, { mating_date: d, expected: addDays(d, linkedPreg.gest) });
+      });
+      if (ok) { closeModal(); toast('تم تعديل التلقيح'); await loadAll(); screenAnimalDetail(String(m.animal_id)); }
+    });
+  });
+}
+// تعديل سجل حمل موجود (تصحيح تاريخ/مدة/ملاحظات) — لا يُغيّر الحالة، تلك عبر الأزرار المخصّصة
+function pregEditModal(p) {
+  openModal('تعديل بيانات الحمل', `
+    ${fInput('تاريخ التلقيح', 'pe_date', p.mating_date, 'date')}
+    ${fInput('مدة الحمل (يوم)', 'pe_gest', p.gest, 'number', 'min="1" inputmode="numeric"')}
+    ${fInput('الولادة المتوقّعة', 'pe_exp', p.expected, 'date')}
+    ${fTextarea('ملاحظات', 'pe_notes', p.notes)}
+    <button class="btn" id="pe_save">حفظ التعديل</button>`, () => {
+    document.getElementById('pe_save').addEventListener('click', async () => {
+      const gest = parseInt(val('pe_gest'), 10) || p.gest;
+      if (!await confirm2('⚠️ تعديل بيانات هذا الحمل؟ ستتغيّر حسابات موعد الولادة المتعلّقة به.', { danger: true })) return;
+      const ok = await guard(async () => { await dbUpdate('pregnancies', p.id, { mating_date: val('pe_date') || null, gest, expected: val('pe_exp') || null, notes: val('pe_notes').trim() }); });
+      if (ok) { closeModal(); toast('تم تعديل الحمل'); await loadAll(); (parseHash().name === 'pregnancies' ? screenPregnancies() : screenAnimalDetail(String(p.animal_id))); }
+    });
+  });
+}
 // جدول الحوامل: الرقم • مدة الحمل (يوم) • الولادة التقريبية • المتبقّي
 function pregTable(monitoring) {
   if (!monitoring.length) return '';
@@ -1409,11 +1466,12 @@ function screenPregnancies() {
     const a = animalById(p.animal_id);
     const sonarRow = p.confirmed ? row('🔊 فحص السونار', '✅ حامل — ' + fmtDate(p.sonar_date))
       : (p.sonar_date && p.status === 'not_confirmed' ? row('🔊 فحص السونار', 'فارغة — ' + fmtDate(p.sonar_date)) : '');
-    const actions = (p.status === 'monitoring' && can('breeding', 'edit')) ? `<div class="btn-row" style="margin-top:8px">
-        <button class="btn sm" data-birth="${p.id}">تسجيل ولادة</button>
+    const actions = can('breeding', 'edit') ? `<div class="btn-row" style="margin-top:8px">
+        ${p.status === 'monitoring' ? `<button class="btn sm" data-birth="${p.id}">تسجيل ولادة</button>
         <button class="btn sm outline" data-sonar="${p.id}">🔊 فحص بالسونار</button>
         <button class="btn sm danger" data-abort="${p.id}">🩸 إجهاض</button>
-        <button class="btn sm outline" data-nope="${p.id}">لم يثبت</button></div>` : '';
+        <button class="btn sm outline" data-nope="${p.id}">لم يثبت</button>` : ''}
+        <button class="btn sm outline" data-pgedit="${p.id}">✎ تعديل</button></div>` : '';
     const age = p.mating_date ? Math.max(0, -daysUntil(p.mating_date)) : null;
     const abortRow = p.status === 'aborted' ? row('🩸 الإجهاض', (p.abort_gest_days != null ? 'عمر الحمل عند الإجهاض ' + p.abort_gest_days + ' يوم' : 'مسجّل') + (p.abort_cause ? ' • السبب: ' + esc(p.abort_cause) : ' • بلا سبب مسجّل')) : '';
     const infoRows = p.status === 'aborted' ? abortRow : row('عمر الحمل الحالي', (age != null ? age : '—') + ' يوم') + row('مدة حمل النوع', p.gest + ' يوم') + row('الولادة التقريبية', fmtDate(p.expected));
@@ -1431,6 +1489,7 @@ function screenPregnancies() {
     if (ok) { await loadAll(); screenPregnancies(); }
   }));
   view().querySelectorAll('[data-sonar]').forEach(b => b.addEventListener('click', () => sonarModal(C.pregnancies.find(x => x.id === parseInt(b.dataset.sonar, 10)))));
+  view().querySelectorAll('[data-pgedit]').forEach(b => b.addEventListener('click', () => { const p = C.pregnancies.find(x => x.id === parseInt(b.dataset.pgedit, 10)); if (p) pregEditModal(p); }));
   view().querySelectorAll('[data-abort]').forEach(b => b.addEventListener('click', () => abortModal(C.pregnancies.find(x => x.id === parseInt(b.dataset.abort, 10)))));
   view().querySelectorAll('[data-birth]').forEach(b => b.addEventListener('click', () => openBirthModal(C.pregnancies.find(x => x.id === parseInt(b.dataset.birth, 10)))));
 }
@@ -1826,6 +1885,24 @@ function screenVaccinate(arg) {
     if (ok) { toast('تم الحفظ'); await loadAll(); goBack(); }
   });
 }
+// تعديل تطعيم مُعطى سابقاً — يُعاد احتساب تاريخ انتهاء التحريم من النوع/التاريخ الجديدين
+function vaccEditModal(v) {
+  const typeOpts = C.vaccineTypes.map(x => ({ k: String(x.id), ar: x.name }));
+  openModal('تعديل التطعيم', `
+    ${fSelect('التطعيم', 've_type', typeOpts, String(v.type_id), '— اختر —')}
+    ${fInput('تاريخ التطعيم', 've_date', v.date, 'date')}
+    ${fInput('موعد الجرعة القادمة (اختياري)', 've_next', v.next_due, 'date')}
+    ${fTextarea('ملاحظات', 've_notes', v.notes)}
+    <button class="btn" id="ve_save">حفظ التعديل</button>`, () => {
+    document.getElementById('ve_save').addEventListener('click', async () => {
+      const t = C.vaccineTypes.find(x => x.id === parseInt(val('ve_type'), 10)); const d = val('ve_date');
+      if (!t) { toast('اختر التطعيم'); return; } if (!d) { toast('أدخل التاريخ'); return; }
+      if (!await confirm2('⚠️ تعديل بيانات هذا التطعيم؟ سيُعاد احتساب تاريخ انتهاء التحريم من التاريخ والنوع الجديدين — تحقّق من مدد التحريم قبل أي بيع أو حلب.', { danger: true })) return;
+      const ok = await guard(async () => { await dbUpdate('vaccinations', v.id, { type_id: t.id, date: d, withdrawal_end: addDays(d, vtWithdrawDays(t)), next_due: val('ve_next') || null, notes: val('ve_notes').trim() }); });
+      if (ok) { closeModal(); toast('تم تعديل التطعيم'); await loadAll(); screenAnimalDetail(String(v.animal_id)); }
+    });
+  });
+}
 
 /* ===== العلاجات ===== */
 function screenTreat(arg) {
@@ -1868,6 +1945,25 @@ function screenTreat(arg) {
     if (!a) { toast('اختر البهيمة'); return; }
     const ok = await guard(async () => { await dbInsert('treatments', { animal_id: a.id, treatment_type: val('t_type').trim(), med_name: val('t_med').trim(), withdrawal_days: days, date: d, withdrawal_end: addDays(d, days), next_due: val('t_next') || null, action: val('t_action').trim(), notes: val('t_notes').trim() }); });
     if (ok) { toast('تم الحفظ'); await loadAll(); goBack(); }
+  });
+}
+// تعديل علاج مُعطى سابقاً — يُعاد احتساب تاريخ انتهاء التحريم من المدة/التاريخ الجديدين
+function treatEditModal(t) {
+  openModal('تعديل العلاج', `
+    ${fInput('نوع العلاج', 'te_type', t.treatment_type)}
+    ${fInput('اسم العلاج', 'te_med', t.med_name)}
+    ${fInput('مدة التحريم (أيام)', 'te_days', t.withdrawal_days, 'number', 'min="0"')}
+    ${fInput('تاريخ العلاج', 'te_date', t.date, 'date')}
+    ${fInput('موعد الجرعة القادمة (اختياري)', 'te_next', t.next_due, 'date')}
+    ${fInput('الإجراء', 'te_action', t.action)}${fTextarea('ملاحظات', 'te_notes', t.notes)}
+    <button class="btn" id="te_save">حفظ التعديل</button>`, () => {
+    document.getElementById('te_save').addEventListener('click', async () => {
+      const d = val('te_date'), days = num('te_days');
+      if (!d) { toast('أدخل التاريخ'); return; }
+      if (!await confirm2('⚠️ تعديل بيانات هذا العلاج؟ سيُعاد احتساب تاريخ انتهاء التحريم من المدة والتاريخ الجديدين — تحقّق من مدد التحريم قبل أي بيع أو حلب.', { danger: true })) return;
+      const ok = await guard(async () => { await dbUpdate('treatments', t.id, { treatment_type: val('te_type').trim(), med_name: val('te_med').trim(), withdrawal_days: days, date: d, withdrawal_end: addDays(d, days), next_due: val('te_next') || null, action: val('te_action').trim(), notes: val('te_notes').trim() }); });
+      if (ok) { closeModal(); toast('تم تعديل العلاج'); await loadAll(); screenAnimalDetail(String(t.animal_id)); }
+    });
   });
 }
 
