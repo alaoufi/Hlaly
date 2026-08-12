@@ -82,6 +82,25 @@ function countIncludeMales() { try { return localStorage.getItem('mrahi_count_ma
 function countIncludeSires() { try { return localStorage.getItem('mrahi_count_sires') !== '0'; } catch (e) { return true; } }
 // خيار: إظهار المواليد غير المحتسَبة (تتبع أمّها) في قائمة الحلال أيضاً، لا فقط استبعادها من رقم «في الحظيرة». الافتراضي: تظهر.
 function showUncountedInList() { try { return localStorage.getItem('mrahi_show_uncounted') !== '0'; } catch (e) { return true; } }
+// قفل التعديل/الحذف: حماية إضافية للأمان — مقفول افتراضياً حتى تفتحه بنفسك لفترة محدّدة.
+// لا يمنع «الإضافة» إطلاقاً — فقط تعديل/حذف بيانات موجودة (يُطبَّق مركزياً في dbUpdate/dbDelete).
+const EDIT_UNLOCK_KEY = 'mrahi_edit_unlock_until';
+function isEditLocked() {
+  try { const until = parseInt(localStorage.getItem(EDIT_UNLOCK_KEY) || '0', 10); return !(until && Date.now() < until); }
+  catch (e) { return true; }   // أي خطأ ⇒ مقفول (آمن افتراضياً)
+}
+function editUnlockRemainingMs() {
+  try { const until = parseInt(localStorage.getItem(EDIT_UNLOCK_KEY) || '0', 10); return Math.max(0, until - Date.now()); } catch (e) { return 0; }
+}
+function unlockEditFor(minutes) { try { localStorage.setItem(EDIT_UNLOCK_KEY, String(Date.now() + minutes * 60000)); } catch (e) {} refreshControlIcon(); }
+function lockEditNow() { try { localStorage.removeItem(EDIT_UNLOCK_KEY); } catch (e) {} refreshControlIcon(); }
+// أيقونة ⋮ أعلى الشاشة تعكس حالة القفل الحالية (🔒/🔓)
+function refreshControlIcon() {
+  const b = document.getElementById('controlBtn'); if (!b) return;
+  const locked = isEditLocked();
+  b.textContent = locked ? '🔒' : '🔓';
+  b.title = locked ? 'التعديل مقفول — التحكّم والإدارة' : 'التعديل مفتوح — التحكّم والإدارة';
+}
 // ترتيب عرض قوائم الحلال (الترقيم/تاريخ الإدخال/العمر) — يُضبط من الإعدادات
 const SORT_MODES = [{ k: 'entry', ar: 'تاريخ الإدخال (الأحدث أولاً)' }, { k: 'code', ar: 'الترقيم (تصاعدي)' }, { k: 'age', ar: 'العمر (الأكبر أولاً)' }];
 function animalSortMode() { try { const v = localStorage.getItem('mrahi_sort'); return ['entry', 'code', 'age'].includes(v) ? v : 'entry'; } catch (e) { return 'entry'; } }
@@ -467,11 +486,11 @@ async function updateLibraryFromInternet(manual) {
   const ok = await guard(async () => {
     for (const v of data.vaccines) {
       const r = vaccineRowFromJson(v); const ex = (C.vaccineTypes || []).find(x => (x.name || '').trim() === r.name.trim());
-      if (ex) { if (diff(ex, r, VK)) { await dbUpdate('vaccineTypes', ex.id, r); updated++; } } else { await dbInsert('vaccineTypes', r); added++; }
+      if (ex) { if (diff(ex, r, VK)) { await dbUpdate('vaccineTypes', ex.id, r, true); updated++; } } else { await dbInsert('vaccineTypes', r); added++; }
     }
     for (const t of data.treatments) {
       const r = treatmentRowFromJson(t); const ex = (C.treatmentTypes || []).find(x => (x.name || '').trim() === r.name.trim());
-      if (ex) { if (diff(ex, r, TK)) { await dbUpdate('treatmentTypes', ex.id, r); updated++; } } else { await dbInsert('treatmentTypes', r); added++; }
+      if (ex) { if (diff(ex, r, TK)) { await dbUpdate('treatmentTypes', ex.id, r, true); updated++; } } else { await dbInsert('treatmentTypes', r); added++; }
     }
   });
   if (ok) {
@@ -589,9 +608,17 @@ async function trashSnap(key, id, action) {
   try { await sb.from('mrahi_trash').insert({ tbl: key, rec_id: id, action, label: trashLabel(key, rec), data: rec, actor_name: (me && me.full_name) || '' }); } catch (e) { /* أفضل جهد */ }
 }
 async function dbInsert(key, obj) { const { data, error } = await sb.from(TABLES[key]).insert(obj).select().single(); if (error) throw error; return data; }
-async function dbUpdate(key, id, obj) { await trashSnap(key, id, 'edit'); const { error } = await sb.from(TABLES[key]).update(obj).eq('id', id); if (error) throw error; }
-async function dbDelete(key, id) { await trashSnap(key, id, 'delete'); const { error } = await sb.from(TABLES[key]).delete().eq('id', id); if (error) throw error; }
-async function guard(fn) { try { await fn(); } catch (e) { const msg = (e.message || '' + e); toast(/Could not find the table|schema cache/i.test(msg) ? 'هذه الميزة تحتاج تنفيذ سكربت قاعدة البيانات أولاً (راجع التعليمات).' : 'تعذّر الحفظ: ' + msg); return false; } return true; }
+function lockedError(msg) { const e = new Error(msg); e.locked = true; return e; }
+// bypassLock: تستخدمها فقط تحديثات «إضافة» ضمنية (تسجيل ولادة/سونار/إجهاض/مكتبة تلقائية) — كل تعديل/حذف حقيقي يُقفل افتراضياً
+async function dbUpdate(key, id, obj, bypassLock) {
+  if (!bypassLock && isEditLocked()) throw lockedError('🔒 التعديل مقفول مؤقّتاً — افتحه من أيقونة ⋮ أعلى الشاشة');
+  await trashSnap(key, id, 'edit'); const { error } = await sb.from(TABLES[key]).update(obj).eq('id', id); if (error) throw error;
+}
+async function dbDelete(key, id) {
+  if (isEditLocked()) throw lockedError('🔒 الحذف مقفول مؤقّتاً — افتحه من أيقونة ⋮ أعلى الشاشة');
+  await trashSnap(key, id, 'delete'); const { error } = await sb.from(TABLES[key]).delete().eq('id', id); if (error) throw error;
+}
+async function guard(fn) { try { await fn(); } catch (e) { const msg = (e.message || '' + e); toast(e.locked ? msg : (/Could not find the table|schema cache/i.test(msg) ? 'هذه الميزة تحتاج تنفيذ سكربت قاعدة البيانات أولاً (راجع التعليمات).' : 'تعذّر الحفظ: ' + msg)); return false; } return true; }
 // حوار تأكيد احترافي داخل التطبيق (بدل نافذة المتصفح)
 function uiConfirm(message, opts = {}) {
   return new Promise(resolve => {
@@ -631,6 +658,7 @@ const ROUTES = {
   more: { t: 'المزيد', back: false, fn: screenMore },
   animal: { t: 'سجل البهيمة', back: true, fn: screenAnimalDetail },
   sires: { t: 'فحول المراح', back: false, fn: screenSires },
+  control: { t: 'التحكّم والإدارة', back: true, fn: screenControl },
   'animal-edit': { t: 'بهيمة', back: true, fn: screenAnimalEdit },
   mating: { t: 'تلقيح / حمل', back: true, fn: screenMating },
   pregnancies: { t: 'الحمل والمتابعة', back: true, fn: screenPregnancies },
@@ -1392,7 +1420,7 @@ function screenMating(arg) {
     const activePreg = wantsPreg ? C.pregnancies.filter(p => p.animal_id === a.id && p.status === 'monitoring').sort((x, y) => y.id - x.id)[0] : null;
     if (activePreg && !await confirm2(`لدى ${display(a)} حمل تحت المتابعة من تلقيح ${fmtDate(activePreg.mating_date)} — إنهاؤه (لم يثبت) وبدء متابعة التلقيح الجديد؟`)) return;
     const ok = await guard(async () => {
-      if (activePreg) await dbUpdate('pregnancies', activePreg.id, { status: 'not_confirmed' });
+      if (activePreg) await dbUpdate('pregnancies', activePreg.id, { status: 'not_confirmed' }, true);   // جزء من بدء تلقيح جديد (إضافة) — لا يُقفل
       const matingRow = await dbInsert('matings', { animal_id: a.id, date: d, sire_code: val('m_sireCode').trim(), sire_name: val('m_sireName').trim(), notes: val('m_notes').trim() });
       if (wantsPreg) { const g = gestOf(a.type); await dbInsert('pregnancies', { animal_id: a.id, mating_id: matingRow.id, mating_date: d, gest: g, expected: addDays(d, g), status: 'monitoring', notes: val('m_notes').trim() }); }
     });
@@ -1485,7 +1513,7 @@ function screenPregnancies() {
   { const bs = document.getElementById('bulkSonar'); if (bs) bs.addEventListener('click', bulkSonarModal); }
   view().querySelectorAll('.ptable tr[data-aid]').forEach(tr => { if (tr.dataset.aid) tr.addEventListener('click', () => setHash('#/animal/' + tr.dataset.aid)); });
   view().querySelectorAll('[data-nope]').forEach(b => b.addEventListener('click', async () => {
-    const ok = await guard(async () => { await dbUpdate('pregnancies', parseInt(b.dataset.nope, 10), { status: 'not_confirmed' }); });
+    const ok = await guard(async () => { await dbUpdate('pregnancies', parseInt(b.dataset.nope, 10), { status: 'not_confirmed' }, true); });   // تسجيل نتيجة (إضافة) — لا يُقفل
     if (ok) { await loadAll(); screenPregnancies(); }
   }));
   view().querySelectorAll('[data-sonar]').forEach(b => b.addEventListener('click', () => sonarModal(C.pregnancies.find(x => x.id === parseInt(b.dataset.sonar, 10)))));
@@ -1524,7 +1552,7 @@ function startPregBulkModal() {
     const conception = addDays(date, -age); const exp = addDays(conception, g);
     const p = monOf(a.id);
     const ok = await guard(async () => {
-      if (p) { await dbUpdate('pregnancies', p.id, { mating_date: conception, gest: g, expected: exp, sonar_date: date, confirmed: true, notes: 'سونار — عمر الحمل ' + age + ' يوم' }); Object.assign(p, { mating_date: conception, gest: g, expected: exp, sonar_date: date, confirmed: true }); }
+      if (p) { await dbUpdate('pregnancies', p.id, { mating_date: conception, gest: g, expected: exp, sonar_date: date, confirmed: true, notes: 'سونار — عمر الحمل ' + age + ' يوم' }, true); Object.assign(p, { mating_date: conception, gest: g, expected: exp, sonar_date: date, confirmed: true }); }   // تسجيل فحص سونار (إضافة) — لا يُقفل
       else { const rec = await dbInsert('pregnancies', { animal_id: a.id, mating_date: conception, gest: g, expected: exp, status: 'monitoring', confirmed: true, sonar_date: date, notes: 'سونار — عمر الحمل ' + age + ' يوم' }); if (rec) C.pregnancies.push(rec); }
     });
     if (ok) { markSaved(a, exp); updCount(); }
@@ -1572,10 +1600,10 @@ function animalSonarModal(a) {
       const res = val('as_res'), date = val('as_date') || todayStr(), exp = val('as_exp') || null;
       const ok = await guard(async () => {
         if (res === 'pregnant') {
-          if (existing) await dbUpdate('pregnancies', existing.id, { confirmed: true, sonar_date: date, expected: exp || existing.expected, status: 'monitoring' });
+          if (existing) await dbUpdate('pregnancies', existing.id, { confirmed: true, sonar_date: date, expected: exp || existing.expected, status: 'monitoring' }, true);   // تسجيل فحص سونار (إضافة) — لا يُقفل
           else await dbInsert('pregnancies', { animal_id: a.id, mating_date: null, gest: g, expected: exp || addDays(date, g), status: 'monitoring', confirmed: true, sonar_date: date, notes: 'فحص سونار' });
         } else if (existing) {
-          await dbUpdate('pregnancies', existing.id, { confirmed: false, sonar_date: date, status: 'not_confirmed' });
+          await dbUpdate('pregnancies', existing.id, { confirmed: false, sonar_date: date, status: 'not_confirmed' }, true);   // تسجيل فحص سونار (إضافة) — لا يُقفل
         }
       });
       if (ok) { closeModal(); toast(res === 'pregnant' ? 'تم تأكيد الحمل بالسونار ✅' : 'سُجّل: فارغة'); await loadAll(); screenAnimalDetail(String(a.id)); }
@@ -1593,7 +1621,7 @@ function sonarModal(preg) {
     document.getElementById('s_save').addEventListener('click', async () => {
       const date = val('s_date') || todayStr(), res = val('s_res');
       const patch = res === 'pregnant' ? { confirmed: true, sonar_date: date, status: 'monitoring' } : { confirmed: false, sonar_date: date, status: 'not_confirmed' };
-      const ok = await guard(async () => { await dbUpdate('pregnancies', preg.id, patch); });
+      const ok = await guard(async () => { await dbUpdate('pregnancies', preg.id, patch, true); });   // تسجيل فحص سونار (إضافة) — لا يُقفل
       if (ok) { closeModal(); toast(res === 'pregnant' ? 'تم تأكيد الحمل بالسونار ✅' : 'سُجّل: لم يثبت الحمل'); await loadAll(); screenPregnancies(); }
     });
   });
@@ -1614,8 +1642,8 @@ function bulkSonarModal() {
       if (!await confirm2(`تأكيد فحص ${mon.length} حالة؟ (${empties.size} فارغة، ${mon.length - empties.size} حامل)`)) return;
       const ok = await guard(async () => {
         for (const p of mon) {
-          if (empties.has(p.id)) await dbUpdate('pregnancies', p.id, { confirmed: false, sonar_date: date, status: 'not_confirmed' });
-          else await dbUpdate('pregnancies', p.id, { confirmed: true, sonar_date: date, status: 'monitoring' });
+          if (empties.has(p.id)) await dbUpdate('pregnancies', p.id, { confirmed: false, sonar_date: date, status: 'not_confirmed' }, true);   // فحص سونار (إضافة) — لا يُقفل
+          else await dbUpdate('pregnancies', p.id, { confirmed: true, sonar_date: date, status: 'monitoring' }, true);
         }
       });
       if (ok) { closeModal(); toast('تم حفظ الفحص الجماعي'); await loadAll(); screenPregnancies(); }
@@ -1688,7 +1716,7 @@ function openBirthModal(preg) {
             }
             await dbInsert('births', { mother_id: mother.id, offspring_id: offId, offspring_code: code, date, sex, father_name: father, notes });
           }
-          await dbUpdate('pregnancies', preg.id, { status: 'born' });
+          await dbUpdate('pregnancies', preg.id, { status: 'born' }, true);   // تسجيل ولادة (إضافة) — لا يُقفل
         });
         if (ok) { closeModal(); toast(`تم تسجيل الولادة (${n})`); await loadAll(); screenPregnancies(); }
         return;
@@ -1704,7 +1732,7 @@ function openBirthModal(preg) {
           if (create) { const created = await dbInsert('animals', Object.assign({}, base, { idkind: idkindFor(code), code, name: '', sex, purpose: sex === 'male' ? val('b_purpose') : '', designation: val('b_des'), color: '', birth: date })); offId = created.id; }
           await dbInsert('births', { mother_id: mother.id, offspring_id: offId, offspring_code: code, date, sex, father_name: father, notes });
         }
-        await dbUpdate('pregnancies', preg.id, { status: 'born' });
+        await dbUpdate('pregnancies', preg.id, { status: 'born' }, true);   // تسجيل ولادة (إضافة) — لا يُقفل
       });
       if (ok) { closeModal(); toast(`تم تسجيل الولادة (${n})`); await loadAll(); screenPregnancies(); }
     });
@@ -1721,7 +1749,7 @@ function abortModal(preg) {
     document.getElementById('ab_save').addEventListener('click', async () => {
       const date = val('ab_date') || todayStr();
       const gestDays = preg.mating_date ? Math.max(0, Math.round((new Date(date + 'T00:00:00') - new Date(preg.mating_date + 'T00:00:00')) / 86400000)) : null;
-      const ok = await guard(async () => { await dbUpdate('pregnancies', preg.id, { status: 'aborted', abort_date: date, abort_cause: val('ab_cause').trim() || null, abort_gest_days: gestDays }); });
+      const ok = await guard(async () => { await dbUpdate('pregnancies', preg.id, { status: 'aborted', abort_date: date, abort_cause: val('ab_cause').trim() || null, abort_gest_days: gestDays }, true); });   // تسجيل إجهاض (إضافة) — لا يُقفل
       if (ok) { closeModal(); toast('سُجّل الإجهاض'); await loadAll(); (parseHash().name === 'pregnancies' ? screenPregnancies() : screenAnimalDetail(String(preg.animal_id))); }
     });
   });
@@ -2574,6 +2602,7 @@ async function restoreBackup(id) {
   const bk = C.backups.find(x => x.id === id);
   if (!bk || !bk.payload) { toast('النسخة غير موجودة'); return; }
   if (!isAdmin()) { toast('الاستعادة للمدير فقط (تستبدل بيانات المزرعة)'); return; }
+  if (isEditLocked()) { toast('🔒 الاستعادة مقفولة مؤقّتاً — افتحها من أيقونة ⋮ أعلى الشاشة'); return; }
   if (!await confirm2('استعادة هذه النسخة ستستبدل بيانات المزرعة الحالية بالكامل. متابعة؟')) return;
   const p = bk.payload;
   const ok = await guard(async () => {
@@ -2966,6 +2995,34 @@ function screenTagLists() {
   view().querySelectorAll('[data-dell]').forEach(b => b.addEventListener('click', async () => { const i = b.dataset.dell.indexOf('|'); const key = b.dataset.dell.slice(0, i), name = b.dataset.dell.slice(i + 1); if (!await confirm2('حذف هذا الخيار؟ (البهائم المسجّلة به لا تتأثّر)')) return; saveList(key, loadList(key).filter(s => s !== name)); screenTagLists(); }));
 }
 
+/* ===== التحكّم والإدارة — قفل التعديل/الحذف للأمان ===== */
+const EDIT_LOCK_DURATIONS = [5, 15, 30, 60];   // دقائق — رقائق اختيار جاهزة
+function screenControl() {
+  const locked = isEditLocked();
+  const remain = editUnlockRemainingMs();
+  const remainTxt = remain > 0 ? Math.ceil(remain / 60000) + ' دقيقة' : '';
+  view().innerHTML = `
+    <div class="card" style="text-align:center">
+      <div style="font-size:2.6rem">${locked ? '🔒' : '🔓'}</div>
+      <h3 style="margin:4px 0">${locked ? 'التعديل والحذف مقفولان الآن' : 'التعديل والحذف مفتوحان مؤقّتاً'}</h3>
+      <div class="muted">${locked
+        ? 'الإضافة (بهيمة/تطعيم/علاج/تلقيح جديد…) تبقى مسموحة دائماً — القفل يشمل التعديل والحذف فقط.'
+        : `يُقفل تلقائياً بعد ${remainTxt}، أو الآن بالزر أدناه.`}</div>
+    </div>
+    ${locked ? `
+    <div class="card"><h3>🔓 فتح التعديل مؤقّتاً</h3>
+      <div class="muted" style="font-size:.85rem;margin-bottom:8px">اختر مدة — يُقفل تلقائياً بعدها بلا تدخّل منك.</div>
+      <div class="chips">${EDIT_UNLOCK_DURATIONS_CHIPS()}</div></div>`
+      : `<button class="btn danger" id="lockNowBtn" style="margin-top:4px">🔒 قفل الآن</button>`}
+    <div class="muted" style="font-size:.8rem;margin-top:14px;text-align:center">🔐 حماية إضافية على جهازك — لا علاقة لها بحسابات أو إنترنت.</div>`;
+  view().querySelectorAll('[data-unlockmin]').forEach(c => c.addEventListener('click', () => {
+    unlockEditFor(parseInt(c.dataset.unlockmin, 10));
+    toast(`فُتح التعديل ${c.dataset.unlockmin} دقيقة`); screenControl();
+  }));
+  const lb = document.getElementById('lockNowBtn'); if (lb) lb.addEventListener('click', () => { lockEditNow(); toast('🔒 قُفل التعديل'); screenControl(); });
+}
+function EDIT_UNLOCK_DURATIONS_CHIPS() { return EDIT_LOCK_DURATIONS.map(m => `<span class="chip" data-unlockmin="${m}">${m} دقيقة</span>`).join(''); }
+
 /* ===== إعدادات الحظيرة — نقطة دخول واحدة موحّدة، مبوّبة حسب الموضوع ===== */
 function screenHerdSettings() {
   if (!can('animals', 'edit')) { view().innerHTML = noPerm(); return; }
@@ -3291,6 +3348,7 @@ async function screenTrash() {
         </div></div>`).join('') : '<div class="center-empty">السلة فارغة.</div>');
   view().querySelectorAll('[data-rest]').forEach(b => b.addEventListener('click', () => restoreTrash(list.find(x => String(x.id) === b.dataset.rest))));
   view().querySelectorAll('[data-perm]').forEach(b => b.addEventListener('click', async () => {
+    if (isEditLocked()) { toast('🔒 الحذف مقفول مؤقّتاً — افتحه من أيقونة ⋮ أعلى الشاشة'); return; }
     if (!await confirm2('حذف نهائي لا يمكن التراجع عنه إطلاقاً. متأكّد؟')) return;
     const ok = await guard(async () => { const { error } = await sb.from('mrahi_trash').delete().eq('id', parseInt(b.dataset.perm, 10)); if (error) throw error; });
     if (ok) { toast('تم الحذف النهائي'); screenTrash(); }
@@ -3298,6 +3356,7 @@ async function screenTrash() {
 }
 async function restoreTrash(t) {
   if (!t) return;
+  if (isEditLocked()) { toast('🔒 الاستعادة مقفولة مؤقّتاً — افتحها من أيقونة ⋮ أعلى الشاشة'); return; }
   const data = Object.assign({}, t.data); delete data.id; delete data.created_at;
   const ok = await guard(async () => {
     if (t.action === 'edit') { const { error } = await sb.from(TABLES[t.tbl]).update(data).eq('id', t.rec_id); if (error) throw error; }
@@ -3410,6 +3469,8 @@ function renderLicenseGate() {
 async function init() {
   document.getElementById('backBtn').addEventListener('click', goBack);
   document.getElementById('guideBtn').addEventListener('click', showAppIcon);   // شعار التطبيق ← عرض الأيقونة بحجمها الطبيعي
+  document.getElementById('controlBtn').addEventListener('click', () => setHash('#/control'));
+  refreshControlIcon(); setInterval(refreshControlIcon, 30000);   // تحديث أيقونة القفل/الفتح دورياً (كل نصف دقيقة)
   window.addEventListener('hashchange', () => { if (me && me.is_active) render(); });
   // إشارة توفّر تحديث (يطلقها updater.js): نقطة على «المزيد» وإبراز الزر
   const onUpdSignal = () => { if (!me || !me.is_active) return; buildNav(); if (parseHash().name === 'more') render(); };
