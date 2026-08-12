@@ -55,8 +55,10 @@ slaughtered) · `mother_id` · `father_name` · `notes` · `counted` (احتسا
 **`mrahi_matings`:** `animal_id` · `date` · `sire_code` · `sire_name` · `notes`.
 
 **`mrahi_pregnancies`:** `animal_id` · `mating_date` · `gest` (مدة الحمل بالأيام)
-· `expected` (الولادة المتوقعة) · `status` (monitoring/born/not_confirmed) ·
-`confirmed` · `notes`.
+· `expected` (الولادة المتوقعة) · `status` (monitoring/born/not_confirmed/
+**aborted**) · `confirmed` · `sonar_date` · `notes`. حقول الإجهاض: `abort_date`
+· `abort_cause` (اختياري) · `abort_gest_days` (عمر الحمل عند الإجهاض — يُحسب من
+تاريخ الإجهاض ناقص تاريخ التلقيح). الإجهاض **لا يُنشئ مواليد ولا يُحتسب**.
 
 **`mrahi_vaccinations`:** `animal_id` · `type_id` · `date` · `withdrawal_end`
 (نهاية التحريم) · `next_due` · `notes`.
@@ -80,6 +82,8 @@ slaughtered) · `mother_id` · `father_name` · `notes` · `counted` (احتسا
 | `mrahi_fin_cats` | بنود مالية مخصّصة |
 | `mrahi_last_pen` / `mrahi_last_animal` | آخر إدخال (لتسريع الإضافة) |
 | `mrahi_f_status` / `mrahi_f_source` / `mrahi_f_sex` | آخر مرشّحات القائمة |
+| `mrahi_sort` | ترتيب عرض القوائم: `entry`/`code`/`age` |
+| `mrahi_count_males` / `mrahi_count_sires` | احتساب الذكور/الفحول ضمن عدد الحظيرة (`0`=لا) |
 | `mrahi_*_seeded` | أعلام التعبئة الأولية للكتالوجات (مرة واحدة) |
 
 الترخيص (تفعيل الجهاز) يُخزَّن أيضاً محلياً — انظر `license.js`.

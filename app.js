@@ -20,6 +20,39 @@ const MALE_PURPOSE = [{ k: 'sire', ar: '🐏 فحل للقطيع' }, { k: 'sale'
 const DESIGN = [{ k: 'raise', ar: '🌱 تربية' }, { k: 'sale', ar: '💰 للبيع' }];
 const TREAT_FORM = [{ k: 'injection', ar: 'إبر' }, { k: 'oral', ar: 'تجريع' }, { k: 'spray', ar: 'رش' }, { k: 'topical', ar: 'دهن' }];
 const IDKIND = [{ k: 'number', ar: 'رقم' }, { k: 'tag', ar: 'وسم' }, { k: 'chip', ar: 'شريحة إلكترونية' }, { k: 'name', ar: 'اسم / مسمى' }, { k: 'color', ar: 'لون / علامة' }, { k: 'none', ar: 'بدون' }];
+const KIND_LABEL = { number: 'الرقم', tag: 'الوسم', chip: 'رقم الشريحة', name: 'الاسم/المسمى' };
+// بطاقة حقول مولود واحد ضمن تعدّد المواليد (نفس البنية في شاشة الإضافة ونافذة النتاج) — prefix: 'b'|'ob'
+function newbornFieldsHtml(prefix, i, defSex, defBirth) {
+  return `<div class="card"><h3>👶 المولود ${i}</h3>`
+    + fSelect('نوع المعرّف الخارجي', prefix + '_kind_' + i, IDKIND, 'number')
+    + fInput('المعرّف الخارجي / الوسم (اختياري)', prefix + '_code_' + i, '')
+    + fSelect('لون الوسم', prefix + '_tagcolor_' + i, strOpts(tagColors()), '')
+    + fSelect('شكل الوسم', prefix + '_tagshape_' + i, strOpts(tagShapes()), '')
+    + fInput('الاسم / المسمى (اختياري)', prefix + '_name_' + i, '')
+    + fSelect('الجنس', prefix + '_sex_' + i, SEX, defSex)
+    + `<div id="${prefix}_purposeBox_${i}">${fSelect('غرض الذكر', prefix + '_purpose_' + i, MALE_PURPOSE, '', '— غير محدّد —')}</div>`
+    + fSelect('الغرض', prefix + '_des_' + i, DESIGN, '', '— غير محدّد —')
+    + fInput('تاريخ الميلاد', prefix + '_birth_' + i, defBirth, 'date')
+    + fInput('اللون (اختياري)', prefix + '_color_' + i, '')
+    + `</div>`;
+}
+// ربط منطق إظهار حقول نوع المعرّف وغرض الذكر لبطاقة مولود واحدة (بعد إدراجها في DOM)
+function bindNewbornFieldSync(prefix, i) {
+  const wrapOf = (fid) => { const el = document.getElementById(fid); return el ? el.closest('.field') : null; };
+  const syncKind = () => {
+    const k = val(prefix + '_kind_' + i);
+    const setW = (fid, show) => { const w = wrapOf(fid); if (w) w.style.display = show ? '' : 'none'; };
+    const showCode = ['number', 'tag', 'chip', 'name'].includes(k);
+    setW(prefix + '_code_' + i, showCode);
+    setW(prefix + '_tagcolor_' + i, ['tag', 'color'].includes(k));
+    setW(prefix + '_tagshape_' + i, k === 'tag');
+    if (showCode && KIND_LABEL[k]) { const el = document.getElementById(prefix + '_code_' + i); const L = el && el.closest('.field').querySelector('label'); if (L) L.textContent = KIND_LABEL[k] + ' (اختياري — قد يتغيّر أو يسقط)'; }
+  };
+  const syncPurpose = () => { const pb = document.getElementById(prefix + '_purposeBox_' + i); if (pb) pb.style.display = val(prefix + '_sex_' + i) === 'male' ? '' : 'none'; };
+  const ks = document.getElementById(prefix + '_kind_' + i); if (ks) ks.addEventListener('change', syncKind);
+  const ss = document.getElementById(prefix + '_sex_' + i); if (ss) ss.addEventListener('change', syncPurpose);
+  syncKind(); syncPurpose();
+}
 const PREG = [{ k: 'monitoring', ar: 'تحت المتابعة' }, { k: 'born', ar: 'ولدت' }, { k: 'not_confirmed', ar: 'لم يثبت الحمل' }, { k: 'aborted', ar: '🩸 أجهضت' }];
 const arOf = (arr, k) => (arr.find(x => x.k === k) || {}).ar || '—';
 const gestOf = (t) => (TYPES.find(x => x.k === t) || TYPES[1]).gest;
@@ -47,6 +80,8 @@ function countRuleFor(type) { const v = loadCountAge()[type]; if (v == null) ret
 // خيار عام: احتساب الذكور والفحول ضمن عدد الحظيرة (الافتراضي: نعم)
 function countIncludeMales() { try { return localStorage.getItem('mrahi_count_males') !== '0'; } catch (e) { return true; } }
 function countIncludeSires() { try { return localStorage.getItem('mrahi_count_sires') !== '0'; } catch (e) { return true; } }
+// خيار: إظهار المواليد غير المحتسَبة (تتبع أمّها) في قائمة الحلال أيضاً، لا فقط استبعادها من رقم «في الحظيرة». الافتراضي: تظهر.
+function showUncountedInList() { try { return localStorage.getItem('mrahi_show_uncounted') !== '0'; } catch (e) { return true; } }
 // ترتيب عرض قوائم الحلال (الترقيم/تاريخ الإدخال/العمر) — يُضبط من الإعدادات
 const SORT_MODES = [{ k: 'entry', ar: 'تاريخ الإدخال (الأحدث أولاً)' }, { k: 'code', ar: 'الترقيم (تصاعدي)' }, { k: 'age', ar: 'العمر (الأكبر أولاً)' }];
 function animalSortMode() { try { const v = localStorage.getItem('mrahi_sort'); return ['entry', 'code', 'age'].includes(v) ? v : 'entry'; } catch (e) { return 'entry'; } }
@@ -61,9 +96,14 @@ function inHerdCount(a) {
   if (!a || a.status !== 'present') return false;
   if (a.counted === true) return true;    // أُضيفت يدوياً للعدّ
   if (a.counted === false) return false;   // أُخرجت يدوياً من العدّ
-  // الذكور: الفحل بالغٌ لا يخضع لقاعدة «يتبع أمّه» — يُحتسب إن كان الخيار مفعّلاً ويُستبعد إن أُوقف.
-  // الذكر العادي: يُستبعد إن أُوقف الخيار، وإلا يخضع لقاعدة العمر كالمعتاد.
-  if (a.sex === 'male') { if (a.purpose === 'sire') return countIncludeSires(); if (!countIncludeMales()) return false; }
+  // الذكور: الفحل البالغ لا يخضع لقاعدة «يتبع أمّه» — يُحتسب إن كان الخيار مفعّلاً ويُستبعد إن أُوقف.
+  // الفحل الصغير (مولود ولم يبلغ بعد) يبقى يتبع القاعدة العادية كأي ذكر حتى يبلغ.
+  // الذكر العادي: يُستبعد إن أُوقف خيار «احتساب الذكور»، وإلا يخضع لقاعدة العمر كالمعتاد.
+  if (a.sex === 'male') {
+    const stillYoung = a.source === 'born' && a.birth && pubertyOf(a.type) && ageMonths(a.birth) < pubertyOf(a.type);
+    if (a.purpose === 'sire' && !stillYoung) return countIncludeSires();
+    if (!countIncludeMales()) return false;
+  }
   const c = countRuleFor(a.type);
   if (c.sex !== 'both' && a.sex !== c.sex) return true;   // القاعدة لا تنطبق على هذا الجنس
   if (c.mode === 'manual') return a.source !== 'born';     // المواليد تُضاف يدوياً؛ المشترى/الاهداء يُحتسب
@@ -803,7 +843,9 @@ function screenAnimals() {
   const sexChips = `<div class="chips">${SEX.map(s => `<span class="chip ${animalSexSel.includes(s.k) ? 'active' : ''}" data-sex="${s.k}">${cb(animalSexSel.includes(s.k))}${s.k === 'male' ? '♂ ' : '♀ '}${s.ar}</span>`).join('')}</div>`;
   // إخفاء الذكور/الفحول من صفحة الحلال إن أُوقف احتسابهم (يبقون في صفحة الفحول ويظهرون عند تحديد مرشّح «ذكر»)
   const hideMale = (a) => a.status === 'present' && a.sex === 'male' && !animalSexSel.includes('male') && (a.purpose === 'sire' ? !countIncludeSires() : !countIncludeMales());
-  const list = sortAnimals(C.animals.filter(a => (!animalFilter || a.type === animalFilter) && (!animalStatusSel.length || animalStatusSel.includes(a.status)) && (!animalSourceSel.length || animalSourceSel.some(s => s === 'sale' ? (a.designation === 'sale' || a.purpose === 'sale') : (a.source || 'purchased') === s)) && (!animalSexSel.length || animalSexSel.includes(a.sex)) && !hideMale(a)));
+  // إخفاء المولود غير المحتسَب (يتبع أمّه) من القائمة كلياً إن أُوقف خيار «إظهار المواليد غير المحتسَبة»
+  const hideUncounted = (a) => a.status === 'present' && !showUncountedInList() && !inHerdCount(a);
+  const list = sortAnimals(C.animals.filter(a => (!animalFilter || a.type === animalFilter) && (!animalStatusSel.length || animalStatusSel.includes(a.status)) && (!animalSourceSel.length || animalSourceSel.some(s => s === 'sale' ? (a.designation === 'sale' || a.purpose === 'sale') : (a.source || 'purchased') === s)) && (!animalSexSel.length || animalSexSel.includes(a.sex)) && !hideMale(a) && !hideUncounted(a)));
   const canEdit = can('animals', 'edit');
   // عند خلو الحلال كلياً: حالة ترحيبية بزرّ إضافة واضح. وعند خلو التصنيف فقط: رسالة عادية.
   const empty = C.animals.length === 0
@@ -940,7 +982,6 @@ function screenAnimalEdit(arg) {
   const identityFields = ['f_kind', 'f_code', 'f_tagcolor', 'f_tagshape', 'f_name', 'f_sex', 'f_design', 'f_color'];
   const fieldWrap = (fid) => { const el = document.getElementById(fid); return el ? el.closest('.field') : null; };
   // حسب نوع المعرّف الخارجي تظهر الحقول المناسبة فقط («بدون» يخفي حقل المعرّف والوسم)
-  const KIND_LABEL = { number: 'الرقم', tag: 'الوسم', chip: 'رقم الشريحة', name: 'الاسم/المسمى' };
   const syncKind = () => {
     const k = val('f_kind');
     const setW = (fid, show) => { const w = fieldWrap(fid); if (w) w.style.display = show ? '' : 'none'; };
@@ -962,38 +1003,10 @@ function screenAnimalEdit(arg) {
     const defSex = val('f_sex') || 'female';
     const defBirth = val('f_birth') || todayStr();   // تاريخ ميلاد افتراضي لكل مولود (لتطبيق عمر الاحتساب)
     let html = '';
-    for (let i = 1; i <= n; i++) {
-      html += `<div class="card"><h3>👶 المولود ${i}</h3>`
-        + fSelect('نوع المعرّف الخارجي', 'b_kind_' + i, IDKIND, 'number')
-        + fInput('المعرّف الخارجي / الوسم (اختياري)', 'b_code_' + i, '')
-        + fSelect('لون الوسم', 'b_tagcolor_' + i, strOpts(tagColors()), '')
-        + fSelect('شكل الوسم', 'b_tagshape_' + i, strOpts(tagShapes()), '')
-        + fInput('الاسم / المسمى (اختياري)', 'b_name_' + i, '')
-        + fSelect('الجنس', 'b_sex_' + i, SEX, defSex)
-        + `<div id="b_purposeBox_${i}">${fSelect('غرض الذكر', 'b_purpose_' + i, MALE_PURPOSE, '', '— غير محدّد —')}</div>`
-        + fSelect('الغرض', 'b_des_' + i, DESIGN, '', '— غير محدّد —')
-        + fInput('تاريخ الميلاد', 'b_birth_' + i, defBirth, 'date')
-        + fInput('اللون (اختياري)', 'b_color_' + i, '')
-        + `</div>`;
-    }
+    for (let i = 1; i <= n; i++) html += newbornFieldsHtml('b', i, defSex, defBirth);
     box.innerHTML = html;
     // ربط منطق نوع المعرّف وغرض الذكر لكل مولود على حدة (نفس منطق الحقول المشتركة)
-    for (let i = 1; i <= n; i++) {
-      const wrapOf = (fid) => { const el = document.getElementById(fid); return el ? el.closest('.field') : null; };
-      const syncBKind = () => {
-        const k = val('b_kind_' + i);
-        const setW = (fid, show) => { const w = wrapOf(fid); if (w) w.style.display = show ? '' : 'none'; };
-        const showCode = ['number', 'tag', 'chip', 'name'].includes(k);
-        setW('b_code_' + i, showCode);
-        setW('b_tagcolor_' + i, ['tag', 'color'].includes(k));
-        setW('b_tagshape_' + i, k === 'tag');
-        if (showCode && KIND_LABEL[k]) { const el = document.getElementById('b_code_' + i); const L = el && el.closest('.field').querySelector('label'); if (L) L.textContent = KIND_LABEL[k] + ' (اختياري — قد يتغيّر أو يسقط)'; }
-      };
-      const syncBPurpose = () => { const pb = document.getElementById('b_purposeBox_' + i); if (pb) pb.style.display = val('b_sex_' + i) === 'male' ? '' : 'none'; };
-      const ks = document.getElementById('b_kind_' + i); if (ks) ks.addEventListener('change', syncBKind);
-      const ss = document.getElementById('b_sex_' + i); if (ss) ss.addEventListener('change', syncBPurpose);
-      syncBKind(); syncBPurpose();
-    }
+    for (let i = 1; i <= n; i++) bindNewbornFieldSync('b', i);
   };
   const syncSource = () => { const s = val('f_source'); const bb = document.getElementById('bcountBox'); if (bb) bb.style.display = s === 'born' ? '' : 'none'; const yb = document.getElementById('buypriceBox'); if (yb) yb.style.display = s === 'purchased' ? '' : 'none'; renderBornRows(); };
   document.getElementById('f_source').addEventListener('change', syncSource);
@@ -1102,7 +1115,10 @@ function screenAnimalDetail(arg) {
   const birthDates = Array.from(new Set(offspring.map(o => o.birth).filter(Boolean))).sort();
   const parities = birthDates.length;                                  // عدد الولادات (تواريخ ميلاد مختلفة)
   const abortions = pregs.filter(p => p.status === 'aborted').length;   // عدد الإجهاضات المسجّلة
-  const abortedMatingDates = new Set(pregs.filter(p => p.status === 'aborted').map(p => p.mating_date).filter(Boolean)); // تُخفى تلقيحاتها من العرض
+  // تلقيحات الحمل المُجهَض تُخفى من العرض — بالمعرّف عند توفّره (دقيق)، أو بالتاريخ كاحتياط للسجلات القديمة/حمل السونار
+  const abortedPregs = pregs.filter(p => p.status === 'aborted');
+  const abortedMatingIds = new Set(abortedPregs.map(p => p.mating_id).filter(Boolean));
+  const abortedMatingDates = new Set(abortedPregs.filter(p => !p.mating_id).map(p => p.mating_date).filter(Boolean));
   const avgLitter = parities ? Math.round((offspring.length / parities) * 10) / 10 : 0;
   let intervalMonths = null;
   if (birthDates.length >= 2) {
@@ -1139,7 +1155,7 @@ function screenAnimalDetail(arg) {
       ${can('breeding', 'edit') ? `<button class="btn outline" id="addMating">إضافة تلقيح / متابعة حمل</button>` : ''}
       ${can('breeding', 'edit') && a.status === 'present' ? `<button class="btn outline" id="addSonar" style="margin-top:6px">🔊 فحص حمل بالسونار</button>` : ''}
       ${monPreg && can('breeding', 'edit') ? `<button class="btn outline danger" id="addAbort" style="margin-top:6px">🩸 تسجيل إجهاض</button>` : ''}
-      ${matings.filter(m => !abortedMatingDates.has(m.date)).map(m => row('تلقيح ' + fmtDate(m.date), 'الفحل: ' + (esc(m.sire_name) || esc(m.sire_code) || '—'))).join('')}
+      ${matings.filter(m => !abortedMatingIds.has(m.id) && !abortedMatingDates.has(m.date)).map(m => row('تلقيح ' + fmtDate(m.date), 'الفحل: ' + (esc(m.sire_name) || esc(m.sire_code) || '—'))).join('')}
       ${pregs.map(p => p.status === 'aborted'
         ? row('حمل (🩸 أجهضت)', (p.abort_gest_days != null ? 'عمر الحمل عند الإجهاض ' + p.abort_gest_days + ' يوم' : 'مسجّل') + (p.abort_cause ? ' • السبب: ' + esc(p.abort_cause) : ''))
         : row('حمل (' + arOf(PREG, p.status) + ')' + (p.confirmed ? ' 🔊' : ''), 'الولادة التقريبية ' + fmtDate(p.expected) + ' • مدة الحمل ' + p.gest + ' يوم')).join('')}
@@ -1164,7 +1180,7 @@ function screenAnimalDetail(arg) {
       ${a.designation ? row('الغرض', arOf(DESIGN, a.designation)) : ''}
       ${row('🏠 المكان', esc(a.pen) || '—')}
       ${row('المصدر', arOf(SOURCE, a.source || 'purchased'))}
-      ${(a.source === 'purchased' && a.buy_price != null) ? row('💵 سعر الشراء', esc(String(a.buy_price))) : ''}
+      ${((a.source || 'purchased') === 'purchased' && a.buy_price != null) ? row('💵 سعر الشراء', esc(String(a.buy_price))) : ''}
       ${row('تاريخ الميلاد', fmtDate(a.birth))}
       ${a.birth ? row('🎂 العمر', ageText(a.birth)) : ''}
       ${a.birth && pubertyOf(a.type) ? row('🌱 سن البلوغ المتوقّع', fmtDate(addMonths(a.birth, pubertyOf(a.type))) + ' (' + pubertyOf(a.type) + ' شهر)') : ''}
@@ -1221,7 +1237,6 @@ function screenAnimalDetail(arg) {
 
 /* ===== إضافة نتاج (مواليد) للأم — عند العدد > 1 تُفتح حقول كاملة مستقلّة لكل مولود، وربط بالأم ===== */
 function addOffspringModal(mother) {
-  const KIND_LABEL = { number: 'الرقم', tag: 'الوسم', chip: 'رقم الشريحة', name: 'الاسم/المسمى' };
   openModal('مواليد ' + display(mother), `
     ${fSelect('الجنس', 'of_sex', SEX, 'female')}
     ${fInput('العدد', 'of_count', '', 'number', 'min="1" inputmode="numeric"')}
@@ -1262,37 +1277,9 @@ function addOffspringModal(mother) {
       const defSex = val('of_sex') || 'female';
       const defBirth = val('of_birth') || todayStr();
       let html = '';
-      for (let i = 1; i <= n; i++) {
-        html += `<div class="card"><h3>👶 المولود ${i}</h3>`
-          + fSelect('نوع المعرّف الخارجي', 'ob_kind_' + i, IDKIND, 'number')
-          + fInput('المعرّف الخارجي / الوسم (اختياري)', 'ob_code_' + i, '')
-          + fSelect('لون الوسم', 'ob_tagcolor_' + i, strOpts(tagColors()), '')
-          + fSelect('شكل الوسم', 'ob_tagshape_' + i, strOpts(tagShapes()), '')
-          + fInput('الاسم / المسمى (اختياري)', 'ob_name_' + i, '')
-          + fSelect('الجنس', 'ob_sex_' + i, SEX, defSex)
-          + `<div id="ob_purposeBox_${i}">${fSelect('غرض الذكر', 'ob_purpose_' + i, MALE_PURPOSE, '', '— غير محدّد —')}</div>`
-          + fSelect('الغرض', 'ob_des_' + i, DESIGN, '', '— غير محدّد —')
-          + fInput('تاريخ الميلاد', 'ob_birth_' + i, defBirth, 'date')
-          + fInput('اللون (اختياري)', 'ob_color_' + i, '')
-          + `</div>`;
-      }
+      for (let i = 1; i <= n; i++) html += newbornFieldsHtml('ob', i, defSex, defBirth);
       box.innerHTML = html;
-      for (let i = 1; i <= n; i++) {
-        const wrapOf = (fid) => { const el = document.getElementById(fid); return el ? el.closest('.field') : null; };
-        const syncBKind = () => {
-          const k = val('ob_kind_' + i);
-          const setW = (fid, show) => { const w = wrapOf(fid); if (w) w.style.display = show ? '' : 'none'; };
-          const showCode = ['number', 'tag', 'chip', 'name'].includes(k);
-          setW('ob_code_' + i, showCode);
-          setW('ob_tagcolor_' + i, ['tag', 'color'].includes(k));
-          setW('ob_tagshape_' + i, k === 'tag');
-          if (showCode && KIND_LABEL[k]) { const el = document.getElementById('ob_code_' + i); const L = el && el.closest('.field').querySelector('label'); if (L) L.textContent = KIND_LABEL[k] + ' (اختياري — قد يتغيّر أو يسقط)'; }
-        };
-        const syncBPurpose = () => { const pb = document.getElementById('ob_purposeBox_' + i); if (pb) pb.style.display = val('ob_sex_' + i) === 'male' ? '' : 'none'; };
-        const ks = document.getElementById('ob_kind_' + i); if (ks) ks.addEventListener('change', syncBKind);
-        const ss = document.getElementById('ob_sex_' + i); if (ss) ss.addEventListener('change', syncBPurpose);
-        syncBKind(); syncBPurpose();
-      }
+      for (let i = 1; i <= n; i++) bindNewbornFieldSync('ob', i);
     };
     { const oc = document.getElementById('of_count'); if (oc) oc.addEventListener('input', renderOfRows); }
     document.getElementById('of_save').addEventListener('click', async () => {
@@ -1367,8 +1354,8 @@ function screenMating(arg) {
     const a = preset || animalById(parseInt(val('m_animal'), 10)); const d = val('m_date');
     if (!a) { toast('اختر البهيمة'); return; } if (!d) { toast('أدخل التاريخ'); return; }
     const ok = await guard(async () => {
-      await dbInsert('matings', { animal_id: a.id, date: d, sire_code: val('m_sireCode').trim(), sire_name: val('m_sireName').trim(), notes: val('m_notes').trim() });
-      if (document.getElementById('m_preg').checked) { const g = gestOf(a.type); await dbInsert('pregnancies', { animal_id: a.id, mating_date: d, gest: g, expected: addDays(d, g), status: 'monitoring', notes: val('m_notes').trim() }); }
+      const matingRow = await dbInsert('matings', { animal_id: a.id, date: d, sire_code: val('m_sireCode').trim(), sire_name: val('m_sireName').trim(), notes: val('m_notes').trim() });
+      if (document.getElementById('m_preg').checked) { const g = gestOf(a.type); await dbInsert('pregnancies', { animal_id: a.id, mating_id: matingRow.id, mating_date: d, gest: g, expected: addDays(d, g), status: 'monitoring', notes: val('m_notes').trim() }); }
     });
     if (ok) { toast('تم الحفظ'); await loadAll(); goBack(); }
   });
@@ -2296,8 +2283,7 @@ function screenMore() {
     { key: 'guides', title: '📖 الأدلة', items: [
       I(true, '📘 دليل الاستخدام', '#/guide'),
     ].filter(Boolean) },
-    { key: 'admin', title: '🛡️ الإدارة', items: [
-      I(isAdmin(), '🐑 أنواع الحلال (مدة الحمل/البلوغ)', '#/types'),
+    { key: 'admin', title: '🛡️ الإدارة العامة', items: [
       I(isAdmin(), '🗑️ سلة المحذوفات', '#/trash'),
       I(isSys(), '💡 النصائح والمعلومات', '#/tips'),
     ].filter(Boolean) },
@@ -2816,23 +2802,31 @@ function screenTagLists() {
   view().querySelectorAll('[data-dell]').forEach(b => b.addEventListener('click', async () => { const i = b.dataset.dell.indexOf('|'); const key = b.dataset.dell.slice(0, i), name = b.dataset.dell.slice(i + 1); if (!await confirm2('حذف هذا الخيار؟ (البهائم المسجّلة به لا تتأثّر)')) return; saveList(key, loadList(key).filter(s => s !== name)); screenTagLists(); }));
 }
 
-/* ===== إدارة الحظائر (إضافة/تعديل/حذف — تسمية حرّة حسب الرغبة) ===== */
-// تبويب واحد يجمع كل إعدادات الحظيرة
+/* ===== إعدادات الحظيرة — نقطة دخول واحدة موحّدة، مبوّبة حسب الموضوع ===== */
 function screenHerdSettings() {
   if (!can('animals', 'edit')) { view().innerHTML = noPerm(); return; }
-  const items = [
-    ['🐑', 'أنواع الحلال (إبل/بقر/ماعز/نجدي/حري…) — إضافة/تعديل/حذف', '#/types'],
-    ['🏠', 'الحظائر (إضافة/تعديل)', '#/pens'],
-    ['📅', 'عمر احتساب المولود في الحظيرة', '#/countage'],
-    ['🔤', 'مصطلحات الذكر والأنثى', '#/terms'],
-    ['🏷️', 'شكل ولون الرقم', '#/taglists'],
-    ['🔔', 'تنبيهات مخصّصة (للبيع/التطعيم…)', '#/reminders'],
+  // مجموعات منطقية: عرض القوائم، متابعة الولادات، التصنيف والحظائر، التنبيهات
+  const groups = [
+    { h: '🔃 عرض القوائم', items: [] },   // بطاقة الترتيب تُدرَج يدوياً بعدها
+    { h: '👶 متابعة الولادات', items: [
+      ['📅', 'عمر احتساب المولود، والذكور/الفحول، وظهور غير المحتسَب', '#/countage'],
+    ] },
+    { h: '🐑 التصنيف والحظائر', items: [
+      ['🐑', 'أنواع الحلال (إبل/بقر/ماعز/نجدي/حري…) — إضافة/تعديل/حذف', '#/types'],
+      ['🏠', 'الحظائر (إضافة/تعديل)', '#/pens'],
+      ['🏷️', 'شكل ولون الرقم', '#/taglists'],
+      ['🔤', 'مصطلحات الذكر والأنثى', '#/terms'],
+    ] },
+    { h: '🔔 التنبيهات', items: [
+      ['🔔', 'تنبيهات مخصّصة (للبيع/التطعيم…)', '#/reminders'],
+    ] },
   ];
-  view().innerHTML = `<div class="muted" style="margin-bottom:8px">كل إعدادات الحظيرة في مكان واحد.</div>
-    <div class="card"><h3>🔃 ترتيب عرض القوائم</h3>
+  const sec = (title, bodyHtml) => `<div class="muted" style="font-weight:700;margin:14px 2px 6px;font-size:.9rem">${title}</div>${bodyHtml}`;
+  view().innerHTML = `<div class="muted" style="margin-bottom:8px">كل إعدادات الحظيرة في مكان واحد، مرتّبة حسب الموضوع.</div>`
+    + sec(groups[0].h, `<div class="card"><h3>🔃 ترتيب عرض القوائم</h3>
       ${fSelect('الترتيب المعتمد', 'hs_sort', SORT_MODES, animalSortMode())}
-      <div class="muted" style="font-size:.8rem">يُطبَّق على قوائم «الحلال» و«الفحول».</div></div>`
-    + items.map(([ic, label, hash]) => `<div class="card click" data-h="${hash}"><div class="li-title">${ic} ${label}</div></div>`).join('');
+      <div class="muted" style="font-size:.8rem">يُطبَّق على قوائم «الحلال» و«الفحول».</div></div>`)
+    + groups.slice(1).map(g => sec(g.h, g.items.map(([ic, label, hash]) => `<div class="card click" data-h="${hash}"><div class="li-title">${ic} ${label}</div></div>`).join(''))).join('');
   { const ss = document.getElementById('hs_sort'); if (ss) ss.addEventListener('change', () => { try { localStorage.setItem('mrahi_sort', ss.value); } catch (e) {} toast('تم تغيير الترتيب'); }); }
   view().querySelectorAll('[data-h]').forEach(c => c.addEventListener('click', () => setHash(c.dataset.h)));
 }
@@ -2847,7 +2841,10 @@ function screenCountAge() {
       <div class="muted" style="font-size:.82rem;margin-bottom:8px">اختر إن كانت الذكور والفحول تُحتسب ضمن عدد «في الحظيرة» مع بقية حلالك.</div>
       <label class="check"><input type="checkbox" id="cnt_males" ${chk(countIncludeMales())}> احتساب الذكور مع حلالي في الحظيرة</label>
       <label class="check"><input type="checkbox" id="cnt_sires" ${chk(countIncludeSires())}> احتساب الفحول مع حلالي في الحظيرة</label></div>
-    <div class="muted" style="margin-bottom:8px">لكل نوع: متى يُحتسب المولود ضمن «في الحظيرة». <b>عند عمر</b>: يُضاف تلقائياً عند بلوغه العمر. <b>يدوي</b>: لا يُحتسب حتى تضيفه بنفسك من سجل البهيمة. أصغر من ذلك «يتبع أمّه» ويبقى ظاهراً في القائمة. المشترى/الاهداء يُحتسب دائماً.</div>
+    <div class="card"><h3>ظهور المواليد غير المحتسَبة</h3>
+      <div class="muted" style="font-size:.82rem;margin-bottom:8px">المولود الأصغر من عمر الاحتساب أدناه «يتبع أمّه» ولا يُحتسب في «في الحظيرة». هذا الخيار يتحكّم هل يظهر في قائمة «الحلال» أيضاً أثناء ذلك.</div>
+      <label class="check"><input type="checkbox" id="cnt_showunc" ${chk(showUncountedInList())}> إظهاره في قائمة الحلال (بشارة «تتبع أمّها»)</label></div>
+    <div class="muted" style="margin-bottom:8px">لكل نوع: متى يُحتسب المولود ضمن «في الحظيرة». <b>عند عمر</b>: يُضاف تلقائياً عند بلوغه العمر. <b>يدوي</b>: لا يُحتسب حتى تضيفه بنفسك من سجل البهيمة. أصغر من ذلك «يتبع أمّه». المشترى/الاهداء يُحتسب دائماً.</div>
     ${TYPES.map(t => { const r = countRuleFor(t.k); return `<div class="card"><h3>${esc(t.ar)}</h3>${fSelect('طريقة الاحتساب', 'cm_' + t.k, MODES, r.mode)}<div id="cab_${t.k}">${fInput('العمر (أشهر) — صفر = يُحتسب الجميع', 'ca_' + t.k, r.age || '', 'number', 'min="0" inputmode="numeric"')}</div>${fSelect('تنطبق على', 'cas_' + t.k, SEXSCOPE, r.sex)}</div>`; }).join('')}
     <button class="btn" id="ca_save">حفظ</button>`;
   // حقل العمر يظهر فقط في وضع «عند عمر»
@@ -2856,7 +2853,11 @@ function screenCountAge() {
     const o = {};
     TYPES.forEach(t => { const mode = val('cm_' + t.k) === 'manual' ? 'manual' : 'age'; const n = parseInt(val('ca_' + t.k), 10) || 0; const sex = val('cas_' + t.k) || 'both'; if (mode === 'manual') o[t.k] = { mode: 'manual', age: 0, sex }; else if (n > 0) o[t.k] = { mode: 'age', age: n, sex }; });
     saveCountAge(o);
-    try { localStorage.setItem('mrahi_count_males', document.getElementById('cnt_males').checked ? '1' : '0'); localStorage.setItem('mrahi_count_sires', document.getElementById('cnt_sires').checked ? '1' : '0'); } catch (e) {}
+    try {
+      localStorage.setItem('mrahi_count_males', document.getElementById('cnt_males').checked ? '1' : '0');
+      localStorage.setItem('mrahi_count_sires', document.getElementById('cnt_sires').checked ? '1' : '0');
+      localStorage.setItem('mrahi_show_uncounted', document.getElementById('cnt_showunc').checked ? '1' : '0');
+    } catch (e) {}
     toast('تم الحفظ'); goBack();
   });
 }
