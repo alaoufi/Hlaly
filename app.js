@@ -749,7 +749,7 @@ function screenHome() {
     ${can('treatments', 'view') ? `<div class="card"><h3>العلاجات الحالية (تحت التحريم)</h3>${treats.length ? treats.map(t => row(display(animalById(t.animal_id)), `${esc(t.med_name)} • ينتهي ${fmtDate(t.withdrawal_end)}`)).join('') : noItem()}</div>` : ''}`;
   view().querySelectorAll('[data-go]').forEach(c => c.addEventListener('click', () => setHash(c.dataset.go)));
   // بطاقات الحالة: تفتح قائمة الحلال مُرشَّحة (في الحظيرة/مباعة/نافقة)
-  view().querySelectorAll('[data-sfilter]').forEach(c => c.addEventListener('click', () => { animalFilter = ''; animalSourceSel = []; animalSexSel = []; animalStatusSel = [c.dataset.sfilter]; saveAnimalFilters(); setHash('#/animals'); }));
+  view().querySelectorAll('[data-sfilter]').forEach(c => c.addEventListener('click', () => { animalFilter = ''; animalSourceSel = ALL_SOURCES.slice(); animalSexSel = ALL_SEXES.slice(); animalStatusSel = [c.dataset.sfilter]; saveAnimalFilters(); setHash('#/animals'); }));
   // بطاقات المواليد: تفتح المواليد الحقيقيين فقط (لسّه يتبعون أمّهم) مُرشَّحة بالجنس — نفس عدد البطاقة بالضبط
   view().querySelectorAll('[data-born]').forEach(c => c.addEventListener('click', () => { pendingNewbornFilter = c.dataset.born; setHash('#/animals'); }));
   const q = document.getElementById('q');
@@ -823,9 +823,23 @@ function toggleSel(arr, v) { const i = arr.indexOf(v); if (i >= 0) arr.splice(i,
 // التبويب المختار في شاشة سجل البهيمة (البيانات/النسب/الإنجاب/المرضي/العلاجات/التطعيمات)
 let animalRecTab = 'basic';
 // مرشّحات العرض: اختيار متعدّد؛ مصفوفة فارغة = الكل. تُحفظ آخر اختيار.
-let animalStatusSel = loadFilterArr('mrahi_f_status', ['present']);   // 'present'|'sold'|'dead'
-let animalSourceSel = loadFilterArr('mrahi_f_source', []);            // 'born'|'purchased'|'sale'
-let animalSexSel = loadFilterArr('mrahi_f_sex', []);                  // 'male'|'female'
+// فلتر صارم: عدم تحديد أي رقاقة في صفّ = لا يطابق شيئاً (وليس «الكل»). القيم الافتراضية أدناه تختار الكل صراحةً حتى لا تظهر القائمة فارغة أول استخدام.
+const ALL_SOURCES = ['born', 'purchased', 'gift', 'sale'];
+const ALL_SEXES = ['male', 'female'];
+let animalStatusSel = loadFilterArr('mrahi_f_status', ['present']);   // 'present'|'sold'|'dead'|...
+let animalSourceSel = loadFilterArr('mrahi_f_source', ALL_SOURCES.slice());
+let animalSexSel = loadFilterArr('mrahi_f_sex', ALL_SEXES.slice());
+// ترحيل لمرّة واحدة: قديماً كان تفريغ صفّ المصدر/الجنس يعني «الكل» ضمنياً؛ الآن يعني «لا شيء» صراحةً —
+// فإن كان المخزَّن سابقاً فارغاً (من السلوك القديم) نعيد تعبئته بـ«الكل» مرّة واحدة فقط، ثم يُحترَم تفريغه لاحقاً كما هو.
+function seedAnimalFiltersOnce() {
+  try {
+    if (localStorage.getItem('mrahi_f_seeded')) return;
+    if (!animalSourceSel.length) animalSourceSel = ALL_SOURCES.slice();
+    if (!animalSexSel.length) animalSexSel = ALL_SEXES.slice();
+    localStorage.setItem('mrahi_f_seeded', '1');
+    saveAnimalFilters();
+  } catch (e) {}
+}
 // طلب لمرة واحدة من بطاقات «المواليد» بالرئيسية: يعرض المواليد الحقيقيين فقط (غير المحتسَبين بعد) — يُستهلَك عند أول عرض ثم يُمسح
 let pendingNewbornFilter = null;   // 'male'|'female'|'all'|null
 // آخر «رقم حظيرة» مُدخَل — يُثبَّت تلقائياً في إضافة البهيمة التالية حتى يُغيَّر (إدخال أسرع للدفعات)
@@ -861,17 +875,18 @@ function offspringListModal(motherId) {
 }
 function screenAnimals() {
   if (!can('animals', 'view')) { view().innerHTML = noPerm(); return; }
+  seedAnimalFiltersOnce();
   // استهلاك طلب «مواليد حقيقيون فقط» لمرة واحدة (من بطاقات الرئيسية) — يزول عند أي تفاعل لاحق مع المرشّحات
   let onlyRealNewborn = false;
   if (pendingNewbornFilter !== null) {
-    animalFilter = ''; animalStatusSel = ['present']; animalSourceSel = []; animalSexSel = pendingNewbornFilter === 'all' ? [] : [pendingNewbornFilter];
+    animalFilter = ''; animalStatusSel = ['present']; animalSourceSel = ['born']; animalSexSel = pendingNewbornFilter === 'all' ? ALL_SEXES.slice() : [pendingNewbornFilter];
     saveAnimalFilters(); onlyRealNewborn = true; pendingNewbornFilter = null;
   }
   const chips = `<div class="chips"><span class="chip ${!animalFilter ? 'active' : ''}" data-f="">الكل</span>${TYPES.map(t => `<span class="chip ${animalFilter === t.k ? 'active' : ''}" data-f="${t.k}">${t.ar}</span>`).join('')}</div>`;
-  // مرشّحات متعدّدة الاختيار (يمكن اختيار أكثر من تصنيف؛ «الكل» يمسح التحديد)
+  // مرشّحات متعدّدة الاختيار: عدم تحديد أي رقاقة في صفّ = لا تُعرض أي بهيمة (فلتر صارم، ليس «الكل»)
   // مربّع اختيار (☐/☑) ليوضّح أنها متعدّدة الاختيار
   const cb = (on) => (on ? '☑' : '☐') + ' ';
-  // بلا زرّ «الكل» — إلغاء تحديد الجميع (أو تحديدهم كلهم) يعرض الكل
+  // بلا زرّ «الكل» — تفريغ الصفّ بالكامل يُخفي كل البهائم حسب هذا الصفّ
   const stChips = `<div class="chips"><span class="chip ${animalStatusSel.includes('present') ? 'active' : ''}" data-s="present">${cb(animalStatusSel.includes('present'))}في الحظيرة</span><span class="chip ${animalStatusSel.includes('sold') ? 'active' : ''}" data-s="sold">${cb(animalStatusSel.includes('sold'))}مباعة</span><span class="chip ${animalStatusSel.includes('dead') ? 'active' : ''}" data-s="dead">${cb(animalStatusSel.includes('dead'))}نافقة</span><span class="chip ${animalStatusSel.includes('given') ? 'active' : ''}" data-s="given">${cb(animalStatusSel.includes('given'))}🎁 اهداء</span><span class="chip ${animalStatusSel.includes('missing') ? 'active' : ''}" data-s="missing">${cb(animalStatusSel.includes('missing'))}🔎 مفقودة</span><span class="chip ${animalStatusSel.includes('slaughtered') ? 'active' : ''}" data-s="slaughtered">${cb(animalStatusSel.includes('slaughtered'))}🔪 ذُبحت</span></div>`;
   const srcChips = `<div class="chips"><span class="chip ${animalSourceSel.includes('born') ? 'active' : ''}" data-src="born">${cb(animalSourceSel.includes('born'))}👶 مواليد</span><span class="chip ${animalSourceSel.includes('purchased') ? 'active' : ''}" data-src="purchased">${cb(animalSourceSel.includes('purchased'))}🛒 شراء</span><span class="chip ${animalSourceSel.includes('gift') ? 'active' : ''}" data-src="gift">${cb(animalSourceSel.includes('gift'))}🎁 اهداء</span><span class="chip ${animalSourceSel.includes('sale') ? 'active' : ''}" data-src="sale">${cb(animalSourceSel.includes('sale'))}💰 للبيع (المعدّ للبيع)</span></div>`;
   const sexChips = `<div class="chips">${SEX.map(s => `<span class="chip ${animalSexSel.includes(s.k) ? 'active' : ''}" data-sex="${s.k}">${cb(animalSexSel.includes(s.k))}${s.k === 'male' ? '♂ ' : '♀ '}${s.ar}</span>`).join('')}</div>`;
@@ -879,7 +894,7 @@ function screenAnimals() {
   const hideMale = (a) => a.status === 'present' && a.sex === 'male' && !animalSexSel.includes('male') && (a.purpose === 'sire' ? !countIncludeSires() : !countIncludeMales());
   // إخفاء المولود غير المحتسَب (يتبع أمّه) من القائمة كلياً إن أُوقف خيار «إظهار المواليد غير المحتسَبة»
   const hideUncounted = (a) => a.status === 'present' && !showUncountedInList() && !inHerdCount(a);
-  const list = sortAnimals(C.animals.filter(a => (!animalFilter || a.type === animalFilter) && (!animalStatusSel.length || animalStatusSel.includes(a.status)) && (!animalSourceSel.length || animalSourceSel.some(s => s === 'sale' ? (a.designation === 'sale' || a.purpose === 'sale') : (a.source || 'purchased') === s)) && (!animalSexSel.length || animalSexSel.includes(a.sex)) && !hideMale(a) && !hideUncounted(a) && (!onlyRealNewborn || (a.source === 'born' && !inHerdCount(a)))));
+  const list = sortAnimals(C.animals.filter(a => (!animalFilter || a.type === animalFilter) && animalStatusSel.includes(a.status) && animalSourceSel.some(s => s === 'sale' ? (a.designation === 'sale' || a.purpose === 'sale') : (a.source || 'purchased') === s) && animalSexSel.includes(a.sex) && !hideMale(a) && !hideUncounted(a) && (!onlyRealNewborn || (a.source === 'born' && !inHerdCount(a)))));
   const canEdit = can('animals', 'edit');
   // عند خلو الحلال كلياً: حالة ترحيبية بزرّ إضافة واضح. وعند خلو التصنيف فقط: رسالة عادية.
   const empty = C.animals.length === 0
