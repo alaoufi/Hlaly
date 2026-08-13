@@ -900,9 +900,14 @@ function screenAnimals() {
   const empty = C.animals.length === 0
     ? `<div class="center-empty">🐑 لا يوجد حلال بعد.${canEdit ? '<br><button class="btn" id="add_first" style="margin-top:14px">➕ أضف أول بهيمة</button><div class="muted" style="margin-top:8px;font-size:.85rem">تختار النوع (إبل/غنم/ماعز/بقر) داخل النموذج — أضِف ما تشاء من كل نوع.</div>' : ''}</div>`
     : '<div class="center-empty">لا توجد بهائم في هذا التصنيف.</div>';
-  const countRow = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-      <span class="muted">العدد: ${list.length}</span>
-      ${canEdit ? '<button class="btn sm outline" id="bulkAddBtn">📋 إضافة جماعية</button>' : ''}</div>`;
+  const presentInList = list.filter(a => a.status === 'present');
+  const countedInList = presentInList.filter(inHerdCount).length;
+  const gapInList = presentInList.length - countedInList;
+  const countRow = `<div style="margin-bottom:6px">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <span class="muted">العدد: ${list.length}</span>
+        ${canEdit ? '<button class="btn sm outline" id="bulkAddBtn">📋 إضافة جماعية</button>' : ''}</div>
+      ${gapInList > 0 ? `<div class="muted" style="font-size:.8rem;margin-top:2px">منها ${countedInList} محتسَبة ضمن «في الحظيرة» بالرئيسية، و${gapInList} غير محتسَبة (صغار تتبع أمّها أو ذكور/فحول مستبعدون حسب الإعدادات) — <span class="link" id="goSmart" style="color:var(--green);cursor:pointer">🧠 التفاصيل</span></div>` : ''}</div>`;
   // عند عرض «الكل»: تُجمَّع البطاقات حسب النوع (كل نوع مستقلّ بعنوانه)؛ وعند تحديد نوع تُعرض مباشرةً
   let listHtml;
   if (!animalFilter) {
@@ -919,6 +924,7 @@ function screenAnimals() {
   bindCards(view());
   { const af = document.getElementById('add_first'); if (af) af.addEventListener('click', () => setHash('#/animal-edit/0')); }
   { const bb = document.getElementById('bulkAddBtn'); if (bb) bb.addEventListener('click', () => setHash('#/bulk/buy')); }
+  { const gs = document.getElementById('goSmart'); if (gs) gs.addEventListener('click', () => { inspectTab = 'smart'; setHash('#/inspect'); }); }
   if (canEdit) addFab('+ إضافة بهيمة', () => setHash('#/animal-edit/0'));
 }
 
@@ -999,6 +1005,10 @@ function screenAnimalEdit(arg) {
       ${fSelect('الغرض', 'f_design', DESIGN, a ? (a.designation || '') : '', '— غير محدّد —')}
       ${!a ? `<div id="bcountBox">${fInput('عدد المواليد', 'f_bcount', '1', 'number', 'min="1" inputmode="numeric"')}</div>` : ''}
       <div id="buypriceBox">${fInput('سعر الشراء (اختياري)', 'f_buyprice', a && a.buy_price, 'number', 'min="0" step="any" inputmode="decimal"')}</div>
+      ${!a ? `<div id="withOffBox" style="display:none">
+        <div class="check"><input type="checkbox" id="f_hasoff"><label for="f_hasoff" style="margin:0">هل معها مواليد؟ (جاءت مصحوبة بمواليد عند الشراء)</label></div>
+        <div id="offCountsBox" style="display:none">${fInput('عدد المواليد ذكور', 'f_offmale', '0', 'number', 'min="0" inputmode="numeric"')}${fInput('عدد المواليد إناث', 'f_offfemale', '0', 'number', 'min="0" inputmode="numeric"')}</div>
+      </div>` : ''}
       ${fInput('تاريخ الميلاد (اختياري للمشترى)', 'f_birth', a && a.birth, 'date')}
       ${fInput('اللون', 'f_color', a && a.color)}
       ${a && a.status !== 'present' ? `${fSelect('الإجراء', 'f_status', EXIT, a.status)}
@@ -1057,10 +1067,11 @@ function screenAnimalEdit(arg) {
     // ربط منطق نوع المعرّف وغرض الذكر لكل مولود على حدة (نفس منطق الحقول المشتركة)
     for (let i = 1; i <= n; i++) bindNewbornFieldSync('b', i);
   };
-  const syncSource = () => { const s = val('f_source'); const bb = document.getElementById('bcountBox'); if (bb) bb.style.display = s === 'born' ? '' : 'none'; const yb = document.getElementById('buypriceBox'); if (yb) yb.style.display = s === 'purchased' ? '' : 'none'; renderBornRows(); };
+  const syncSource = () => { const s = val('f_source'); const bb = document.getElementById('bcountBox'); if (bb) bb.style.display = s === 'born' ? '' : 'none'; const yb = document.getElementById('buypriceBox'); if (yb) yb.style.display = s === 'purchased' ? '' : 'none'; const wb = document.getElementById('withOffBox'); if (wb) wb.style.display = s === 'purchased' ? '' : 'none'; renderBornRows(); };
   document.getElementById('f_source').addEventListener('change', syncSource);
   document.getElementById('f_kind').addEventListener('change', syncKind);
   { const bc = document.getElementById('f_bcount'); if (bc) bc.addEventListener('input', renderBornRows); }
+  { const ho = document.getElementById('f_hasoff'); if (ho) ho.addEventListener('change', () => { const ocb = document.getElementById('offCountsBox'); if (ocb) ocb.style.display = ho.checked ? '' : 'none'; }); }
   syncSource();
   bindPenField('f_pen');
   document.getElementById('f_type').addEventListener('change', () => rebuildPen('f_pen', val('f_type')));   // حظائر النوع المحدّد فقط
@@ -1114,7 +1125,18 @@ function screenAnimalEdit(arg) {
         }
         return;
       }
-      await dbInsert('animals', obj);
+      const inserted = await dbInsert('animals', obj);
+      // مشترى مصحوبة بمواليد: تُنشأ لها بهائم مواليد مستقلّة مربوطة بها كأمّ (لا تُحتسب ضمن كفاءة إنجاجها داخل الحلال)
+      if (obj.source === 'purchased') {
+        const ho = document.getElementById('f_hasoff');
+        if (ho && ho.checked) {
+          const nMale = Math.max(0, parseInt(val('f_offmale'), 10) || 0);
+          const nFemale = Math.max(0, parseInt(val('f_offfemale'), 10) || 0);
+          const offObj = (sex) => ({ type: obj.type, pen: obj.pen, idkind: 'number', code: '', name: '', sex, purpose: '', source: 'purchased', designation: '', buy_price: null, birth: null, color: '', status: 'present', mother_id: inserted.id, father_name: '', notes: 'مولود رافق أمّه عند الشراء' });
+          for (let i = 0; i < nMale; i++) await dbInsert('animals', offObj('male'));
+          for (let i = 0; i < nFemale; i++) await dbInsert('animals', offObj('female'));
+        }
+      }
     });
     if (ok) {
       // ثبّت آخر حظيرة وآخر بهيمة للإضافة التالية (للبهائم الجديدة) — تسريع الإدخال المتكرّر
@@ -1173,10 +1195,10 @@ function screenAnimalDetail(arg) {
   const birthDates = Array.from(new Set(offspring.map(o => o.birth).filter(Boolean))).sort();
   const parities = birthDates.length;                                  // عدد الولادات (تواريخ ميلاد مختلفة)
   const abortions = pregs.filter(p => p.status === 'aborted').length;   // عدد الإجهاضات المسجّلة
-  // تلقيحات الحمل المُجهَض تُخفى من العرض — بالمعرّف عند توفّره (دقيق)، أو بالتاريخ كاحتياط للسجلات القديمة/حمل السونار
-  const abortedPregs = pregs.filter(p => p.status === 'aborted');
-  const abortedMatingIds = new Set(abortedPregs.map(p => p.mating_id).filter(Boolean));
-  const abortedMatingDates = new Set(abortedPregs.filter(p => !p.mating_id).map(p => p.mating_date).filter(Boolean));
+  // تلقيحات الحمل المُنتهي (بولادة أو إجهاض) تُخفى من العرض — بالمعرّف عند توفّره (دقيق)، أو بالتاريخ كاحتياط للسجلات القديمة/حمل السونار
+  const resolvedPregs = pregs.filter(p => p.status === 'aborted' || p.status === 'born');
+  const abortedMatingIds = new Set(resolvedPregs.map(p => p.mating_id).filter(Boolean));
+  const abortedMatingDates = new Set(resolvedPregs.filter(p => !p.mating_id).map(p => p.mating_date).filter(Boolean));
   const avgLitter = parities ? Math.round((offspring.length / parities) * 10) / 10 : 0;
   let intervalMonths = null;
   if (birthDates.length >= 2) {
@@ -1447,12 +1469,14 @@ function screenMating(arg) {
 // تعديل سجل تلقيح موجود — إن كان مرتبطاً بحمل تحت المتابعة يُحدَّث موعد ولادته تلقائياً من التاريخ الجديد
 function matingEditModal(m) {
   const linkedPreg = C.pregnancies.find(p => p.mating_id === m.id && p.status === 'monitoring');
+  const allLinkedPregs = C.pregnancies.filter(p => p.mating_id === m.id);
   openModal('تعديل التلقيح', `
     ${fInput('تاريخ التلقيح', 'me_date', m.date, 'date')}
     ${fInput('رقم الفحل', 'me_sireCode', m.sire_code)}
     ${fInput('اسم الفحل', 'me_sireName', m.sire_name)}
     ${fTextarea('ملاحظات', 'me_notes', m.notes)}
-    <button class="btn" id="me_save">حفظ التعديل</button>`, () => {
+    <button class="btn" id="me_save">حفظ التعديل</button>
+    <button class="btn danger" id="me_del" style="margin-top:8px">🗑️ حذف التلقيح نهائياً</button>`, () => {
     document.getElementById('me_save').addEventListener('click', async () => {
       const d = val('me_date'); if (!d) { toast('أدخل التاريخ'); return; }
       const msg = linkedPreg
@@ -1465,6 +1489,15 @@ function matingEditModal(m) {
       });
       if (ok) { closeModal(); toast('تم تعديل التلقيح'); await loadAll(); screenAnimalDetail(String(m.animal_id)); }
     });
+    document.getElementById('me_del').addEventListener('click', async () => {
+      const warnPreg = allLinkedPregs.length ? `\n⚠️ سيُحذف معه ${allLinkedPregs.length === 1 ? 'سجل الحمل المرتبط به' : allLinkedPregs.length + ' سجلات الحمل المرتبطة به'} أيضاً.` : '';
+      if (!await confirm2(`🗑️ حذف هذا التلقيح نهائياً من هنا؟ سينتقل إلى سلة المحذوفات (يمكن استعادته منها خلال ٣٠ يوماً).${warnPreg}`, { danger: true })) return;
+      const ok = await guard(async () => {
+        for (const p of allLinkedPregs) await dbDelete('pregnancies', p.id);
+        await dbDelete('matings', m.id);
+      });
+      if (ok) { closeModal(); toast('تم حذف التلقيح نهائياً'); await loadAll(); screenAnimalDetail(String(m.animal_id)); }
+    });
   });
 }
 // تعديل سجل حمل موجود (تصحيح تاريخ/مدة/ملاحظات) — لا يُغيّر الحالة، تلك عبر الأزرار المخصّصة
@@ -1474,12 +1507,18 @@ function pregEditModal(p) {
     ${fInput('مدة الحمل (يوم)', 'pe_gest', p.gest, 'number', 'min="1" inputmode="numeric"')}
     ${fInput('الولادة المتوقّعة', 'pe_exp', p.expected, 'date')}
     ${fTextarea('ملاحظات', 'pe_notes', p.notes)}
-    <button class="btn" id="pe_save">حفظ التعديل</button>`, () => {
+    <button class="btn" id="pe_save">حفظ التعديل</button>
+    <button class="btn danger" id="pe_del" style="margin-top:8px">🗑️ حذف سجل الحمل نهائياً</button>`, () => {
     document.getElementById('pe_save').addEventListener('click', async () => {
       const gest = parseInt(val('pe_gest'), 10) || p.gest;
       if (!await confirm2('⚠️ تعديل بيانات هذا الحمل؟ ستتغيّر حسابات موعد الولادة المتعلّقة به.', { danger: true })) return;
       const ok = await guard(async () => { await dbUpdate('pregnancies', p.id, { mating_date: val('pe_date') || null, gest, expected: val('pe_exp') || null, notes: val('pe_notes').trim() }); });
       if (ok) { closeModal(); toast('تم تعديل الحمل'); await loadAll(); (parseHash().name === 'pregnancies' ? screenPregnancies() : screenAnimalDetail(String(p.animal_id))); }
+    });
+    document.getElementById('pe_del').addEventListener('click', async () => {
+      if (!await confirm2('🗑️ حذف سجل الحمل هذا نهائياً من هنا؟ سينتقل إلى سلة المحذوفات (يمكن استعادته منها خلال ٣٠ يوماً). سجل التلقيح المرتبط به يبقى كما هو.', { danger: true })) return;
+      const ok = await guard(async () => { await dbDelete('pregnancies', p.id); });
+      if (ok) { closeModal(); toast('تم حذف سجل الحمل نهائياً'); await loadAll(); (parseHash().name === 'pregnancies' ? screenPregnancies() : screenAnimalDetail(String(p.animal_id))); }
     });
   });
 }
@@ -2579,8 +2618,8 @@ function screenBackup() {
   view().innerHTML = `
     <div class="card"><h3>سجل نسخي الاحتياطية</h3>
       <div class="muted">${counts}</div>
-      <button class="btn" id="bk_save">➕ حفظ نسخة الآن (في حسابي)</button>
-      <div class="muted" style="font-size:.82rem;margin-top:6px">نسخك خاصة بك — لا يراها بقية المستخدمين.</div>
+      <button class="btn" id="bk_save">➕ حفظ نسخة الآن</button>
+      <div class="muted" style="font-size:.82rem;margin-top:6px">📍 تُحفظ داخل قاعدة بيانات التطبيق على هذا الجهاز فقط — لا تُرفع لأي خادم ولا يراها أحد غيرك. إن مسحت التطبيق أو غيّرت الجهاز تُفقد هذه النسخ، لذا استخدم «مشاركة» بالأسفل لإرسالها (واتساب أو أي تطبيق آخر) أو حفظها خارج الجهاز.</div>
     </div>
     <div class="card"><h3>نسخي المحفوظة (${mine.length})</h3>
       ${mine.length ? mine.map(b => `<div class="card" style="margin:6px 0">
@@ -2588,14 +2627,14 @@ function screenBackup() {
           <div class="li-sub">${fmtDateTime(b.created_at)} • ${b.animals_count || 0} بهيمة</div>
           <div class="btn-row" style="margin-top:6px">
             <button class="btn sm" data-restore="${b.id}">استعادة</button>
-            <button class="btn sm outline" data-dl="${b.id}">تنزيل JSON</button>
+            <button class="btn sm outline" data-dl="${b.id}">📤 مشاركة / تنزيل</button>
             <button class="btn sm danger" data-bdel="${b.id}">حذف</button>
           </div></div>`).join('') : '<div class="muted">لا توجد نسخ بعد.</div>'}
     </div>
     <div class="card"><h3>تصدير خارجي</h3>
-      <div class="muted">تنزيل نسخة على جهازك أو مشاركتها.</div>
-      <button class="btn outline" id="bk_json">📤 تنزيل JSON</button>
-      <button class="btn outline" id="bk_csv">📊 تصدير Excel (CSV)</button>
+      <div class="muted">مشاركة نسخة عبر واتساب أو أي تطبيق آخر، أو تنزيلها على جهازك.</div>
+      <button class="btn outline" id="bk_json">📤 مشاركة / تنزيل JSON</button>
+      <button class="btn outline" id="bk_csv">📊 مشاركة / تصدير Excel (CSV)</button>
     </div>`;
 
   document.getElementById('bk_save').addEventListener('click', async () => {
@@ -2604,7 +2643,7 @@ function screenBackup() {
     const ok = await guard(async () => {
       await sb.from('mrahi_backups').insert({ label: label.trim(), payload: snap, animals_count: C.animals.length });
     });
-    if (ok) { toast('تم حفظ النسخة في حسابك'); await loadAll(); screenBackup(); }
+    if (ok) { toast('تم حفظ النسخة على هذا الجهاز'); await loadAll(); screenBackup(); }
   });
   view().querySelectorAll('[data-restore]').forEach(b => b.addEventListener('click', () => restoreBackup(parseInt(b.dataset.restore, 10))));
   view().querySelectorAll('[data-dl]').forEach(b => b.addEventListener('click', () => {
@@ -2690,8 +2729,9 @@ function exportCsv() {
 }
 
 /* ===== تفقد الحلال وإحصائيات ===== */
-let inspectTab = 'stats';
+let inspectTab = 'smart';
 let inspType = '';   // نوع الحلال المعروض في الإحصائيات (كل نوع مستقلّ)
+let entryLogType = '';   // نوع الحلال المعروض في سجل الدخول ('' = كل الأنواع معاً)
 let lineageMode = 'flat';   // عرض الأنساب: قائمة (الأم ← مواليدها) أو شجرة متعدّدة الأجيال
 let afSex = 'male', afSrc = 'born', afCmp = 'gt', afMonths = 3;   // كشف بالعمر (الجنس/المصدر/المقارنة/الأشهر)
 const codeNumOf = (a) => { const m = String(a.code || '').match(/(\d+)/); return m ? parseInt(m[1], 10) : null; };
@@ -2699,7 +2739,7 @@ const aMini = (a) => `<div class="card click" data-aid="${a.id}" style="margin:6
 function screenInspect() {
   if (!can('animals', 'view')) { view().innerHTML = noPerm(); return; }
   const tabs = [
-    { k: 'stats', ar: '📊 إحصائيات' }, { k: 'index', ar: '🔢 فهرس' }, { k: 'dups', ar: '♻ تكرار الأرقام' },
+    { k: 'smart', ar: '🧠 تحليل ذكي' }, { k: 'entrylog', ar: '📜 سجل الدخول' }, { k: 'stats', ar: '📊 إحصائيات' }, { k: 'index', ar: '🔢 فهرس' }, { k: 'dups', ar: '♻ تكرار الأرقام' },
     { k: 'offspring', ar: '👶 الإنتاج' }, { k: 'agefilter', ar: '🔎 كشف بالعمر' }, { k: 'lineage', ar: '👪 الأنساب' }, { k: 'twins', ar: '👯 التوائم' }, { k: 'gaps', ar: '⚠️ نواقص' },
   ];
   view().innerHTML = `<div class="chips">${tabs.map(t => `<span class="chip ${inspectTab === t.k ? 'active' : ''}" data-it="${t.k}">${t.ar}</span>`).join('')}</div><div id="inspBody"></div>`;
@@ -2710,6 +2750,64 @@ function renderInspect() {
   const body = document.getElementById('inspBody');
   const A = C.animals;
   const present = A.filter(a => a.status === 'present');
+  if (inspectTab === 'smart') {
+    // تحليل ذكي: يفكّك رقم «في الحظيرة» بالرئيسية ويوضّح سبب اختلافه عن عدد قائمة «الحلال»
+    const counted = present.filter(inHerdCount);
+    const notCounted = present.filter(a => !inHerdCount(a));
+    const reasonOf = (a) => {
+      if (a.counted === false) return 'manual';
+      if (a.sex === 'male') {
+        const stillYoung = a.source === 'born' && a.birth && pubertyOf(a.type) && ageMonths(a.birth) < pubertyOf(a.type);
+        if (a.purpose === 'sire' && !stillYoung) return 'sire';
+        if (!countIncludeMales()) return 'male';
+      }
+      return 'young';
+    };
+    const reasons = { manual: 0, sire: 0, male: 0, young: 0 };
+    notCounted.forEach(a => { reasons[reasonOf(a)]++; });
+    const sold = A.filter(a => a.status === 'sold').length, dead = A.filter(a => a.status === 'dead').length;
+    const given = A.filter(a => a.status === 'given').length, missing = A.filter(a => a.status === 'missing').length, slaughtered = A.filter(a => a.status === 'slaughtered').length;
+    const byType = TYPES.map(t => {
+      const pt = present.filter(a => a.type === t.k);
+      if (!pt.length) return null;
+      const ct = pt.filter(inHerdCount).length;
+      return { t, total: pt.length, counted: ct };
+    }).filter(Boolean);
+    body.innerHTML = `
+      <div class="muted" style="margin:4px 0 8px">يوضّح هذا التحليل مصدر كل رقم، ولماذا قد يختلف عدد «في الحظيرة» بالرئيسية عن «العدد» أعلى قائمة الحلال.</div>
+      <div class="card"><h3>🟢 في الحظيرة (رقم الرئيسية)</h3>
+        <div class="stats" style="grid-template-columns:1fr 1fr">
+          <div class="stat green"><div class="n">${counted.length}</div><div class="l">محتسَبة الآن</div></div>
+          <div class="stat"><div class="n">${notCounted.length}</div><div class="l">موجودة وغير محتسَبة</div></div>
+        </div>
+        ${row('إجمالي الموجود حالياً (كل الحالة present)', String(present.length))}</div>
+      ${notCounted.length ? `<div class="card"><h3>❓ لماذا لا تُحتسب هذه الـ${notCounted.length}؟</h3>
+        ${reasons.young ? row('👶 صغار لسّه تتبع أمّها (لم تبلغ عمر الاحتساب)', String(reasons.young)) : ''}
+        ${reasons.male ? row('♂ ذكور مستبعدة (إعداد «احتساب الذكور» مطفأ)', String(reasons.male)) : ''}
+        ${reasons.sire ? row('🐏 فحول مستبعدة (إعداد «احتساب الفحول» مطفأ)', String(reasons.sire)) : ''}
+        ${reasons.manual ? row('✋ استُبعدت يدوياً من سجل البهيمة', String(reasons.manual)) : ''}
+        <div class="muted" style="font-size:.8rem;margin-top:6px">تظهر هذه البهائم في قائمة «الحلال» ما لم تُخفِها من الإعدادات (احتساب الذكور/الفحول أو إظهار المواليد غير المحتسَبة).</div></div>` : ''}
+      <div class="card"><h3>📋 لماذا يختلف «العدد» أعلى قائمة الحلال؟</h3>
+        <div class="muted" style="font-size:.85rem">قائمة الحلال تعرض حسب المرشّحات المحدَّدة فيها فقط (نوع/حالة/مصدر/جنس) — قد تشمل مباعة أو نافقة أو غيرها معاً، وقد تُظهر الصغار غير المحتسَبة. لذا «العدد» هناك ليس بالضرورة مطابقاً لعدد «في الحظيرة» بالرئيسية، وهذا طبيعي وليس خطأً.</div></div>
+      ${byType.length ? `<div class="card"><h3>حسب النوع</h3>${byType.map(x => row(esc(x.t.ar), `${x.counted} محتسَب من أصل ${x.total} موجود`)).join('')}</div>` : ''}
+      <div class="card"><h3>خارج الحظيرة حالياً</h3>
+        ${row('مباعة', String(sold))}${row('نافقة', String(dead))}${given ? row('🎁 اهداء', String(given)) : ''}${missing ? row('🔎 مفقودة', String(missing)) : ''}${slaughtered ? row('🔪 ذُبحت', String(slaughtered)) : ''}
+        ${row('إجمالي كل السجلات (كل الحالات، كل الوقت)', String(A.length))}</div>`;
+    return;
+  }
+  if (inspectTab === 'entrylog') {
+    // سجل دخول الحلال: تسلسل دخول كل بهيمة (الأقدم أولاً) مع مصدرها (ولادة/شراء/اهداء) — الصورة الكاملة لأصل الحلال
+    const typeChips = `<div class="chips"><span class="chip ${!entryLogType ? 'active' : ''}" data-etype="">الكل</span>${TYPES.map(t => `<span class="chip ${entryLogType === t.k ? 'active' : ''}" data-etype="${t.k}">${t.ar}</span>`).join('')}</div>`;
+    const scoped = entryLogType ? A.filter(a => a.type === entryLogType) : A.slice();
+    const arr = scoped.slice().sort((x, y) => (x.created_at || '').localeCompare(y.created_at || '') || x.id - y.id);
+    const srcIcon = { born: '👶 ولادة', purchased: '🛒 شراء', gift: '🎁 اهداء' };
+    body.innerHTML = typeChips
+      + `<div class="muted" style="margin:4px 0 8px">تسلسل دخول ${arr.length} بهيمة للحلال — من الأقدم للأحدث دخولاً، مع مصدر كل واحدة، لتعرف أصل حلالك كاملاً.</div>`
+      + (arr.length ? arr.map((a, i) => `<div class="card click" data-aid="${a.id}"><div class="li-title">${i + 1}. ${display(a)}</div><div class="li-sub">${srcIcon[a.source || 'purchased'] || '—'} • ${arOf(TYPES, a.type)} • ${esc(sexTerm(a))}${a.birth ? ' • ' + fmtDate(a.birth) : ''}${a.status !== 'present' ? ' • ' + arOf(STATUS, a.status) : ''}</div></div>`).join('') : noItem());
+    body.querySelectorAll('[data-etype]').forEach(c => c.addEventListener('click', () => { entryLogType = c.dataset.etype; renderInspect(); }));
+    bindCards(body);
+    return;
+  }
   if (inspectTab === 'stats') {
     const TK = inspType || (TYPES[0] && TYPES[0].k) || '';
     const typeChips = `<div class="chips">${TYPES.map(t => `<span class="chip ${TK === t.k ? 'active' : ''}" data-itype="${t.k}">${t.ar}</span>`).join('')}</div>`;
