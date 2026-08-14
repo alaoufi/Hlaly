@@ -2611,16 +2611,58 @@ function snapshot() {
     vaccineTypes: C.vaccineTypes, vaccinations: C.vaccinations, treatments: C.treatments,
   };
 }
+// حزمة التطبيق الحقيقية (Capacitor appId) — لعرض المسار الفعلي لملفات النسخ الاحتياطية على الجهاز فقط
+const ANDROID_APP_ID = 'me.alaoufi.mrahi';
+// نسخ احتياطية كملفات JSON فعلية على الجهاز (مجلد Documents الخاص بالتطبيق) — متاحة فقط داخل تطبيق أندرويد (Capacitor)، لا في متصفح عادي
+const BACKUP_DIR = 'mrahi-backups';
+function fsPlugin() { try { return (window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform() && window.Capacitor.Plugins && window.Capacitor.Plugins.Filesystem) || null; } catch (e) { return null; } }
+async function saveBackupFile(filename, jsonText) {
+  const fs = fsPlugin(); if (!fs) return false;
+  try { await fs.writeFile({ path: BACKUP_DIR + '/' + filename, directory: 'DOCUMENTS', data: jsonText, encoding: 'utf8', recursive: true }); return true; }
+  catch (e) { return false; }
+}
+async function listBackupFiles() {
+  const fs = fsPlugin(); if (!fs) return [];
+  try {
+    const res = await fs.readdir({ path: BACKUP_DIR, directory: 'DOCUMENTS' });
+    const entries = (res && res.files) || [];
+    const out = [];
+    for (const e of entries) {
+      const name = typeof e === 'string' ? e : e.name;
+      if (!name || !name.toLowerCase().endsWith('.json')) continue;
+      let mtime = (typeof e === 'object' && e.mtime) || null;
+      if (!mtime) { try { const st = await fs.stat({ path: BACKUP_DIR + '/' + name, directory: 'DOCUMENTS' }); mtime = st.mtime; } catch (e2) { /* تجاهل */ } }
+      out.push({ name, mtime });
+    }
+    out.sort((a, b) => (b.mtime || 0) - (a.mtime || 0));
+    return out;
+  } catch (e) { return []; }
+}
+async function readBackupFile(name) {
+  const fs = fsPlugin(); if (!fs) return null;
+  try { const r = await fs.readFile({ path: BACKUP_DIR + '/' + name, directory: 'DOCUMENTS', encoding: 'utf8' }); return typeof r.data === 'string' ? r.data : null; }
+  catch (e) { return null; }
+}
+async function deleteBackupFile(name) {
+  const fs = fsPlugin(); if (!fs) return false;
+  try { await fs.deleteFile({ path: BACKUP_DIR + '/' + name, directory: 'DOCUMENTS' }); return true; }
+  catch (e) { return false; }
+}
 function screenBackup() {
   if (!can('backup', 'view')) { view().innerHTML = noPerm(); return; }
   const counts = `${C.animals.length} بهيمة • ${C.births.length} ولادة • ${C.vaccinations.length} تطعيم • ${C.treatments.length} علاج`;
   const mine = C.backups.slice().sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+  const hasFs = !!fsPlugin();
   view().innerHTML = `
     <div class="card"><h3>سجل نسخي الاحتياطية</h3>
       <div class="muted">${counts}</div>
       <button class="btn" id="bk_save">➕ حفظ نسخة الآن</button>
-      <div class="muted" style="font-size:.82rem;margin-top:6px">📍 تُحفظ داخل قاعدة بيانات التطبيق على هذا الجهاز فقط — لا تُرفع لأي خادم ولا يراها أحد غيرك. إن مسحت التطبيق أو غيّرت الجهاز تُفقد هذه النسخ، لذا استخدم «مشاركة» بالأسفل لإرسالها (واتساب أو أي تطبيق آخر) أو حفظها خارج الجهاز.</div>
+      <div class="muted" style="font-size:.82rem;margin-top:6px">📍 ${hasFs ? 'تُحفظ نسخة داخل قاعدة بيانات التطبيق، ونسخة أخرى كملف حقيقي على الجهاز (انظر «📁 الملفات المحفوظة على الجهاز» أسفل) — كلاهما محلي فقط، لا يُرفع لأي خادم.' : 'تُحفظ داخل قاعدة بيانات التطبيق على هذا الجهاز فقط — لا تُرفع لأي خادم ولا يراها أحد غيرك.'} إن مسحت التطبيق أو غيّرت الجهاز تُفقد هذه النسخ، لذا استخدم «مشاركة» بالأسفل لإرسالها (واتساب أو أي تطبيق آخر) أو حفظها خارج الجهاز.</div>
     </div>
+    ${hasFs ? `<div class="card"><h3>📁 الملفات المحفوظة على الجهاز</h3>
+      <div class="muted" style="font-size:.82rem;margin-bottom:6px">ملف JSON مستقل لكل نسخة، بتاريخه، داخل مجلد التطبيق على الجهاز — تبقى حتى لو مسحت بيانات التطبيق (تُفقد فقط لو حذفت التطبيق نفسه). المسار الفعلي: <code>Android/data/${ANDROID_APP_ID}/files/Documents/${BACKUP_DIR}</code> — يمكن الوصول له أيضاً بتوصيل الجهاز بالحاسوب (USB).</div>
+      <div id="fsBackupList" class="muted">جارٍ التحميل…</div>
+    </div>` : ''}
     <div class="card"><h3>نسخي المحفوظة (${mine.length})</h3>
       ${mine.length ? mine.map(b => `<div class="card" style="margin:6px 0">
           <div class="li-title">${esc(b.label || 'نسخة')}</div>
@@ -2643,7 +2685,10 @@ function screenBackup() {
     const ok = await guard(async () => {
       await sb.from('mrahi_backups').insert({ label: label.trim(), payload: snap, animals_count: C.animals.length });
     });
-    if (ok) { toast('تم حفظ النسخة على هذا الجهاز'); await loadAll(); screenBackup(); }
+    if (ok) {
+      if (hasFs) await saveBackupFile('hlaly-backup-' + stamp() + '.json', JSON.stringify(snap, null, 2));
+      toast('تم حفظ النسخة على هذا الجهاز'); await loadAll(); screenBackup();
+    }
   });
   view().querySelectorAll('[data-restore]').forEach(b => b.addEventListener('click', () => restoreBackup(parseInt(b.dataset.restore, 10))));
   view().querySelectorAll('[data-dl]').forEach(b => b.addEventListener('click', () => {
@@ -2655,6 +2700,7 @@ function screenBackup() {
     const ok = await guard(async () => { await sb.from('mrahi_backups').delete().eq('id', parseInt(b.dataset.bdel, 10)); });
     if (ok) { toast('تم الحذف'); await loadAll(); screenBackup(); }
   }));
+  if (hasFs) refreshFsBackupList();
   document.getElementById('bk_json').addEventListener('click', exportJson);
   document.getElementById('bk_csv').addEventListener('click', exportCsv);
 }
@@ -2663,15 +2709,9 @@ function fmtDateTime(iso) {
   const d = new Date(iso);
   return d.toLocaleString('ar', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
 }
-/* استعادة نسخة: تتطلب صلاحيات تعديل على الأقسام لإعادة الكتابة */
-async function restoreBackup(id) {
-  const bk = C.backups.find(x => x.id === id);
-  if (!bk || !bk.payload) { toast('النسخة غير موجودة'); return; }
-  if (!isAdmin()) { toast('الاستعادة للمدير فقط (تستبدل بيانات المزرعة)'); return; }
-  if (isEditLocked()) { toast('🔒 الاستعادة مقفولة مؤقّتاً — افتحها من أيقونة ⋮ أعلى الشاشة'); return; }
-  if (!await confirm2('استعادة هذه النسخة ستستبدل بيانات المزرعة الحالية بالكامل. متابعة؟')) return;
-  const p = bk.payload;
-  const ok = await guard(async () => {
+// جوهر الاستعادة (مشترك بين الاستعادة من نسخة داخلية أو من ملف على الجهاز): يستبدل بيانات المزرعة بالكامل من p
+async function applyRestorePayload(p) {
+  return await guard(async () => {
     // حذف الحالي بترتيب يحترم المفاتيح الأجنبية
     for (const t of ['mrahi_treatments', 'mrahi_vaccinations', 'mrahi_births', 'mrahi_pregnancies', 'mrahi_matings', 'mrahi_vaccine_types']) {
       await sb.from(t).delete().neq('id', -1);
@@ -2699,6 +2739,49 @@ async function restoreBackup(id) {
     for (const vc of (p.vaccinations || [])) await dbInsert('vaccinations', remap(stripIds(vc, ['id']), { animal_id: idMap, type_id: vtMap }));
     for (const tr of (p.treatments || [])) await dbInsert('treatments', remap(stripIds(tr, ['id']), { animal_id: idMap }));
   });
+}
+/* استعادة نسخة داخلية: تتطلب صلاحيات تعديل على الأقسام لإعادة الكتابة */
+async function restoreBackup(id) {
+  const bk = C.backups.find(x => x.id === id);
+  if (!bk || !bk.payload) { toast('النسخة غير موجودة'); return; }
+  if (!isAdmin()) { toast('الاستعادة للمدير فقط (تستبدل بيانات المزرعة)'); return; }
+  if (isEditLocked()) { toast('🔒 الاستعادة مقفولة مؤقّتاً — افتحها من أيقونة ⋮ أعلى الشاشة'); return; }
+  if (!await confirm2('استعادة هذه النسخة ستستبدل بيانات المزرعة الحالية بالكامل. متابعة؟')) return;
+  const ok = await applyRestorePayload(bk.payload);
+  if (ok) { toast('تمت الاستعادة'); await loadAll(); setHash('#/home'); render(); }
+}
+// عرض/تحديث قائمة الملفات المحفوظة على الجهاز (تحت شاشة النسخ الاحتياطي)
+async function refreshFsBackupList() {
+  const box = document.getElementById('fsBackupList'); if (!box) return;
+  const files = await listBackupFiles();
+  box.innerHTML = files.length ? files.map(f => `<div class="card" style="margin:6px 0">
+      <div class="li-title">${esc(f.name)}</div>
+      <div class="li-sub">${f.mtime ? fmtDateTime(new Date(f.mtime).toISOString()) : '—'}</div>
+      <div class="btn-row" style="margin-top:6px">
+        <button class="btn sm" data-fsrestore="${esc(f.name)}">استعادة</button>
+        <button class="btn sm outline" data-fsshare="${esc(f.name)}">📤 مشاركة</button>
+        <button class="btn sm danger" data-fsdel="${esc(f.name)}">حذف</button>
+      </div></div>`).join('') : '<div class="muted">لا توجد ملفات محفوظة بعد.</div>';
+  box.querySelectorAll('[data-fsrestore]').forEach(b => b.addEventListener('click', () => restoreFromFsFile(b.dataset.fsrestore)));
+  box.querySelectorAll('[data-fsshare]').forEach(b => b.addEventListener('click', async () => {
+    const txt = await readBackupFile(b.dataset.fsshare);
+    if (txt) shareOrDownload(b.dataset.fsshare, txt, 'application/json'); else toast('تعذّرت قراءة الملف');
+  }));
+  box.querySelectorAll('[data-fsdel]').forEach(b => b.addEventListener('click', async () => {
+    if (!await confirm2('حذف هذا الملف نهائياً من الجهاز؟ لا يمكن التراجع عن هذا الإجراء.', { danger: true })) return;
+    const ok = await deleteBackupFile(b.dataset.fsdel);
+    if (ok) { toast('تم حذف الملف'); refreshFsBackupList(); } else toast('تعذّر الحذف');
+  }));
+}
+// استعادة من ملف محفوظ على الجهاز
+async function restoreFromFsFile(name) {
+  if (!isAdmin()) { toast('الاستعادة للمدير فقط (تستبدل بيانات المزرعة)'); return; }
+  if (isEditLocked()) { toast('🔒 الاستعادة مقفولة مؤقّتاً — افتحها من أيقونة ⋮ أعلى الشاشة'); return; }
+  const txt = await readBackupFile(name);
+  if (!txt) { toast('تعذّرت قراءة الملف'); return; }
+  let p; try { p = JSON.parse(txt); } catch (e) { toast('ملف تالف أو غير صالح'); return; }
+  if (!await confirm2('استعادة هذا الملف ستستبدل بيانات المزرعة الحالية بالكامل. متابعة؟', { danger: true })) return;
+  const ok = await applyRestorePayload(p);
   if (ok) { toast('تمت الاستعادة'); await loadAll(); setHash('#/home'); render(); }
 }
 function stripIds(obj, keys) {
