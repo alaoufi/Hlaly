@@ -152,6 +152,32 @@ function fAnimalSelect(label, id, selectedId, list, blank = '— اختر —') 
   const opts = `<option value="">${blank}</option>` + list.map(a => `<option value="${a.id}" ${a.id === selectedId ? 'selected' : ''}>${esc(a.code || '—')}${a.name ? ' • ' + esc(a.name) : ''}</option>`).join('');
   return `<div class="field"><label>${label}</label><select id="${id}">${opts}</select></div>`;
 }
+// فحول الحظيرة الموجودة حالياً — تُستخدم لملء حقل الفحل تلقائياً في التلقيح/الولادة (يبقى الحقل نصّاً حرّاً لتلقيح من خارج الحظيرة)
+const siresList = () => C.animals.filter(a => a.sex === 'male' && a.purpose === 'sire' && a.status === 'present');
+function sireSelectHtml(id) {
+  const sires = siresList();
+  if (!sires.length) return '';
+  const opts = '<option value="">— اختر فحلاً من الحظيرة (أو اترك فارغاً واكتب يدوياً لتلقيح خارجي) —</option>' + sires.map(s => `<option value="${s.id}">${display(s)}</option>`).join('');
+  return `<div class="field"><select id="${id}">${opts}</select></div>`;
+}
+// عند اختيار فحل من القائمة: يملأ حقلي رقم/اسم الفحل تلقائياً (تبقى قابلة للتعديل اليدوي)
+function bindSireSelect(selectId, codeId, nameId) {
+  const el = document.getElementById(selectId); if (!el) return;
+  el.addEventListener('change', () => {
+    const sid = parseInt(el.value, 10); if (!sid) return;
+    const s = animalById(sid); if (!s) return;
+    setVal(codeId, s.code || ''); setVal(nameId, s.name || '');
+  });
+}
+// نفس الفكرة لحقل «الأب / الفحل» الموحّد (حقل واحد بدل رقم/اسم منفصلين — يُستخدم في تسجيل الولادة)
+function bindSireSelectSingle(selectId, targetId) {
+  const el = document.getElementById(selectId); if (!el) return;
+  el.addEventListener('change', () => {
+    const sid = parseInt(el.value, 10); if (!sid) return;
+    const s = animalById(sid); if (!s) return;
+    setVal(targetId, (s.code || '') + (s.name ? ' - ' + s.name : ''));
+  });
+}
 const row = (k, v) => `<div class="row"><span class="k">${k}</span><span class="v">${v}</span></div>`;
 // صفّ سجل قابل للتعديل: عنوان + تفاصيل + زرّ تعديل صغير (للتلقيح/الحمل/التطعيمات/العلاجات)
 const editRow = (title, sub, attr, id) => `<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;padding:6px 0;border-bottom:1px solid #eee">
@@ -857,7 +883,7 @@ function animalCard(a) {
     <div class="li-sub">${arOf(TYPES, a.type)} • ${esc(sexTerm(a))}${a.sex === 'male' && a.purpose ? ' • ' + arOf(MALE_PURPOSE, a.purpose) : ''} • <span class="badge ${st}">${arOf(STATUS, a.status)}</span></div>
     ${a.pen ? `<div class="li-sub">🏠 ${esc(a.pen)}</div>` : ''}
     ${off ? `<div class="li-sub link" data-off="${a.id}">👶 المواليد: ${off} — عرض</div>` : ''}
-    ${mother ? `<div class="li-sub link" data-momopen="${a.mother_id}">🤱 الأم: ${display(mother)}</div>` : ''}
+    ${mother ? `<div class="li-sub link" data-momopen="${a.mother_id}">🤱 الأم: ${display(mother)}</div>` : (a.mother_name ? `<div class="li-sub">🤱 الأم: ${esc(a.mother_name)}</div>` : '')}
     ${a.status === 'present' && !inHerdCount(a) && can('animals', 'edit') ? `<div class="li-sub link" data-count="${a.id}" style="color:var(--green);font-weight:700">➕ احتسابها في الحظيرة (تتبع أمّها)</div>` : ''}</div>`;
 }
 function bindCards(root) {
@@ -1021,7 +1047,8 @@ function screenAnimalEdit(arg) {
       <div id="slaughterBox">${fInput('تاريخ الذبح', 'f_slaughterdate', a.slaughter_date, 'date')}</div>` : ''}</div>
     <div id="bornRows"></div>
     <div class="card"><h3>النسب</h3>
-      ${fAnimalSelect('الأم', 'f_mother', a && a.mother_id, females, '— بدون —')}
+      <div id="motherSelectBox">${fAnimalSelect('الأم', 'f_mother', a && a.mother_id, females, '— بدون —')}</div>
+      <div id="motherTextBox" style="display:none">${fInput('الأم (اسم/وصف — اختياري، من خارج الحظيرة)', 'f_mother_name', a && a.mother_name)}</div>
       ${fInput('الأب / الفحل (اسم أو رقم)', 'f_father', a && a.father_name)}</div>
     <div class="card"><h3>ملاحظات</h3>${fTextarea('ملاحظات', 'f_notes', a && a.notes)}</div>
     <button class="btn" id="saveBtn">حفظ</button>
@@ -1069,7 +1096,16 @@ function screenAnimalEdit(arg) {
     // ربط منطق نوع المعرّف وغرض الذكر لكل مولود على حدة (نفس منطق الحقول المشتركة)
     for (let i = 1; i <= n; i++) bindNewbornFieldSync('b', i);
   };
-  const syncSource = () => { const s = val('f_source'); const bb = document.getElementById('bcountBox'); if (bb) bb.style.display = s === 'born' ? '' : 'none'; const yb = document.getElementById('buypriceBox'); if (yb) yb.style.display = s === 'purchased' ? '' : 'none'; const wb = document.getElementById('withOffBox'); if (wb) wb.style.display = s === 'purchased' ? '' : 'none'; renderBornRows(); };
+  const syncSource = () => {
+    const s = val('f_source');
+    const bb = document.getElementById('bcountBox'); if (bb) bb.style.display = s === 'born' ? '' : 'none';
+    const yb = document.getElementById('buypriceBox'); if (yb) yb.style.display = s === 'purchased' ? '' : 'none';
+    const wb = document.getElementById('withOffBox'); if (wb) wb.style.display = s === 'purchased' ? '' : 'none';
+    // المشترى: أمّها غالباً من خارج الحظيرة — حقل نصّ حرّ بدل اختيار من القائمة
+    const msb = document.getElementById('motherSelectBox'); if (msb) msb.style.display = s === 'purchased' ? 'none' : '';
+    const mtb = document.getElementById('motherTextBox'); if (mtb) mtb.style.display = s === 'purchased' ? '' : 'none';
+    renderBornRows();
+  };
   document.getElementById('f_source').addEventListener('change', syncSource);
   document.getElementById('f_kind').addEventListener('change', syncKind);
   { const bc = document.getElementById('f_bcount'); if (bc) bc.addEventListener('input', renderBornRows); }
@@ -1079,14 +1115,19 @@ function screenAnimalEdit(arg) {
   document.getElementById('f_type').addEventListener('change', () => rebuildPen('f_pen', val('f_type')));   // حظائر النوع المحدّد فقط
   // إدخال صوتي ومسح بالكاميرا للحقول المناسبة (تظهر الأزرار فقط إن دعمها الجهاز)
   attachMic('f_code', { digits: true }); attachScan('f_code');
-  attachMic('f_name'); attachMic('f_color'); attachMic('f_father'); attachMic('f_notes', { append: true });
+  attachMic('f_name'); attachMic('f_color'); attachMic('f_father'); attachMic('f_mother_name'); attachMic('f_notes', { append: true });
   // نسخ بيانات آخر إدخال (للبهائم الجديدة فقط)
   { const cl = document.getElementById('cloneLast'); if (cl) cl.addEventListener('click', () => { const L = lastAnimal || {}; setVal('f_type', L.type); setVal('f_pen', L.pen); setVal('f_kind', L.idkind); setVal('f_sex', L.sex); setVal('f_source', L.source); setVal('f_color', L.color); setVal('f_tagcolor', L.tag_color || ''); setVal('f_tagshape', L.tag_shape || ''); setVal('f_father', L.father_name || ''); rebuildPen('f_pen', L.type || (animalFilter || 'sheep')); setVal('f_pen', L.pen || ''); syncKind(); toast('نُسخت بيانات آخر إدخال'); }); }
   document.getElementById('saveBtn').addEventListener('click', async () => {
     const code = val('f_code').trim(), name = val('f_name').trim();
     // المعرّف الخارجي اختياري — الرقم الداخلي الثابت يميّز البهيمة دائماً
     const status = a ? (val('f_status') || a.status || 'present') : 'present';   // الإضافة دائماً «موجودة»؛ الخروج (بيع/نفوق/اهداء) من الإجراء
-    const obj = { type: val('f_type'), pen: penValue('f_pen', val('f_type')), idkind: val('f_kind'), code, name, tag_color: val('f_tagcolor'), tag_shape: val('f_tagshape'), sex: val('f_sex'), purpose: val('f_sex') === 'male' ? val('f_purpose') : '', source: val('f_source'), designation: val('f_design'), buy_price: val('f_source') === 'purchased' && val('f_buyprice') !== '' ? parseFloat(val('f_buyprice')) : null, birth: val('f_birth') || null, color: val('f_color').trim(), status, mother_id: parseInt(val('f_mother'), 10) || null, father_name: val('f_father').trim(), notes: val('f_notes').trim(),
+    const isPurchased = val('f_source') === 'purchased';
+    const obj = { type: val('f_type'), pen: penValue('f_pen', val('f_type')), idkind: val('f_kind'), code, name, tag_color: val('f_tagcolor'), tag_shape: val('f_tagshape'), sex: val('f_sex'), purpose: val('f_sex') === 'male' ? val('f_purpose') : '', source: val('f_source'), designation: val('f_design'), buy_price: isPurchased && val('f_buyprice') !== '' ? parseFloat(val('f_buyprice')) : null, birth: val('f_birth') || null, color: val('f_color').trim(), status,
+      // المشترى: أمّها نصّ حرّ (من خارج الحظيرة) بدل ربطها بمعرّف بهيمة موجودة
+      mother_id: isPurchased ? null : (parseInt(val('f_mother'), 10) || null),
+      mother_name: isPurchased ? val('f_mother_name').trim() : '',
+      father_name: val('f_father').trim(), notes: val('f_notes').trim(),
       sale_date: status === 'sold' ? (val('f_saledate') || null) : null,
       sale_price: status === 'sold' && val('f_saleprice') !== '' ? parseFloat(val('f_saleprice')) : null,
       dead_date: status === 'dead' ? (val('f_deaddate') || null) : null,
@@ -1216,7 +1257,7 @@ function screenAnimalDetail(arg) {
   // ===== محتوى كل سجل =====
   const REC = {};
   REC.lineage = `<div class="card"><h3>🌳 النسب</h3>
-      ${row('الأم', mother ? display(mother) : '—')}
+      ${row('الأم', mother ? display(mother) : (esc(a.mother_name) || '—'))}
       ${row('الأب / الفحل', esc(a.father_name) || '—')}
       ${a.notes ? row('ملاحظات', esc(a.notes)) : ''}</div>
     <div class="card"><h3>👶 النتاج (${offspring.length})</h3>
@@ -1443,6 +1484,7 @@ function screenMating(arg) {
   view().innerHTML = `<div class="card"><h3>سجل التلقيح</h3>
     ${preset ? row('البهيمة', display(preset)) : fAnimalSelect('البهيمة (الأم)', 'm_animal', 0, females)}
     ${fInput('تاريخ التلقيح', 'm_date', todayStr(), 'date')}
+    ${sireSelectHtml('m_sireSel')}
     ${fInput('رقم الفحل', 'm_sireCode', '')}
     ${fInput('اسم الفحل', 'm_sireName', '')}
     ${fTextarea('ملاحظات', 'm_notes', '')}
@@ -1453,6 +1495,7 @@ function screenMating(arg) {
   const upd = () => { const a = preset || animalById(parseInt(val('m_animal'), 10)); const d = val('m_date'); hint.textContent = (a && d) ? `مدة الحمل: ${gestOf(a.type)} يوم → الولادة ${fmtDate(addDays(d, gestOf(a.type)))}` : ''; };
   ['m_date', 'm_animal'].forEach(i => { const el = document.getElementById(i); if (el) el.addEventListener('change', upd); });
   upd();
+  bindSireSelect('m_sireSel', 'm_sireCode', 'm_sireName');
   document.getElementById('m_save').addEventListener('click', async () => {
     const a = preset || animalById(parseInt(val('m_animal'), 10)); const d = val('m_date');
     if (!a) { toast('اختر البهيمة'); return; } if (!d) { toast('أدخل التاريخ'); return; }
@@ -1474,11 +1517,13 @@ function matingEditModal(m) {
   const allLinkedPregs = C.pregnancies.filter(p => p.mating_id === m.id);
   openModal('تعديل التلقيح', `
     ${fInput('تاريخ التلقيح', 'me_date', m.date, 'date')}
+    ${sireSelectHtml('me_sireSel')}
     ${fInput('رقم الفحل', 'me_sireCode', m.sire_code)}
     ${fInput('اسم الفحل', 'me_sireName', m.sire_name)}
     ${fTextarea('ملاحظات', 'me_notes', m.notes)}
     <button class="btn" id="me_save">حفظ التعديل</button>
     <button class="btn danger" id="me_del" style="margin-top:8px">🗑️ حذف التلقيح نهائياً</button>`, () => {
+    bindSireSelect('me_sireSel', 'me_sireCode', 'me_sireName');
     document.getElementById('me_save').addEventListener('click', async () => {
       const d = val('me_date'); if (!d) { toast('أدخل التاريخ'); return; }
       const msg = linkedPreg
@@ -1714,6 +1759,7 @@ function openBirthModal(preg) {
   openModal('تسجيل ولادة — ' + display(mother), `
     ${fInput('عدد المواليد', 'b_count', '1', 'number', 'min="1" inputmode="numeric"')}
     ${fInput('تاريخ الولادة', 'b_date', todayStr(), 'date')}
+    ${sireSelectHtml('b_sireSel')}
     ${fInput('الأب / الفحل', 'b_father', '')}
     <div id="bSingle">
       ${fSelect('الجنس', 'b_sex', SEX, 'female')}
@@ -1730,6 +1776,7 @@ function openBirthModal(preg) {
     ${fTextarea('ملاحظات', 'b_notes', '')}
     <button class="btn" id="b_save">حفظ الولادة</button>`, () => {
     let bom = 'none';
+    bindSireSelectSingle('b_sireSel', 'b_father');
     const syncBPurpose = () => { const pb = document.getElementById('b_purposeBox'); if (pb) pb.style.display = val('b_sex') === 'male' ? '' : 'none'; };
     { const bs = document.getElementById('b_sex'); if (bs) bs.addEventListener('change', syncBPurpose); } syncBPurpose();
     document.querySelectorAll('[data-bom]').forEach(c => c.addEventListener('click', () => {
@@ -2198,7 +2245,7 @@ async function shareAnimalCard(a) {
   if (a.tag_color || a.tag_shape) L.push('الوسم: ' + [a.tag_color, a.tag_shape].filter(Boolean).join(' / '));
   if (a.color) L.push('اللون: ' + a.color);
   if (a.birth) L.push('الميلاد: ' + fmtDate(a.birth) + (ageText(a.birth) ? ' (' + ageText(a.birth) + ')' : ''));
-  L.push('النسب: الأم ' + (mother ? display(mother) : '—') + ' • الأب ' + (a.father_name || '—'));
+  L.push('النسب: الأم ' + (mother ? display(mother) : (a.mother_name || '—')) + ' • الأب ' + (a.father_name || '—'));
   if (off) L.push('النتاج: ' + off + ' مولود');
   L.push('الحالة: ' + arOf(STATUS, a.status));
   if (a.notes) L.push('ملاحظات: ' + a.notes);
@@ -2868,7 +2915,7 @@ function exportJson() { const data = { exportedAt: new Date().toISOString(), ani
 function exportCsv() {
   const cell = s => { s = String(s == null ? '' : s); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
   const head = ['النوع', 'الحظيرة', 'المعرف', 'نوع المعرف', 'الاسم', 'الجنس', 'المصدر', 'تاريخ الميلاد', 'اللون', 'الحالة', 'تاريخ البيع', 'سعر البيع', 'تاريخ النفوق', 'رقم الأم', 'اسم الأب', 'ملاحظات'];
-  const rows = C.animals.map(a => [arOf(TYPES, a.type), a.pen, a.code, arOf(IDKIND, a.idkind), a.name, arOf(SEX, a.sex), arOf(SOURCE, a.source || 'purchased'), a.birth, a.color, arOf(STATUS, a.status), a.sale_date || '', a.sale_price != null ? a.sale_price : '', a.dead_date || '', a.mother_id ? (animalById(a.mother_id) || {}).code || '' : '', a.father_name, a.notes].map(cell).join(','));
+  const rows = C.animals.map(a => [arOf(TYPES, a.type), a.pen, a.code, arOf(IDKIND, a.idkind), a.name, arOf(SEX, a.sex), arOf(SOURCE, a.source || 'purchased'), a.birth, a.color, arOf(STATUS, a.status), a.sale_date || '', a.sale_price != null ? a.sale_price : '', a.dead_date || '', a.mother_id ? (animalById(a.mother_id) || {}).code || '' : (a.mother_name || ''), a.father_name, a.notes].map(cell).join(','));
   shareOrDownload('mrahi_animals_' + stamp() + '.csv', '﻿' + head.join(',') + '\n' + rows.join('\n'), 'text/csv');
 }
 
