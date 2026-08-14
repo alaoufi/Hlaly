@@ -968,9 +968,10 @@ const strOpts = (arr) => [{ k: '', ar: '— بدون —' }].concat(arr.map(s =>
 const colorDot = (name) => COLOR_HEX[name] ? `<span style="display:inline-block;width:11px;height:11px;border-radius:50%;background:${COLOR_HEX[name]};border:1px solid #bbb;vertical-align:middle;margin-inline-start:4px"></span>` : '';
 
 /* ===== الحظائر: مرتبطة بنوع الحلال، قائمة منسدلة قابلة للإدارة ===== */
-// كل حظيرة: { name, type } — type مفتاح نوع الحلال ('' = لأي نوع). تُخزَّن في mrahi_pens.
+// كل حظيرة: { name, type, parent } — type مفتاح نوع الحلال ('' = لأي نوع)، parent اسم حظيرة رئيسية إن كانت هذه فرعاً منها ('' = رئيسية). تُخزَّن في mrahi_pens.
+// التقسيم الهرمي بمستوى واحد فقط (رئيسية ← فروع) — يكفي لتقسيم حظيرة واحدة حسب الرعاية (ذكور/إناث صغار/حمل...) مع بقائها حظيرة واحدة منطقياً.
 function loadPens() {
-  return loadList('mrahi_pens').map(p => typeof p === 'string' ? { name: p.trim(), type: '' } : { name: String(p.name == null ? '' : p.name).trim(), type: p.type || '' }).filter(p => p.name);
+  return loadList('mrahi_pens').map(p => typeof p === 'string' ? { name: p.trim(), type: '', parent: '' } : { name: String(p.name == null ? '' : p.name).trim(), type: p.type || '', parent: String(p.parent || '').trim() }).filter(p => p.name);
 }
 function savePens(arr) { saveList('mrahi_pens', arr); }
 // تعبئة/ترقية القائمة من حظائر البهائم الموجودة مرّة واحدة (مع إسناد النوع)
@@ -978,7 +979,7 @@ function ensurePensSeeded() {
   let done = false; try { done = !!localStorage.getItem('mrahi_pens_seeded2'); } catch (e) { /* تجاهل */ }
   if (done) return;
   const l = loadPens();
-  (C.animals || []).forEach(a => { const nm = String(a.pen == null ? '' : a.pen).trim(); if (!nm) return; const tk = a.type || ''; const ex = l.find(p => p.name === nm); if (ex) { if (!ex.type && tk) ex.type = tk; } else l.push({ name: nm, type: tk }); });
+  (C.animals || []).forEach(a => { const nm = String(a.pen == null ? '' : a.pen).trim(); if (!nm) return; const tk = a.type || ''; const ex = l.find(p => p.name === nm); if (ex) { if (!ex.type && tk) ex.type = tk; } else l.push({ name: nm, type: tk, parent: '' }); });
   savePens(l);
   try { localStorage.setItem('mrahi_pens_seeded2', '1'); } catch (e) { /* تجاهل */ }
 }
@@ -987,7 +988,10 @@ function allPens() { ensurePensSeeded(); return loadPens(); }
 function pensForType(typeKey) {
   return allPens().filter(p => !p.type || p.type === typeKey).map(p => p.name).filter((p, i, a) => a.indexOf(p) === i).sort((a, b) => a.localeCompare(b, 'ar'));
 }
-function addPen(name, type) { name = String(name || '').trim(); if (!name) return; const l = loadPens(); if (!l.some(p => p.name === name)) { l.push({ name, type: type || '' }); savePens(l); } }
+function addPen(name, type, parent) { name = String(name || '').trim(); if (!name) return; const l = loadPens(); if (!l.some(p => p.name === name)) { l.push({ name, type: type || '', parent: parent || '' }); savePens(l); } }
+// الحظائر الرئيسية (بلا أب) لنوعٍ معيّن — تُستخدم كخيارات «تنتمي إلى» عند إنشاء فرع
+function rootPensForType(typeKey) { return allPens().filter(p => !p.parent && (!p.type || p.type === typeKey)); }
+function penChildren(name) { return allPens().filter(p => p.parent === name); }
 function penOptions(selected, typeKey) {
   const sel = String(selected == null ? '' : selected).trim(); const names = pensForType(typeKey || '');
   if (sel && !names.includes(sel)) names.unshift(sel);
@@ -3015,6 +3019,14 @@ function renderInspect() {
     const forSale = presentT.filter(a => a.sex === 'male' && a.purpose === 'sale').length;
     const pens = {}; presentT.forEach(a => { const p = a.pen || '— بلا حظيرة'; pens[p] = (pens[p] || 0) + 1; });
     const penList = Object.entries(pens).sort((x, y) => y[1] - x[1]);
+    // حظائر رئيسية مقسّمة لفروع (مثلاً حظيرة واحدة مقسّمة حسب الرعاية: ذكور/إناث صغار/حمل) — تُعرض كمربعات بإجمالي كل رئيسية مع فروعها
+    const penDefsT = allPens().filter(p => !p.type || p.type === TK);
+    const rootsWithKids = penDefsT.filter(p => !p.parent && penDefsT.some(c => c.parent === p.name));
+    const penTotal = (nm) => (pens[nm] || 0) + penDefsT.filter(c => c.parent === nm).reduce((s, c) => s + (pens[c.name] || 0), 0);
+    const hierBoxesHtml = rootsWithKids.length ? `<div class="card"><h3>🏠 حسب الحظيرة (رئيسية وفروعها)</h3>
+        <div class="stats" style="grid-template-columns:repeat(${Math.min(rootsWithKids.length, 3)},1fr)">${rootsWithKids.map(r => `<div class="stat"><div class="n">${penTotal(r.name)}</div><div class="l">${esc(r.name)}</div></div>`).join('')}</div>
+        ${rootsWithKids.map(r => `<div style="margin-top:10px">${row('🏠 ' + esc(r.name), penTotal(r.name) + ' (إجمالي)')}${penDefsT.filter(c => c.parent === r.name).sort((a, b) => a.name.localeCompare(b.name, 'ar')).map(c => row('↳ ' + esc(c.name), String(pens[c.name] || 0))).join('')}</div>`).join('')}
+      </div>` : '';
     const withBirth = presentT.filter(a => a.birth);
     const noBirth = presentT.length - withBirth.length;
     const young = withBirth.filter(a => ageMonths(a.birth) < 6).length;
@@ -3043,6 +3055,7 @@ function renderInspect() {
       <div class="card"><h3>📈 مؤشّرات الإنتاج</h3>${row('معدّل التوائم', twinRate + '%')}${row('متوسط المواليد لكل أم', avgOff)}${row('عدد الأمهات المنتِجة', damCount)}</div>
       <div class="card"><h3>⛔ تحت التحريم الآن</h3>${row('عدد البهائم', underNow)}</div>
       <div class="card"><h3>الحالة (${esc(arOf(TYPES, TK))})</h3>${row('في الحظيرة (محتسَب)', inHerdT)}${presentT.length !== inHerdT ? row('صغار تتبع أمّها (غير محتسَبة)', presentT.length - inHerdT) : ''}${row('مباعة', sold)}${row('نافقة', dead)}${row('الإجمالي', At.length)}</div>
+      ${hierBoxesHtml}
       <div class="card"><h3>حسب الحظيرة</h3>${penList.length ? penList.map(([p, n]) => row(p, n)).join('') : noItem()}</div>`;
     body.querySelectorAll('[data-itype]').forEach(c => c.addEventListener('click', () => { inspType = c.dataset.itype; renderInspect(); }));
     return;
@@ -3402,32 +3415,63 @@ function screenCountAge() {
 }
 function screenPens() {
   if (!can('animals', 'edit')) { view().innerHTML = noPerm(); return; }
-  const pens = allPens();   // [{name,type}]
+  const pens = allPens();   // [{name,type,parent}]
   const countFor = (nm) => (C.animals || []).filter(a => (a.pen || '') === nm).length;
+  const totalFor = (nm) => countFor(nm) + penChildren(nm).reduce((s, c) => s + countFor(c.name), 0);
   const typeAr = (tk) => tk ? arOf(TYPES, tk) : 'أي نوع';
   const groups = {}; pens.forEach(p => { (groups[p.type || ''] = groups[p.type || ''] || []).push(p); });
   const typeSel = `<select id="np_type">${TYPES.map(t => `<option value="${t.k}">${t.ar}</option>`).join('')}<option value="">أي نوع</option></select>`;
+  const parentOptsHtml = (typeKey) => '<option value="">— حظيرة رئيسية (بلا أب) —</option>' + rootPensForType(typeKey).map(r => `<option value="${esc(r.name)}">فرع من: ${esc(r.name)}</option>`).join('');
+  const penRow = (p, isChild, total) => `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #eee${isChild ? ';padding-inline-start:22px' : ''}">
+      <span class="li-title" style="font-weight:600">${isChild ? '↳ ' : '🏠 '}${esc(p.name)} <span class="muted" style="font-weight:400;font-size:.8rem">(${total} بهيمة${total !== countFor(p.name) ? ' — إجمالي مع الفروع' : ''})</span></span>
+      <span style="display:flex;gap:6px"><button class="btn sm outline" data-penedit="${esc(p.name)}">تعديل</button><button class="btn sm danger" data-pendel="${esc(p.name)}">حذف</button></span></div>`;
   let body = '';
   TYPES.map(t => t.k).concat(['']).forEach(tk => {
     const arr = groups[tk]; if (!arr || !arr.length) return;
-    body += `<div class="card"><h3>🐑 ${esc(typeAr(tk))}</h3>` + arr.slice().sort((a, b) => a.name.localeCompare(b.name, 'ar')).map(p => `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #eee">
-        <span class="li-title" style="font-weight:600">🏠 ${esc(p.name)} <span class="muted" style="font-weight:400;font-size:.8rem">(${countFor(p.name)} بهيمة)</span></span>
-        <span style="display:flex;gap:6px"><button class="btn sm outline" data-penedit="${esc(p.name)}">تعديل</button><button class="btn sm danger" data-pendel="${esc(p.name)}">حذف</button></span></div>`).join('') + '</div>';
+    const roots = arr.filter(p => !p.parent).sort((a, b) => a.name.localeCompare(b.name, 'ar'));
+    const orphanBranches = arr.filter(p => p.parent && !arr.some(q => q.name === p.parent));   // أب من مجموعة أخرى أو محذوف — تُعرض مستقلة احتياطاً
+    let html = '';
+    roots.forEach(p => {
+      html += penRow(p, false, totalFor(p.name));
+      penChildren(p.name).filter(c => arr.includes(c)).sort((a, b) => a.name.localeCompare(b.name, 'ar')).forEach(c => { html += penRow(c, true, countFor(c.name)); });
+    });
+    orphanBranches.forEach(p => { html += penRow(p, false, countFor(p.name)); });
+    body += `<div class="card"><h3>🐑 ${esc(typeAr(tk))}</h3>${html}</div>`;
   });
-  view().innerHTML = `<div class="muted" style="margin-bottom:8px">حدّد نوع الحلال ثم اكتب اسم الحظيرة (شبك/حوش/حظيرة…). تظهر في الإدخال عند اختيار النوع، ولكل نوع حظائره.</div>
-    <div class="card"><h3>➕ إضافة حظيرة</h3><div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">${typeSel}<input id="np_name" placeholder="اسم الحظيرة" style="flex:1;min-width:140px"><button class="btn sm" id="np_add">إضافة</button></div></div>`
+  view().innerHTML = `<div class="muted" style="margin-bottom:8px">حدّد نوع الحلال ثم اكتب اسم الحظيرة. يمكن جعلها «فرعاً» من حظيرة رئيسية (مثلاً حظيرة واحدة مقسّمة حسب الرعاية: ذكور/إناث صغار/حمل) — يظهر مجموع الرئيسية مع فروعها.</div>
+    <div class="card"><h3>➕ إضافة حظيرة</h3>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">${typeSel}<input id="np_name" placeholder="اسم الحظيرة" style="flex:1;min-width:140px"></div>
+      <div class="field" style="margin-top:8px"><label>تنتمي إلى (اختياري)</label><select id="np_parent">${parentOptsHtml(TYPES[0] ? TYPES[0].k : '')}</select></div>
+      <button class="btn sm" id="np_add" style="margin-top:4px">إضافة</button></div>`
     + (body || '<div class="muted">لا توجد حظائر بعد — أضِف أول حظيرة.</div>');
-  document.getElementById('np_add').addEventListener('click', () => { const n = val('np_name').trim(); if (!n) { toast('اكتب اسم الحظيرة'); return; } if (allPens().some(p => p.name === n)) { toast('الاسم موجود مسبقاً'); return; } addPen(n, val('np_type')); toast('أُضيفت'); screenPens(); });
+  { const ts = document.getElementById('np_type'); if (ts) ts.addEventListener('change', () => { const ps = document.getElementById('np_parent'); if (ps) ps.innerHTML = parentOptsHtml(val('np_type')); }); }
+  document.getElementById('np_add').addEventListener('click', () => {
+    const n = val('np_name').trim(); if (!n) { toast('اكتب اسم الحظيرة'); return; }
+    if (allPens().some(p => p.name === n)) { toast('الاسم موجود مسبقاً'); return; }
+    addPen(n, val('np_type'), val('np_parent'));
+    toast('أُضيفت'); screenPens();
+  });
   view().querySelectorAll('[data-penedit]').forEach(b => b.addEventListener('click', () => penRenameModal(b.dataset.penedit)));
   view().querySelectorAll('[data-pendel]').forEach(b => b.addEventListener('click', () => penDelete(b.dataset.pendel)));
 }
 function penRenameModal(oldName) {
-  const cur = allPens().find(p => p.name === oldName) || { name: oldName, type: '' };
-  openModal('تعديل الحظيرة', `${fInput('الاسم', 'pe_name', oldName)}${fSelect('نوع الحلال', 'pe_type', TYPES, cur.type, 'أي نوع')}<div class="muted" style="font-size:.82rem;margin-bottom:6px">تغيير الاسم يُحدَّث في البهائم المسجّلة بهذه الحظيرة.</div><button class="btn" id="pe_save">حفظ</button>`, () => {
+  const cur = allPens().find(p => p.name === oldName) || { name: oldName, type: '', parent: '' };
+  const parentOptsHtml = (typeKey) => '<option value="">— حظيرة رئيسية (بلا أب) —</option>' + rootPensForType(typeKey).filter(r => r.name !== oldName).map(r => `<option value="${esc(r.name)}" ${r.name === cur.parent ? 'selected' : ''}>فرع من: ${esc(r.name)}</option>`).join('');
+  openModal('تعديل الحظيرة', `${fInput('الاسم', 'pe_name', oldName)}${fSelect('نوع الحلال', 'pe_type', TYPES, cur.type, 'أي نوع')}
+    <div class="field"><label>تنتمي إلى (اختياري)</label><select id="pe_parent">${parentOptsHtml(cur.type)}</select></div>
+    <div class="muted" style="font-size:.82rem;margin-bottom:6px">تغيير الاسم يُحدَّث في البهائم المسجّلة بهذه الحظيرة.</div><button class="btn" id="pe_save">حفظ</button>`, () => {
+    { const pt = document.getElementById('pe_type'); if (pt) pt.addEventListener('change', () => { const ps = document.getElementById('pe_parent'); if (ps) ps.innerHTML = parentOptsHtml(val('pe_type')); }); }
     document.getElementById('pe_save').addEventListener('click', async () => {
       const nn = val('pe_name').trim(); if (!nn) { toast('اكتب الاسم'); return; }
       const nt = val('pe_type');
-      const l = loadPens().map(p => p.name === oldName ? { name: nn, type: nt } : p);
+      const np = val('pe_parent');
+      if (np === oldName) { toast('لا يمكن أن تكون الحظيرة فرعاً من نفسها'); return; }
+      if (np && penChildren(oldName).length) { toast('لا يمكن جعلها فرعاً وهي نفسها تحوي فروعاً — أزل فروعها أولاً'); return; }
+      const l = loadPens().map(p => {
+        if (p.name === oldName) return { name: nn, type: nt, parent: np };
+        if (p.parent === oldName) return Object.assign({}, p, { parent: nn });   // تحديث اسم الأب في فروعها إن غُيّر الاسم
+        return p;
+      });
       savePens(l.filter((p, i, a) => a.findIndex(q => q.name === p.name) === i));
       let affected = [];
       if (nn !== oldName) {
@@ -3443,6 +3487,8 @@ function penRenameModal(oldName) {
 async function penDelete(name) {
   const used = (C.animals || []).filter(a => (a.pen || '') === name).length;
   if (used) { await confirm2(`لا يمكن حذف «${name}» — عليها ${used} بهيمة. انقل البهائم لحظيرة أخرى أو أخرِجها أولاً.`, { title: 'تعذّر الحذف', okText: 'حسناً' }); return; }
+  const kids = penChildren(name);
+  if (kids.length) { await confirm2(`لا يمكن حذف «${name}» — لديها ${kids.length} فرع (${kids.map(k => k.name).join('، ')}). احذف الفروع أولاً أو انقلها لحظيرة رئيسية أخرى.`, { title: 'تعذّر الحذف', okText: 'حسناً' }); return; }
   if (!await confirm2(`حذف «${name}» من القائمة؟`)) return;
   savePens(loadPens().filter(p => p.name !== name));
   toast('حُذفت'); screenPens();
