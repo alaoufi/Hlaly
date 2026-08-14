@@ -2721,7 +2721,7 @@ function screenBackup() {
       await sb.from('mrahi_backups').insert({ label: label.trim(), payload: snap, animals_count: C.animals.length });
     });
     if (ok) {
-      if (hasFs) await saveBackupFileSmart('hlaly-backup-' + stamp() + '.json', JSON.stringify(snap, null, 2));
+      if (hasFs) await saveBackupFileSmart('حلالي-نسخة-' + stamp() + '.json', JSON.stringify(snap, null, 2));
       toast('تم حفظ النسخة على هذا الجهاز'); await loadAll(); screenBackup();
     }
   });
