@@ -1,0 +1,14 @@
+{
+  "name": "mrahi-save-folder",
+  "version": "1.0.0",
+  "private": true,
+  "description": "إضافة كابسيتور محلية: اختيار مجلد دائم (SAF) على جهاز أندرويد وحفظ ملفات النسخ الاحتياطية فيه — لا يوجد غلاف JS/TS مُجمَّع، يُستخدم عبر window.Capacitor.Plugins.SaveFolder مباشرة (نفس نمط الإضافات الأخرى المستخدمة في هذا المشروع).",
+  "capacitor": {
+    "android": {
+      "src": "native"
+    }
+  },
+  "peerDependencies": {
+    "@capacitor/core": "^6.0.0"
+  }
+}

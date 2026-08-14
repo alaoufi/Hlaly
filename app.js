@@ -2648,19 +2648,54 @@ async function deleteBackupFile(name) {
   try { await fs.deleteFile({ path: BACKUP_DIR + '/' + name, directory: 'DOCUMENTS' }); return true; }
   catch (e) { return false; }
 }
+// اختيار مجلد دائم (SAF) لحفظ النسخ فيه — إضافة كابسيتور محلية (mrahi-save-folder)؛ يبقى الاختيار محفوظاً حتى يُغيَّر يدوياً
+function sfPlugin() { try { return (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.SaveFolder) || null; } catch (e) { return null; } }
+async function sfGetFolder() { const p = sfPlugin(); if (!p) return null; try { const r = await p.getFolder(); return (r && r.uri) ? r : null; } catch (e) { return null; } }
+// طبقة موحَّدة فوق مصدرَي الحفظ: المجلد المخصّص إن اختاره المستخدم، وإلا مجلد Documents الافتراضي داخل التطبيق
+async function saveBackupFileSmart(filename, jsonText) {
+  const sf = await sfGetFolder();
+  if (sf) { try { await sfPlugin().writeFile({ filename, data: jsonText }); return true; } catch (e) { return false; } }
+  return await saveBackupFile(filename, jsonText);
+}
+async function listBackupFilesSmart() {
+  const sf = await sfGetFolder();
+  if (sf) {
+    try {
+      const r = await sfPlugin().listFiles();
+      const arr = (r && r.files) || [];
+      return arr.map(f => ({ name: f.name, mtime: f.mtime })).sort((a, b) => (b.mtime || 0) - (a.mtime || 0));
+    } catch (e) { return []; }
+  }
+  return await listBackupFiles();
+}
+async function readBackupFileSmart(name) {
+  const sf = await sfGetFolder();
+  if (sf) { try { const r = await sfPlugin().readFile({ filename: name }); return (r && typeof r.data === 'string') ? r.data : null; } catch (e) { return null; } }
+  return await readBackupFile(name);
+}
+async function deleteBackupFileSmart(name) {
+  const sf = await sfGetFolder();
+  if (sf) { try { await sfPlugin().deleteFile({ filename: name }); return true; } catch (e) { return false; } }
+  return await deleteBackupFile(name);
+}
 function screenBackup() {
   if (!can('backup', 'view')) { view().innerHTML = noPerm(); return; }
   const counts = `${C.animals.length} بهيمة • ${C.births.length} ولادة • ${C.vaccinations.length} تطعيم • ${C.treatments.length} علاج`;
   const mine = C.backups.slice().sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
   const hasFs = !!fsPlugin();
+  const hasSf = !!sfPlugin();
   view().innerHTML = `
     <div class="card"><h3>سجل نسخي الاحتياطية</h3>
       <div class="muted">${counts}</div>
       <button class="btn" id="bk_save">➕ حفظ نسخة الآن</button>
-      <div class="muted" style="font-size:.82rem;margin-top:6px">📍 ${hasFs ? 'تُحفظ نسخة داخل قاعدة بيانات التطبيق، ونسخة أخرى كملف حقيقي على الجهاز (انظر «📁 الملفات المحفوظة على الجهاز» أسفل) — كلاهما محلي فقط، لا يُرفع لأي خادم.' : 'تُحفظ داخل قاعدة بيانات التطبيق على هذا الجهاز فقط — لا تُرفع لأي خادم ولا يراها أحد غيرك.'} إن مسحت التطبيق أو غيّرت الجهاز تُفقد هذه النسخ، لذا استخدم «مشاركة» بالأسفل لإرسالها (واتساب أو أي تطبيق آخر) أو حفظها خارج الجهاز.</div>
+      <div class="muted" style="font-size:.82rem;margin-top:6px">📍 ${hasFs ? 'تُحفظ نسخة داخل قاعدة بيانات التطبيق، ونسخة أخرى كملف حقيقي على الجهاز (انظر أسفل) — كلاهما محلي فقط، لا يُرفع لأي خادم.' : 'تُحفظ داخل قاعدة بيانات التطبيق على هذا الجهاز فقط — لا تُرفع لأي خادم ولا يراها أحد غيرك.'} إن مسحت التطبيق أو غيّرت الجهاز تُفقد هذه النسخ، لذا استخدم «مشاركة» بالأسفل لإرسالها (واتساب أو أي تطبيق آخر) أو حفظها خارج الجهاز.</div>
     </div>
     ${hasFs ? `<div class="card"><h3>📁 الملفات المحفوظة على الجهاز</h3>
-      <div class="muted" style="font-size:.82rem;margin-bottom:6px">ملف JSON مستقل لكل نسخة، بتاريخه، داخل مجلد التطبيق على الجهاز — تبقى حتى لو مسحت بيانات التطبيق (تُفقد فقط لو حذفت التطبيق نفسه). المسار الفعلي: <code>Android/data/${ANDROID_APP_ID}/files/Documents/${BACKUP_DIR}</code> — يمكن الوصول له أيضاً بتوصيل الجهاز بالحاسوب (USB).</div>
+      ${hasSf ? `<div id="sfPathInfo" class="muted" style="font-size:.82rem;margin-bottom:6px">جارٍ التحميل…</div>
+      <div class="btn-row" style="margin-bottom:10px">
+        <button class="btn sm outline" id="sf_pick">📂 تغيير مكان الحفظ...</button>
+        <button class="btn sm outline" id="sf_clear" style="display:none">↩️ استخدام المسار الافتراضي</button>
+      </div>` : `<div class="muted" style="font-size:.82rem;margin-bottom:6px">ملف JSON مستقل لكل نسخة، بتاريخه، داخل مجلد التطبيق على الجهاز. المسار الفعلي: <code>Android/data/${ANDROID_APP_ID}/files/Documents/${BACKUP_DIR}</code> — يمكن الوصول له أيضاً بتوصيل الجهاز بالحاسوب (USB).</div>`}
       <div id="fsBackupList" class="muted">جارٍ التحميل…</div>
     </div>` : ''}
     <div class="card"><h3>نسخي المحفوظة (${mine.length})</h3>
@@ -2686,7 +2721,7 @@ function screenBackup() {
       await sb.from('mrahi_backups').insert({ label: label.trim(), payload: snap, animals_count: C.animals.length });
     });
     if (ok) {
-      if (hasFs) await saveBackupFile('hlaly-backup-' + stamp() + '.json', JSON.stringify(snap, null, 2));
+      if (hasFs) await saveBackupFileSmart('hlaly-backup-' + stamp() + '.json', JSON.stringify(snap, null, 2));
       toast('تم حفظ النسخة على هذا الجهاز'); await loadAll(); screenBackup();
     }
   });
@@ -2700,9 +2735,35 @@ function screenBackup() {
     const ok = await guard(async () => { await sb.from('mrahi_backups').delete().eq('id', parseInt(b.dataset.bdel, 10)); });
     if (ok) { toast('تم الحذف'); await loadAll(); screenBackup(); }
   }));
-  if (hasFs) refreshFsBackupList();
+  if (hasFs) { refreshFsPathInfo(); refreshFsBackupList(); }
+  if (hasSf) {
+    document.getElementById('sf_pick').addEventListener('click', async () => {
+      try {
+        const r = await sfPlugin().pickFolder();
+        if (r && r.uri) { toast('تم اختيار مجلد الحفظ: ' + (r.name || '')); await refreshFsPathInfo(); await refreshFsBackupList(); }
+      } catch (e) { /* ألغى المستخدم الاختيار أو حدث خطأ — لا حاجة لرسالة */ }
+    });
+    document.getElementById('sf_clear').addEventListener('click', async () => {
+      if (!await confirm2('العودة للمسار الافتراضي داخل التطبيق؟ (لن يُحذف أي ملف — فقط يتوقّف استخدام المجلد المخصّص)')) return;
+      try { await sfPlugin().clearFolder(); } catch (e) {}
+      toast('تم استخدام المسار الافتراضي'); await refreshFsPathInfo(); await refreshFsBackupList();
+    });
+  }
   document.getElementById('bk_json').addEventListener('click', exportJson);
   document.getElementById('bk_csv').addEventListener('click', exportCsv);
+}
+// يعرض مكان الحفظ الحالي (مخصّص أو الافتراضي) ويُظهر/يُخفي زر «استخدام المسار الافتراضي»
+async function refreshFsPathInfo() {
+  const box = document.getElementById('sfPathInfo'); if (!box) return;
+  const sf = await sfGetFolder();
+  const clearBtn = document.getElementById('sf_clear');
+  if (sf) {
+    box.innerHTML = '📂 مكان الحفظ الحالي: <b>' + esc(sf.name || 'مجلد مخصّص') + '</b>';
+    if (clearBtn) clearBtn.style.display = '';
+  } else {
+    box.innerHTML = 'المسار الافتراضي: <code>Android/data/' + ANDROID_APP_ID + '/files/Documents/' + BACKUP_DIR + '</code> — اضغط «تغيير مكان الحفظ» لاختيار مجلد آخر (مثل مجلد Drive أو التنزيلات) تُحفظ فيه كل النسخ تلقائياً.';
+    if (clearBtn) clearBtn.style.display = 'none';
+  }
 }
 function fmtDateTime(iso) {
   if (!iso) return '—';
@@ -2753,7 +2814,7 @@ async function restoreBackup(id) {
 // عرض/تحديث قائمة الملفات المحفوظة على الجهاز (تحت شاشة النسخ الاحتياطي)
 async function refreshFsBackupList() {
   const box = document.getElementById('fsBackupList'); if (!box) return;
-  const files = await listBackupFiles();
+  const files = await listBackupFilesSmart();
   box.innerHTML = files.length ? files.map(f => `<div class="card" style="margin:6px 0">
       <div class="li-title">${esc(f.name)}</div>
       <div class="li-sub">${f.mtime ? fmtDateTime(new Date(f.mtime).toISOString()) : '—'}</div>
@@ -2764,12 +2825,12 @@ async function refreshFsBackupList() {
       </div></div>`).join('') : '<div class="muted">لا توجد ملفات محفوظة بعد.</div>';
   box.querySelectorAll('[data-fsrestore]').forEach(b => b.addEventListener('click', () => restoreFromFsFile(b.dataset.fsrestore)));
   box.querySelectorAll('[data-fsshare]').forEach(b => b.addEventListener('click', async () => {
-    const txt = await readBackupFile(b.dataset.fsshare);
+    const txt = await readBackupFileSmart(b.dataset.fsshare);
     if (txt) shareOrDownload(b.dataset.fsshare, txt, 'application/json'); else toast('تعذّرت قراءة الملف');
   }));
   box.querySelectorAll('[data-fsdel]').forEach(b => b.addEventListener('click', async () => {
     if (!await confirm2('حذف هذا الملف نهائياً من الجهاز؟ لا يمكن التراجع عن هذا الإجراء.', { danger: true })) return;
-    const ok = await deleteBackupFile(b.dataset.fsdel);
+    const ok = await deleteBackupFileSmart(b.dataset.fsdel);
     if (ok) { toast('تم حذف الملف'); refreshFsBackupList(); } else toast('تعذّر الحذف');
   }));
 }
@@ -2777,7 +2838,7 @@ async function refreshFsBackupList() {
 async function restoreFromFsFile(name) {
   if (!isAdmin()) { toast('الاستعادة للمدير فقط (تستبدل بيانات المزرعة)'); return; }
   if (isEditLocked()) { toast('🔒 الاستعادة مقفولة مؤقّتاً — افتحها من أيقونة ⋮ أعلى الشاشة'); return; }
-  const txt = await readBackupFile(name);
+  const txt = await readBackupFileSmart(name);
   if (!txt) { toast('تعذّرت قراءة الملف'); return; }
   let p; try { p = JSON.parse(txt); } catch (e) { toast('ملف تالف أو غير صالح'); return; }
   if (!await confirm2('استعادة هذا الملف ستستبدل بيانات المزرعة الحالية بالكامل. متابعة؟', { danger: true })) return;
