@@ -33,10 +33,17 @@
   }
 
   // فتح صفحة تنزيل APK في متصفّح النظام (يُثبَّت فوق الحالي ويحفظ البيانات)
+  // ملاحظة: window.open('_system') غير موثوق داخل WebView كابسيتور (لا يوجد إضافة تتولّاه) وقد يتوقّف التنزيل أو لا يبدأ أصلاً.
+  // نقر رابط <a target="_blank"> حقيقي هو ما يعترضه WebViewClient الافتراضي بثقة ويسلّمه لمتصفّح النظام (بمدير تنزيل قادر على الاستئناف).
   function openDownload() {
     var u = latestUrl || APK_URL;   // النسخة المرقّمة إن توفّرت، وإلا الرابط الثابت
-    try { window.open(u, '_system'); }
-    catch (e) { try { window.open(u, '_blank'); } catch (_) {} }
+    try {
+      var a = document.createElement('a');
+      a.href = u; a.target = '_blank'; a.rel = 'noopener';
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    } catch (e) {
+      try { window.open(u, '_blank'); } catch (_) {}
+    }
   }
   window.mrahiOpenDownload = openDownload;
 
