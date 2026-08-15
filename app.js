@@ -72,11 +72,23 @@ function daysUntil(d) { if (!d) return null; return Math.round((new Date(d + 'T0
 // عمر تقريبي نصّي من تاريخ الميلاد (سنة/شهر)
 function ageMonths(birth) { if (!birth) return null; const b = new Date(birth + 'T00:00:00'), n = new Date(todayStr() + 'T00:00:00'); let m = (n.getFullYear() - b.getFullYear()) * 12 + (n.getMonth() - b.getMonth()); if (n.getDate() < b.getDate()) m--; return m < 0 ? 0 : m; }
 function ageText(birth) { const m = ageMonths(birth); if (m == null) return null; const y = Math.floor(m / 12), mo = m % 12; if (y && mo) return `${y} سنة و${mo} شهر`; if (y) return `${y} سنة`; return `${mo} شهر`; }
-// عمر احتساب المولود في الحظيرة (لكل نوع، بالأشهر): أصغر منه «يتبع أمّه» ولا يُعدّ في «في الحظيرة» (لكن يبقى ظاهراً)
+// عمر حدّ البلوغ (احتساب المولود) في الحظيرة (لكل نوع، بالأشهر): أصغر منه «يتبع أمّه» ولا يُعدّ في «في الحظيرة» (لكن يبقى ظاهراً)
 function loadCountAge() { try { const v = JSON.parse(localStorage.getItem('mrahi_count_age')); return (v && typeof v === 'object') ? v : {}; } catch (e) { return {}; } }
 function saveCountAge(o) { try { localStorage.setItem('mrahi_count_age', JSON.stringify(o || {})); } catch (e) {} }
-// قاعدة الاحتساب لكل نوع: { age: أشهر, sex: 'both'|'male'|'female' } (تدعم القيمة القديمة كرقم)
-function countRuleFor(type) { const v = loadCountAge()[type]; if (v == null) return { mode: 'age', age: 0, sex: 'both' }; if (typeof v === 'number') { return { mode: 'age', age: v > 0 ? v : 0, sex: 'both' }; } const age = parseInt(v.age, 10); return { mode: v.mode === 'manual' ? 'manual' : 'age', age: age > 0 ? age : 0, sex: (v.sex === 'male' || v.sex === 'female') ? v.sex : 'both' }; }
+// قاعدة الاحتساب لكل نوع: { age: أشهر, sex: 'both'|'male'|'female', malePenId, femalePenId: حظيرة الوجهة عند بلوغ العمر (اختياري) } (تدعم القيمة القديمة كرقم)
+function countRuleFor(type) {
+  const v = loadCountAge()[type];
+  if (v == null) return { mode: 'age', age: 0, sex: 'both', malePenId: null, femalePenId: null };
+  if (typeof v === 'number') return { mode: 'age', age: v > 0 ? v : 0, sex: 'both', malePenId: null, femalePenId: null };
+  const age = parseInt(v.age, 10);
+  return {
+    mode: v.mode === 'manual' ? 'manual' : 'age',
+    age: age > 0 ? age : 0,
+    sex: (v.sex === 'male' || v.sex === 'female') ? v.sex : 'both',
+    malePenId: v.malePenId != null ? v.malePenId : null,
+    femalePenId: v.femalePenId != null ? v.femalePenId : null,
+  };
+}
 // خيار عام: احتساب الذكور والفحول ضمن عدد الحظيرة (الافتراضي: نعم)
 function countIncludeMales() { try { return localStorage.getItem('mrahi_count_males') !== '0'; } catch (e) { return true; } }
 function countIncludeSires() { try { return localStorage.getItem('mrahi_count_sires') !== '0'; } catch (e) { return true; } }
@@ -706,7 +718,7 @@ const ROUTES = {
   terms: { t: 'مصطلحات الذكر والأنثى', back: true, fn: screenTerms },
   reminders: { t: 'تنبيهات مخصّصة', back: true, fn: screenReminders },
   pens: { t: 'الحظائر', back: true, fn: screenPens },
-  countage: { t: 'عمر احتساب المولود', back: true, fn: screenCountAge },
+  countage: { t: 'عمر حدّ البلوغ', back: true, fn: screenCountAge },
   herdsettings: { t: 'إعدادات الحظيرة', back: true, fn: screenHerdSettings },
   contacts: { t: 'دليل التواصل', back: true, fn: screenContacts },
   trash: { t: 'سلة المحذوفات', back: true, fn: screenTrash },
@@ -830,17 +842,41 @@ function tipDetailModal(item) {
     <div class="tip-detail">${esc(item.detail || item.brief)}</div>`);
 }
 
+// بهائم بلغت حظيرة الوجهة المُعدَّة لها (سواء ببلوغ عمر حدّ البلوغ، أو بضبط غرض الذكر «معدّ للبيع») ولم تُنقل إليها بعد —
+// اقتراح فقط يحتاج تأكيدك (زر «نقل الآن»)؛ لا نقل صامت. «تجاهل» يُسكِت الاقتراح لهذه الوجهة بعينها دون منع اقتراحات لاحقة.
+function penTransferCandidates() {
+  const out = [];
+  (C.animals || []).forEach(a => {
+    if (a.status !== 'present' || !a.type) return;
+    const r = countRuleFor(a.type);
+    const destId = a.sex === 'male' ? r.malePenId : (a.sex === 'female' ? r.femalePenId : null);
+    if (destId == null || a.pen_id === destId) return;
+    const ageReady = r.mode === 'age' && r.age > 0 && a.birth && ageMonths(a.birth) >= r.age;
+    const saleReady = a.sex === 'male' && a.purpose === 'sale';
+    if (!ageReady && !saleReady) return;
+    if (a.pen_transfer_skip === destId) return;   // جرى تجاهله لهذه الوجهة بعينها
+    out.push({ a, destId, reason: saleReady ? 'sale' : 'age' });
+  });
+  return out;
+}
 /* ===== التنبيهات ===== */
 function screenAlerts() {
   const births = upcomingBirths(), vaccs = upcomingVacc(), treats = activeTreatments(), doses = upcomingTreatDoses();
   const lowMeds = lowStockMeds(), expMeds = expiringMeds();
+  const transfers = can('animals', 'edit') ? penTransferCandidates() : [];
   const vtName = (id) => { const t = C.vaccineTypes.find(x => x.id === id); return t ? t.name : 'تطعيم'; };
   const medLine = (m) => { const dl = m.expiry ? daysUntil(m.expiry) : null; const ex = dl !== null && dl < 0; return row('💊 ' + esc(m.name), `${m.qty == null ? '' : esc(String(m.qty)) + ' ' + esc(m.unit || '')}${m.expiry ? ` • ${ex ? '⛔ منتهٍ' : 'ينتهي'} ${fmtDate(m.expiry)}` : ''}`); };
   const showMeds = can('treatments', 'view') && (lowMeds.length || expMeds.length);
   // تنبيهات مخصّصة أنشأها المستخدم (تُعرض أولاً)
   const rems = activeReminders().map(r => ({ r, mt: reminderMatches(r) })).filter(x => x.mt.length);
   const remCards = rems.map(({ r, mt }) => `<div class="card" style="background:#ede7f6"><h3>🔔 ${esc(r.title || 'تنبيه')} <span class="muted" style="font-weight:400">(${mt.length})</span></h3>${mt.map(a => `<div class="row click" data-goa="${a.id}"><span class="k">${display(a)}</span><span class="v">${esc(sexTerm(a))}${a.birth ? ' • ' + (ageText(a.birth) || '') : ''}${animalPenName(a) ? ' • 🏠 ' + esc(animalPenName(a)) : ''}</span></div>`).join('')}</div>`).join('');
-  view().innerHTML = remCards + `
+  const transferCard = transfers.length ? `<div class="card" style="background:#ede7f6"><h3>🔀 بهائم جاهزة للنقل لحظيرة (${transfers.length})</h3>${transfers.map(({ a, destId, reason }) => {
+    const destName = (penById(destId) || {}).name || '';
+    return `<div class="row" style="align-items:center;flex-wrap:wrap;gap:6px">
+      <span class="k click" data-goa="${a.id}">${display(a)} <span class="muted" style="font-weight:400;font-size:.78rem">${reason === 'sale' ? '💰 معدّ للبيع' : '🌱 بلغ عمر حدّ البلوغ'} → ${esc(destName)}</span></span>
+      <span style="display:flex;gap:6px"><button class="btn sm" data-pxgo="${a.id}|${destId}">🔀 نقل الآن</button><button class="btn sm outline" data-pxskip="${a.id}|${destId}">تجاهل</button></span></div>`;
+  }).join('')}</div>` : '';
+  view().innerHTML = remCards + transferCard + `
     <div class="card" style="background:#fff8e1"><h3>🤰 ولادة متوقعة خلال ٧ أيام</h3>${births.length ? births.map(p => row(display(animalById(p.animal_id)), `${fmtDate(p.expected)} • ${daysUntil(p.expected)} يوم`)).join('') : noItem()}</div>
     <div class="card" style="background:#ffebee"><h3>🚫 انتهاء مدة التحريم (علاجات جارية)</h3>${treats.length ? treats.map(t => row(display(animalById(t.animal_id)), `${esc(t.med_name || '')} • ينتهي ${fmtDate(t.withdrawal_end)} (بعد ${daysUntil(t.withdrawal_end)} يوم)`)).join('') : noItem()}</div>
     <div class="card" style="background:#e8f5e9"><h3>💊 جرعات علاج قادمة (١٤ يوماً)</h3>${doses.length ? doses.map(t => row(display(animalById(t.animal_id)), `${esc(t.med_name || '')} • ${fmtDate(t.next_due)} (بعد ${daysUntil(t.next_due)} يوم)`)).join('') : noItem()}</div>
@@ -848,12 +884,22 @@ function screenAlerts() {
     ${showMeds ? `<div class="card click" style="background:#fff3e0" data-go="#/medstock"><h3>📦 مخزون الأدوية واللقاحات (تنبيه)</h3>${lowMeds.length ? `<div class="li-title" style="color:#c62828">نفد/قارب النفاد (${lowMeds.length})</div>${lowMeds.map(medLine).join('')}` : ''}${expMeds.length ? `<div class="li-title" style="color:#e65100;margin-top:6px">قارب/منتهي الصلاحية (${expMeds.length})</div>${expMeds.map(medLine).join('')}` : ''}</div>` : ''}`;
   view().querySelectorAll('[data-go]').forEach(c => c.addEventListener('click', () => setHash(c.dataset.go)));
   view().querySelectorAll('[data-goa]').forEach(c => c.addEventListener('click', () => setHash('#/animal/' + c.dataset.goa)));
+  view().querySelectorAll('[data-pxgo]').forEach(b => b.addEventListener('click', async () => {
+    const [id, destId] = b.dataset.pxgo.split('|').map(n => parseInt(n, 10));
+    const ok = await guard(async () => { await dbUpdate('animals', id, { pen_id: destId, pen_transfer_skip: null }); });
+    if (ok) { toast('تم النقل'); await loadAll(); screenAlerts(); }
+  }));
+  view().querySelectorAll('[data-pxskip]').forEach(b => b.addEventListener('click', async () => {
+    const [id, destId] = b.dataset.pxskip.split('|').map(n => parseInt(n, 10));
+    const ok = await guard(async () => { await dbUpdate('animals', id, { pen_transfer_skip: destId }, true); });   // تجاهل الاقتراح ليس تعديلاً حقيقياً على بيانات البهيمة — لا يحتاج فتح قفل التعديل
+    if (ok) { toast('تم التجاهل'); await loadAll(); screenAlerts(); }
+  }));
 }
 
 /* ===== الحلال ===== */
 let animalFilter = '';
 function loadFilterArr(k, def) { try { const v = JSON.parse(localStorage.getItem(k)); return Array.isArray(v) ? v : def; } catch (e) { return def; } }
-function saveAnimalFilters() { try { localStorage.setItem('mrahi_f_status', JSON.stringify(animalStatusSel)); localStorage.setItem('mrahi_f_source', JSON.stringify(animalSourceSel)); localStorage.setItem('mrahi_f_sex', JSON.stringify(animalSexSel)); } catch (e) {} }
+function saveAnimalFilters() { try { localStorage.setItem('mrahi_f_status', JSON.stringify(animalStatusSel)); localStorage.setItem('mrahi_f_source', JSON.stringify(animalSourceSel)); localStorage.setItem('mrahi_f_sex', JSON.stringify(animalSexSel)); localStorage.setItem('mrahi_f_nopen', noPenOnly ? '1' : '0'); } catch (e) {} }
 function toggleSel(arr, v) { const i = arr.indexOf(v); if (i >= 0) arr.splice(i, 1); else arr.push(v); }
 // التبويب المختار في شاشة سجل البهيمة (البيانات/النسب/الإنجاب/المرضي/العلاجات/التطعيمات)
 let animalRecTab = 'basic';
@@ -864,6 +910,7 @@ const ALL_SEXES = ['male', 'female'];
 let animalStatusSel = loadFilterArr('mrahi_f_status', ['present']);   // 'present'|'sold'|'dead'|...
 let animalSourceSel = loadFilterArr('mrahi_f_source', ALL_SOURCES.slice());
 let animalSexSel = loadFilterArr('mrahi_f_sex', ALL_SEXES.slice());
+let noPenOnly = (() => { try { return localStorage.getItem('mrahi_f_nopen') === '1'; } catch (e) { return false; } })();
 // ترحيل لمرّة واحدة: قديماً كان تفريغ صفّ المصدر/الجنس يعني «الكل» ضمنياً؛ الآن يعني «لا شيء» صراحةً —
 // فإن كان المخزَّن سابقاً فارغاً (من السلوك القديم) نعيد تعبئته بـ«الكل» مرّة واحدة فقط، ثم يُحترَم تفريغه لاحقاً كما هو.
 function seedAnimalFiltersOnce() {
@@ -952,11 +999,12 @@ function screenAnimals() {
   const stChips = `<div class="chips"><span class="chip ${animalStatusSel.includes('present') ? 'active' : ''}" data-s="present">${cb(animalStatusSel.includes('present'))}في الحظيرة</span><span class="chip ${animalStatusSel.includes('sold') ? 'active' : ''}" data-s="sold">${cb(animalStatusSel.includes('sold'))}مباعة</span><span class="chip ${animalStatusSel.includes('dead') ? 'active' : ''}" data-s="dead">${cb(animalStatusSel.includes('dead'))}نافقة</span><span class="chip ${animalStatusSel.includes('given') ? 'active' : ''}" data-s="given">${cb(animalStatusSel.includes('given'))}🎁 اهداء</span><span class="chip ${animalStatusSel.includes('missing') ? 'active' : ''}" data-s="missing">${cb(animalStatusSel.includes('missing'))}🔎 مفقودة</span><span class="chip ${animalStatusSel.includes('slaughtered') ? 'active' : ''}" data-s="slaughtered">${cb(animalStatusSel.includes('slaughtered'))}🔪 ذُبحت</span></div>`;
   const srcChips = `<div class="chips"><span class="chip ${animalSourceSel.includes('born') ? 'active' : ''}" data-src="born">${cb(animalSourceSel.includes('born'))}👶 مواليد</span><span class="chip ${animalSourceSel.includes('purchased') ? 'active' : ''}" data-src="purchased">${cb(animalSourceSel.includes('purchased'))}🛒 شراء</span><span class="chip ${animalSourceSel.includes('gift') ? 'active' : ''}" data-src="gift">${cb(animalSourceSel.includes('gift'))}🎁 اهداء</span><span class="chip ${animalSourceSel.includes('sale') ? 'active' : ''}" data-src="sale">${cb(animalSourceSel.includes('sale'))}💰 للبيع (المعدّ للبيع)</span></div>`;
   const sexChips = `<div class="chips">${SEX.map(s => `<span class="chip ${animalSexSel.includes(s.k) ? 'active' : ''}" data-sex="${s.k}">${cb(animalSexSel.includes(s.k))}${s.k === 'male' ? '♂ ' : '♀ '}${s.ar}</span>`).join('')}</div>`;
+  const penChip = `<div class="chips"><span class="chip ${noPenOnly ? 'active' : ''}" data-nopen="1">${cb(noPenOnly)}🏠 بدون حظيرة فقط</span></div>`;
   // إخفاء الذكور/الفحول من صفحة الحلال إن أُوقف احتسابهم (يبقون في صفحة الفحول ويظهرون عند تحديد مرشّح «ذكر»)
   const hideMale = (a) => a.status === 'present' && a.sex === 'male' && !animalSexSel.includes('male') && (a.purpose === 'sire' ? !countIncludeSires() : !countIncludeMales());
   // إخفاء المولود غير المحتسَب (يتبع أمّه) من القائمة كلياً إن أُوقف خيار «إظهار المواليد غير المحتسَبة»
   const hideUncounted = (a) => a.status === 'present' && !showUncountedInList() && !inHerdCount(a);
-  const list = sortAnimals(C.animals.filter(a => (!animalFilter || a.type === animalFilter) && animalStatusSel.includes(a.status) && animalSourceSel.some(s => s === 'sale' ? (a.designation === 'sale' || a.purpose === 'sale') : (a.source || 'purchased') === s) && animalSexSel.includes(a.sex) && !hideMale(a) && !hideUncounted(a) && (!onlyRealNewborn || (a.source === 'born' && !inHerdCount(a)))));
+  const list = sortAnimals(C.animals.filter(a => (!animalFilter || a.type === animalFilter) && animalStatusSel.includes(a.status) && animalSourceSel.some(s => s === 'sale' ? (a.designation === 'sale' || a.purpose === 'sale') : (a.source || 'purchased') === s) && animalSexSel.includes(a.sex) && !hideMale(a) && !hideUncounted(a) && (!onlyRealNewborn || (a.source === 'born' && !inHerdCount(a))) && (!noPenOnly || a.pen_id == null)));
   const canEdit = can('animals', 'edit');
   // عند خلو الحلال كلياً: حالة ترحيبية بزرّ إضافة واضح. وعند خلو التصنيف فقط: رسالة عادية.
   const empty = C.animals.length === 0
@@ -978,11 +1026,12 @@ function screenAnimals() {
     const other = list.filter(a => !known.has(a.type));
     if (other.length) listHtml += `<div class="li-title" style="margin:12px 2px 6px">أخرى (${other.length})</div>` + other.map(animalCard).join('');
   } else { listHtml = list.map(animalCard).join(''); }
-  view().innerHTML = chips + stChips + srcChips + sexChips + countRow + (list.length ? listHtml : empty);
+  view().innerHTML = chips + stChips + srcChips + sexChips + penChip + countRow + (list.length ? listHtml : empty);
   view().querySelectorAll('[data-f]').forEach(c => c.addEventListener('click', () => { animalFilter = c.dataset.f; screenAnimals(); }));
   view().querySelectorAll('[data-s]').forEach(c => c.addEventListener('click', () => { const v = c.dataset.s; if (v === '') animalStatusSel = []; else toggleSel(animalStatusSel, v); saveAnimalFilters(); screenAnimals(); }));
   view().querySelectorAll('[data-src]').forEach(c => c.addEventListener('click', () => { const v = c.dataset.src; if (v === '') animalSourceSel = []; else toggleSel(animalSourceSel, v); saveAnimalFilters(); screenAnimals(); }));
   view().querySelectorAll('[data-sex]').forEach(c => c.addEventListener('click', () => { const v = c.dataset.sex; if (v === '') animalSexSel = []; else toggleSel(animalSexSel, v); saveAnimalFilters(); screenAnimals(); }));
+  view().querySelectorAll('[data-nopen]').forEach(c => c.addEventListener('click', () => { noPenOnly = !noPenOnly; saveAnimalFilters(); screenAnimals(); }));
   bindCards(view());
   { const af = document.getElementById('add_first'); if (af) af.addEventListener('click', () => setHash('#/animal-edit/0')); }
   { const bb = document.getElementById('bulkAddBtn'); if (bb) bb.addEventListener('click', () => setHash('#/bulk/buy')); }
@@ -1007,7 +1056,7 @@ const colorDot = (name) => COLOR_HEX[name] ? `<span style="display:inline-block;
 // البهائم تربط بالحظيرة عبر pen_id (رقم) لا بالاسم — لذا أي تعديل على اسم الحظيرة يظهر فوراً في كل مكان دون أي عملية تحديث جماعي.
 // التقسيم الهرمي بمستوى واحد فقط (رئيسية ← فروع) — يكفي لتقسيم حظيرة واحدة حسب الرعاية (ذكور/إناث صغار/حمل...) مع بقائها حظيرة واحدة منطقياً.
 function loadPens() {
-  return loadList('mrahi_pens').filter(p => p && p.id != null).map(p => ({ id: p.id, name: String(p.name == null ? '' : p.name).trim(), type: p.type || '', parentId: p.parentId != null ? p.parentId : null })).filter(p => p.name);
+  return loadList('mrahi_pens').filter(p => p && p.id != null).map(p => ({ id: p.id, name: String(p.name == null ? '' : p.name).trim(), type: p.type || '', parentId: p.parentId != null ? p.parentId : null, system: p.system || '' })).filter(p => p.name);
 }
 function savePens(arr) { saveList('mrahi_pens', arr); }
 function allPens() { return loadPens(); }
@@ -1023,6 +1072,16 @@ function addPen(name, type, parentId) {
   const existing = l.find(p => p.name === name);
   if (existing) return existing.id;
   const pen = { id: nextPenId(), name, type: type || '', parentId: parentId != null ? parentId : null };
+  l.push(pen); savePens(l);
+  return pen.id;
+}
+// حظيرة نظام تلقائية «معدّ للبيع» لكل نوع — تُنشأ مرة واحدة عند الحاجة (بلا تدخّل يدوي)، وتظهر في شاشة إدارة
+// الحظائر فقط أثناء وجود بهائم عليها فعلياً (تختفي تلقائياً من القائمة عند خلوّها — لكنها تبقى خياراً متاحاً دائماً).
+function ensureSalePen(typeKey) {
+  const l = loadPens();
+  const ex = l.find(p => p.system === 'sale' && p.type === (typeKey || ''));
+  if (ex) return ex.id;
+  const pen = { id: nextPenId(), name: '💰 معدّ للبيع', type: typeKey || '', parentId: null, system: 'sale' };
   l.push(pen); savePens(l);
   return pen.id;
 }
@@ -2607,7 +2666,11 @@ function screenNewborns() {
   const all = C.animals.filter(a => a.status === 'present' && a.source === 'born' && !inHerdCount(a) && (!animalFilter || a.type === animalFilter));
   const males = all.filter(a => a.sex === 'male');
   const females = all.filter(a => a.sex === 'female');
-  const ageBucket = (a) => { if (!a.birth) return 'unknown'; const m = ageMonths(a.birth); if (m < 1) return 'lt1'; if (m < 3) return '1to3'; if (m < 6) return '3to6'; return 'gt6'; };
+  // العتبة الأخيرة تتبع «عمر حدّ البلوغ» المُعدّ فعلياً (للنوع المحدَّد، أو أكبر عتبة معدّة بين الأنواع الظاهرة عند اختيار «الكل») —
+  // بدل رقم ثابت (٦ أشهر) قد لا يطابق إعداد المستخدم أصلاً، فيبدو المولود «غادر» عند عمر مختلف عمّا تُظهره الشريحة.
+  const cfgAges = TYPES.filter(t => !animalFilter || t.k === animalFilter).map(t => countRuleFor(t.k)).filter(r => r.mode === 'age' && r.age > 0).map(r => r.age);
+  const lastCut = cfgAges.length ? Math.max(...cfgAges) : 6;
+  const ageBucket = (a) => { if (!a.birth) return 'unknown'; const m = ageMonths(a.birth); if (m < 1) return 'lt1'; if (m < 3) return '1to3'; if (m < lastCut) return '3to6'; return 'gt6'; };
   const byAge = { lt1: [], '1to3': [], '3to6': [], gt6: [] };
   all.forEach(a => { const b = ageBucket(a); if (byAge[b]) byAge[b].push(a); });
   let list = filterBySex(all, newbornSexFilter);
@@ -2630,7 +2693,7 @@ function screenNewborns() {
       <div class="stat green"><div class="n">${all.length}</div><div class="l">المجموع</div></div>
     </div>
     <div class="chips">${sexChip('all', 'الكل', all.length)}${sexChip('male', '♂ ذكور', males.length)}${sexChip('female', '♀ إناث', females.length)}</div>
-    <div class="chips" style="margin-top:6px">${ageChip('all', 'كل الأعمار')}${ageChip('lt1', 'أقل من شهر')}${ageChip('1to3', '١-٣ أشهر')}${ageChip('3to6', '٣-٦ أشهر')}${ageChip('gt6', 'أكبر من ٦ أشهر')}</div>
+    <div class="chips" style="margin-top:6px">${ageChip('all', 'كل الأعمار')}${ageChip('lt1', 'أقل من شهر')}${ageChip('1to3', '١-٣ أشهر')}${ageChip('3to6', `٣-${lastCut} أشهر`)}${ageChip('gt6', `أكبر من ${lastCut} أشهر`)}</div>
     <div class="muted" style="margin:8px 0">العدد: ${list.length}</div>
     ${list.length ? list.map(card).join('') : noItem()}`;
   bindTypeChips(screenNewborns);
@@ -3708,7 +3771,7 @@ function screenHerdSettings() {
   const groups = [
     { h: '🔃 عرض القوائم', items: [] },   // بطاقة الترتيب تُدرَج يدوياً بعدها
     { h: '👶 متابعة الولادات', items: [
-      ['📅', 'عمر احتساب المولود، والذكور/الفحول، وظهور غير المحتسَب', '#/countage'],
+      ['📅', 'عمر حدّ البلوغ (احتساب المولود)، والذكور/الفحول، ونقل الحظيرة عند البلوغ', '#/countage'],
     ] },
     { h: '🐑 التصنيف والحظائر', items: [
       ['🐑', 'أنواع الحلال (إبل/بقر/ماعز/نجدي/حري…) — إضافة/تعديل/حذف', '#/types'],
@@ -3731,7 +3794,7 @@ function screenHerdSettings() {
   { const sd = document.getElementById('hs_sortdir'); if (sd) sd.addEventListener('change', () => { try { localStorage.setItem('mrahi_sort_dir', sd.value); } catch (e) {} toast('تم تغيير الاتجاه'); }); }
   view().querySelectorAll('[data-h]').forEach(c => c.addEventListener('click', () => setHash(c.dataset.h)));
 }
-// عمر احتساب المولود في الحظيرة (لكل نوع + لأي جنس تنطبق القاعدة)
+// عمر حدّ البلوغ (احتساب المولود) في الحظيرة (لكل نوع + لأي جنس تنطبق القاعدة) + حظيرة الوجهة عند بلوغه
 function screenCountAge() {
   if (!can('animals', 'edit')) { view().innerHTML = noPerm(); return; }
   const SEXSCOPE = [{ k: 'both', ar: 'كلاهما' }, { k: 'female', ar: 'الإناث' }, { k: 'male', ar: 'الذكور' }];
@@ -3743,16 +3806,38 @@ function screenCountAge() {
       <label class="check"><input type="checkbox" id="cnt_males" ${chk(countIncludeMales())}> احتساب الذكور مع حلالي في الحظيرة</label>
       <label class="check"><input type="checkbox" id="cnt_sires" ${chk(countIncludeSires())}> احتساب الفحول مع حلالي في الحظيرة</label></div>
     <div class="card"><h3>ظهور المواليد غير المحتسَبة</h3>
-      <div class="muted" style="font-size:.82rem;margin-bottom:8px">المولود الأصغر من عمر الاحتساب أدناه «يتبع أمّه» ولا يُحتسب في «في الحظيرة». هذا الخيار يتحكّم هل يظهر في قائمة «الحلال» أيضاً أثناء ذلك.</div>
+      <div class="muted" style="font-size:.82rem;margin-bottom:8px">المولود الأصغر من عمر حدّ البلوغ أدناه «يتبع أمّه» ولا يُحتسب في «في الحظيرة». هذا الخيار يتحكّم هل يظهر في قائمة «الحلال» أيضاً أثناء ذلك.</div>
       <label class="check"><input type="checkbox" id="cnt_showunc" ${chk(showUncountedInList())}> إظهاره في قائمة الحلال (بشارة «تتبع أمّها»)</label></div>
-    <div class="muted" style="margin-bottom:8px">لكل نوع: متى يُحتسب المولود ضمن «في الحظيرة». <b>عند عمر</b>: يُضاف تلقائياً عند بلوغه العمر. <b>يدوي</b>: لا يُحتسب حتى تضيفه بنفسك من سجل البهيمة. أصغر من ذلك «يتبع أمّه». المشترى/الاهداء يُحتسب دائماً.</div>
-    ${TYPES.map(t => { const r = countRuleFor(t.k); return `<div class="card"><h3>${esc(t.ar)}</h3>${fSelect('طريقة الاحتساب', 'cm_' + t.k, MODES, r.mode)}<div id="cab_${t.k}">${fInput('العمر (أشهر) — صفر = يُحتسب الجميع', 'ca_' + t.k, r.age || '', 'number', 'min="0" inputmode="numeric"')}</div>${fSelect('تنطبق على', 'cas_' + t.k, SEXSCOPE, r.sex)}</div>`; }).join('')}
+    <div class="muted" style="margin-bottom:8px">لكل نوع: <b>عمر حدّ البلوغ</b> — متى يُحتسب المولود ضمن «في الحظيرة» (<b>عند عمر</b>: تلقائياً عند بلوغه، <b>يدوي</b>: لا يُحتسب حتى تضيفه بنفسك). أصغر من ذلك «يتبع أمّه». المشترى/الاهداء يُحتسب دائماً. <b>حظيرة الوجهة</b> (اختياري) — إن حُدّدت، ستظهر لك البهيمة في 🔔 التنبيهات مقترَحاً نقلها إليها فور بلوغها هذا العمر (أو فور ضبط غرض الذكر «معدّ للبيع»)، وتنقلها بنفسك بضغطة تأكيد — لا نقل صامت.</div>
+    ${TYPES.map(t => {
+      const r = countRuleFor(t.k);
+      ensureSalePen(t.k);   // تضمن وجود «💰 معدّ للبيع» كخيار جاهز دائماً في قائمتَي حظيرة الوجهة أدناه
+      return `<div class="card"><h3>${esc(t.ar)}</h3>${fSelect('طريقة الاحتساب', 'cm_' + t.k, MODES, r.mode)}<div id="cab_${t.k}">${fInput('العمر (أشهر) — صفر = يُحتسب الجميع', 'ca_' + t.k, r.age || '', 'number', 'min="0" inputmode="numeric"')}</div>${fSelect('تنطبق على', 'cas_' + t.k, SEXSCOPE, r.sex)}
+        <div class="field"><label>🐏 حظيرة وجهة الذكور (عند بلوغ العمر، أو عند ضبط غرضهم «معدّ للبيع»)</label>${penField('pm_' + t.k, r.malePenId, t.k)}</div>
+        <div id="pf_box_${t.k}"><div class="field"><label>♀️ حظيرة وجهة الإناث (عند بلوغ العمر)</label>${penField('pf_' + t.k, r.femalePenId, t.k)}</div></div>
+      </div>`;
+    }).join('')}
     <button class="btn" id="ca_save">حفظ</button>`;
-  // حقل العمر يظهر فقط في وضع «عند عمر»
-  TYPES.forEach(t => { const sel = document.getElementById('cm_' + t.k); const box = document.getElementById('cab_' + t.k); if (!sel) return; const sync = () => { if (box) box.style.display = sel.value === 'age' ? '' : 'none'; }; sel.addEventListener('change', sync); sync(); });
+  // حقل العمر (وحظيرة وجهة الإناث المرتبطة به) يظهران فقط في وضع «عند عمر» — وجهة الذكور تبقى متاحة دائماً (تنطبق أيضاً عبر غرض «معدّ للبيع» بصرف النظر عن وضع الاحتساب)
+  TYPES.forEach(t => {
+    const sel = document.getElementById('cm_' + t.k); const box = document.getElementById('cab_' + t.k); const pfBox = document.getElementById('pf_box_' + t.k);
+    if (!sel) return;
+    const sync = () => { const isAge = sel.value === 'age'; if (box) box.style.display = isAge ? '' : 'none'; if (pfBox) pfBox.style.display = isAge ? '' : 'none'; };
+    sel.addEventListener('change', sync); sync();
+    bindPenField('pm_' + t.k); bindPenField('pf_' + t.k);
+  });
   document.getElementById('ca_save').addEventListener('click', () => {
     const o = {};
-    TYPES.forEach(t => { const mode = val('cm_' + t.k) === 'manual' ? 'manual' : 'age'; const n = parseInt(val('ca_' + t.k), 10) || 0; const sex = val('cas_' + t.k) || 'both'; if (mode === 'manual') o[t.k] = { mode: 'manual', age: 0, sex }; else if (n > 0) o[t.k] = { mode: 'age', age: n, sex }; });
+    TYPES.forEach(t => {
+      const mode = val('cm_' + t.k) === 'manual' ? 'manual' : 'age';
+      const n = parseInt(val('ca_' + t.k), 10) || 0;
+      const sex = val('cas_' + t.k) || 'both';
+      const malePenId = penValue('pm_' + t.k, t.k);
+      const femalePenId = mode === 'age' ? penValue('pf_' + t.k, t.k) : null;
+      const base = { sex, malePenId, femalePenId };
+      if (mode === 'manual') o[t.k] = Object.assign({ mode: 'manual', age: 0 }, base);
+      else if (n > 0 || malePenId != null || femalePenId != null) o[t.k] = Object.assign({ mode: 'age', age: n }, base);
+    });
     saveCountAge(o);
     try {
       localStorage.setItem('mrahi_count_males', document.getElementById('cnt_males').checked ? '1' : '0');
@@ -3764,9 +3849,10 @@ function screenCountAge() {
 }
 function screenPens() {
   if (!can('animals', 'edit')) { view().innerHTML = noPerm(); return; }
-  const pens = allPens();   // [{id,name,type,parentId}]
   const countFor = (id) => (C.animals || []).filter(a => a.pen_id === id).length;
   const totalFor = (id) => countFor(id) + penChildren(id).reduce((s, c) => s + countFor(c.id), 0);
+  // حظائر النظام (مثل «💰 معدّ للبيع») تظهر في هذه القائمة فقط أثناء وجود بهائم عليها فعلياً — لا داعي لعرضها فارغة دائماً
+  const pens = allPens().filter(p => !p.system || countFor(p.id) > 0);
   const typeAr = (tk) => tk ? arOf(TYPES, tk) : 'أي نوع';
   const groups = {}; pens.forEach(p => { (groups[p.type || ''] = groups[p.type || ''] || []).push(p); });
   const typeSel = `<select id="np_type">${TYPES.map(t => `<option value="${t.k}">${t.ar}</option>`).join('')}<option value="">أي نوع</option></select>`;
