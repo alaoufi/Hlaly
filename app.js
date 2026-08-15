@@ -927,6 +927,9 @@ function sireMatedFemales(sire) {
   });
   return Array.from(ids).map(animalById).filter(Boolean);
 }
+// رقاقات نوع الحلال المشتركة (تُستخدم في الحلال/الإناث/الفحول/المواليد) — نفس المتغيّر animalFilter يبقى مشتركاً بينها كلها
+function typeChipsHtml() { return `<div class="chips"><span class="chip ${!animalFilter ? 'active' : ''}" data-f="">الكل</span>${TYPES.map(t => `<span class="chip ${animalFilter === t.k ? 'active' : ''}" data-f="${t.k}">${t.ar}</span>`).join('')}</div>`; }
+function bindTypeChips(rerender) { view().querySelectorAll('[data-f]').forEach(c => c.addEventListener('click', () => { animalFilter = c.dataset.f; rerender(); })); }
 function screenAnimals() {
   if (!can('animals', 'view')) { view().innerHTML = noPerm(); return; }
   seedAnimalFiltersOnce();
@@ -2352,7 +2355,7 @@ function contactModal(c) {
 /* ===== فحول المراح — كل ذكر غرضه «فحل للقطيع» (شراءً أو مولوداً أو تحويلاً) ===== */
 function screenSires() {
   if (!can('animals', 'view')) { view().innerHTML = noPerm(); return; }
-  const sires = C.animals.filter(a => a.sex === 'male' && a.purpose === 'sire');
+  const sires = C.animals.filter(a => a.sex === 'male' && a.purpose === 'sire' && (!animalFilter || a.type === animalFilter));
   const present = sortAnimals(sires.filter(s => s.status === 'present'));
   const others = sortAnimals(sires.filter(s => s.status !== 'present'));
   const card = (s) => {
@@ -2367,16 +2370,17 @@ function screenSires() {
       ${dams.length ? `<div class="li-sub link" data-dams="${s.id}">🐑 لقّح: ${dams.length} أنثى — عرض</div>` : ''}
       <div class="li-sub muted">المصدر: ${arOf(SOURCE, s.source || 'purchased')}</div></div>`;
   };
-  view().innerHTML = `<div class="muted" style="margin-bottom:8px">فحول القطيع = الذكور المُعيَّنة «🐏 فحل للقطيع» — تُضاف شراءً أو من المواليد، أو تُحوَّل من أي ذكر لاحقاً من سجله.</div>
+  view().innerHTML = typeChipsHtml() + `<div class="muted" style="margin:8px 0">فحول القطيع = الذكور المُعيَّنة «🐏 فحل للقطيع» — تُضاف شراءً أو من المواليد، أو تُحوَّل من أي ذكر لاحقاً من سجله.</div>
     <div class="stats" style="grid-template-columns:1fr 1fr"><div class="stat green"><div class="n">${present.length}</div><div class="l">فحول في الحظيرة</div></div><div class="stat"><div class="n">${sires.length}</div><div class="l">إجمالي الفحول</div></div></div>
     ${can('animals', 'add') ? `<button class="btn" id="s_addbuy" style="margin:8px 0">➕ إضافة فحل (شراء)</button>` : ''}
     <div class="card"><h3>🟢 فحول في الحظيرة (${present.length})</h3>${present.length ? present.map(card).join('') : noItem()}</div>
     ${others.length ? `<div class="card"><h3>خارج الحظيرة (${others.length})</h3>${others.map(card).join('')}</div>` : ''}
     <div class="muted" style="font-size:.82rem;margin-top:8px">لتحويل ذكر إلى فحل: افتح سجله ← تبويب «📋 البيانات» ← «🐏 تعيينه فحلاً».<br>الأبناء/البنات والإناث الملقَّحة تُحسَب بمطابقة اسم/رقم الفحل مع حقل «الأب» — راجِعها لو تشابهت الأسماء بين فحلين.</div>`;
   bindCards(view());
+  bindTypeChips(screenSires);
   view().querySelectorAll('[data-kids]').forEach(el => el.addEventListener('click', (e) => { e.stopPropagation(); const s = animalById(parseInt(el.dataset.kids, 10)); if (s) animalListModal('أبناء وبنات 🐏 ' + display(s), sireOffspring(s)); }));
   view().querySelectorAll('[data-dams]').forEach(el => el.addEventListener('click', (e) => { e.stopPropagation(); const s = animalById(parseInt(el.dataset.dams, 10)); if (s) animalListModal('الإناث التي لقّحها 🐏 ' + display(s), sireMatedFemales(s)); }));
-  const ab = document.getElementById('s_addbuy'); if (ab) ab.addEventListener('click', () => { animalFilter = 'sheep'; setHash('#/animal-edit/0'); });
+  const ab = document.getElementById('s_addbuy'); if (ab) ab.addEventListener('click', () => { setHash('#/animal-edit/0'); });
 }
 
 /* ===== الإناث — البالغات القابلات للتلقيح (منفصلات عن أمّهاتهن) ===== */
@@ -2384,7 +2388,7 @@ let femaleFilter = 'all';   // 'all' | 'mated' | 'produced' | 'notmated'
 function screenFemales() {
   if (!can('animals', 'view')) { view().innerHTML = noPerm(); return; }
   // بلغت سن النضج حسب نوعها (أو بلا تاريخ ميلاد معروف = تُحسب بالغة احتياطاً)
-  const eligible = (a) => a.sex === 'female' && a.status === 'present' && (!a.birth || !pubertyOf(a.type) || ageMonths(a.birth) >= pubertyOf(a.type));
+  const eligible = (a) => a.sex === 'female' && a.status === 'present' && (!animalFilter || a.type === animalFilter) && (!a.birth || !pubertyOf(a.type) || ageMonths(a.birth) >= pubertyOf(a.type));
   const all = C.animals.filter(eligible);
   const matedIds = new Set(C.matings.map(m => m.animal_id));
   const producedIds = new Set(C.animals.filter(x => x.mother_id).map(x => x.mother_id));
@@ -2404,7 +2408,7 @@ function screenFemales() {
       ${offs.length ? `<div class="li-sub link" data-off="${a.id}">👶 إنتاجها: ${offs.length}${sireInfo ? ' • آخر فحل: ' + esc(sireInfo) : ''} — عرض</div>` : (sireInfo ? `<div class="li-sub">🐏 آخر تلقيح: ${esc(sireInfo)}</div>` : '')}</div>`;
   };
   const chip = (k, label, n) => `<span class="chip ${femaleFilter === k ? 'active' : ''}" data-ff="${k}">${label} (${n})</span>`;
-  view().innerHTML = `<div class="muted" style="margin-bottom:8px">الإناث البالغات سنّ النضج (منفصلات عن أمّهاتهن، قابلات للتلقيح)</div>
+  view().innerHTML = typeChipsHtml() + `<div class="muted" style="margin:8px 0">الإناث البالغات سنّ النضج (منفصلات عن أمّهاتهن، قابلات للتلقيح)</div>
     <div class="stats" style="grid-template-columns:repeat(3,1fr)">
       <div class="stat green"><div class="n">${mated.length}</div><div class="l">ملقّحة</div></div>
       <div class="stat blue"><div class="n">${produced.length}</div><div class="l">معها مواليد</div></div>
@@ -2414,6 +2418,7 @@ function screenFemales() {
     <div class="muted" style="margin:8px 0">العدد: ${list.length}</div>
     ${list.length ? list.map(card).join('') : noItem()}`;
   view().querySelectorAll('[data-ff]').forEach(c => c.addEventListener('click', () => { femaleFilter = c.dataset.ff; screenFemales(); }));
+  bindTypeChips(screenFemales);
   bindCards(view());
   view().querySelectorAll('[data-off]').forEach(el => el.addEventListener('click', (e) => { e.stopPropagation(); offspringListModal(parseInt(el.dataset.off, 10)); }));
 }
@@ -2423,7 +2428,7 @@ let newbornSexFilter = 'all';   // 'all' | 'male' | 'female'
 let newbornAgeFilter = 'all';   // 'all' | 'lt1' | '1to3' | '3to6' | 'gt6'
 function screenNewborns() {
   if (!can('animals', 'view')) { view().innerHTML = noPerm(); return; }
-  const all = C.animals.filter(a => a.status === 'present' && a.source === 'born' && !inHerdCount(a));
+  const all = C.animals.filter(a => a.status === 'present' && a.source === 'born' && !inHerdCount(a) && (!animalFilter || a.type === animalFilter));
   const males = all.filter(a => a.sex === 'male');
   const females = all.filter(a => a.sex === 'female');
   const ageBucket = (a) => { if (!a.birth) return 'unknown'; const m = ageMonths(a.birth); if (m < 1) return 'lt1'; if (m < 3) return '1to3'; if (m < 6) return '3to6'; return 'gt6'; };
@@ -2442,7 +2447,7 @@ function screenNewborns() {
   };
   const sexChip = (k, label, n) => `<span class="chip ${newbornSexFilter === k ? 'active' : ''}" data-nsex="${k}">${label} (${n})</span>`;
   const ageChip = (k, label) => `<span class="chip ${newbornAgeFilter === k ? 'active' : ''}" data-nage="${k}">${label} (${byAge[k] ? byAge[k].length : 0})</span>`;
-  view().innerHTML = `<div class="muted" style="margin-bottom:8px">مواليد لسّه يتبعون أمّهم ولم يُحتسبوا بعد في «في الحظيرة»</div>
+  view().innerHTML = typeChipsHtml() + `<div class="muted" style="margin:8px 0">مواليد لسّه يتبعون أمّهم ولم يُحتسبوا بعد في «في الحظيرة»</div>
     <div class="stats" style="grid-template-columns:repeat(3,1fr)">
       <div class="stat"><div class="n">${males.length}</div><div class="l">👦 ذكور</div></div>
       <div class="stat"><div class="n">${females.length}</div><div class="l">👧 إناث</div></div>
@@ -2452,6 +2457,7 @@ function screenNewborns() {
     <div class="chips" style="margin-top:6px">${ageChip('all', 'كل الأعمار')}${ageChip('lt1', 'أقل من شهر')}${ageChip('1to3', '١-٣ أشهر')}${ageChip('3to6', '٣-٦ أشهر')}${ageChip('gt6', 'أكبر من ٦ أشهر')}</div>
     <div class="muted" style="margin:8px 0">العدد: ${list.length}</div>
     ${list.length ? list.map(card).join('') : noItem()}`;
+  bindTypeChips(screenNewborns);
   view().querySelectorAll('[data-nsex]').forEach(c => c.addEventListener('click', () => { newbornSexFilter = c.dataset.nsex; screenNewborns(); }));
   view().querySelectorAll('[data-nage]').forEach(c => c.addEventListener('click', () => { newbornAgeFilter = c.dataset.nage; screenNewborns(); }));
   bindCards(view());
