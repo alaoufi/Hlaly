@@ -878,12 +878,16 @@ function animalCard(a) {
   const st = a.status === 'sold' ? 'sold' : a.status === 'dead' ? 'dead' : '';
   const off = C.animals.filter(x => x.mother_id === a.id || x.father_id === a.id).length;   // عدد مواليدها
   const mother = a.mother_id ? animalById(a.mother_id) : null;
+  // آخر تطعيم قادم/متأخّر لهذه البهيمة + فترة تحريم حية (من علاج أو تطعيم) إن وُجدت
+  const nextVacc = a.status === 'present' ? C.vaccinations.filter(v => v.animal_id === a.id && v.next_due).sort((x, y) => (x.next_due || '').localeCompare(y.next_due || ''))[0] : null;
+  const wd = a.status === 'present' ? withdrawalActiveOn(a.id, todayStr()) : null;
   return `<div class="card click" data-aid="${a.id}">
     <div class="li-title">${display(a)}</div>
     <div class="li-sub">${arOf(TYPES, a.type)} • ${esc(sexTerm(a))}${a.sex === 'male' && a.purpose ? ' • ' + arOf(MALE_PURPOSE, a.purpose) : ''} • <span class="badge ${st}">${arOf(STATUS, a.status)}</span></div>
     ${a.pen ? `<div class="li-sub">🏠 ${esc(a.pen)}</div>` : ''}
     ${off ? `<div class="li-sub link" data-off="${a.id}">👶 المواليد: ${off} — عرض</div>` : ''}
     ${mother ? `<div class="li-sub link" data-momopen="${a.mother_id}">🤱 الأم: ${display(mother)}</div>` : (a.mother_name ? `<div class="li-sub">🤱 الأم: ${esc(a.mother_name)}</div>` : '')}
+    ${nextVacc || wd ? `<div class="li-sub" style="display:flex;gap:6px;flex-wrap:wrap">${nextVacc ? `<span class="badge">💉 ${daysUntil(nextVacc.next_due) < 0 ? 'تطعيم متأخّر منذ' : 'تطعيم قادم'} ${fmtDate(nextVacc.next_due)}</span>` : ''}${wd ? `<span class="badge dead">⛔ تحت التحريم حتى ${fmtDate(wd)}</span>` : ''}</div>` : ''}
     ${a.status === 'present' && !inHerdCount(a) && can('animals', 'edit') ? `<div class="li-sub link" data-count="${a.id}" style="color:var(--green);font-weight:700">➕ احتسابها في الحظيرة (تتبع أمّها)</div>` : ''}</div>`;
 }
 function bindCards(root) {
@@ -2552,26 +2556,47 @@ async function bulkApply() {
 
 /* ===== قائمتا الهيدر: ⋮ الأدوات والعمليات · ☰ الإعدادات والإدارة ===== */
 const menuOpen = { quick: new Set(['breeding']), settings: new Set(['herd']) };   // التصنيفات المفتوحة لكل قائمة
+const menuSearch = { quick: '', settings: '' };   // نص البحث الحالي لكل قائمة (يُمسح عند مغادرة الشاشة)
 const MENU_BG = { breeding: '#e8f5e9', health: '#e3f2fd', tools: '#fff8e1', herd: '#e8f5e9', security: '#ffebee', data: '#f3e5f5', app: '#eceff1' };
-// عارض عام لقائمة أقسام قابلة للطيّ (يشترك بينه ⋮ و☰)
+// عارض عام لقائمة أقسام قابلة للطيّ مع بحث نصّي فوري (يشترك بينه ⋮ و☰)
 function renderMenuScreen(menuKey, cats, extraHtml) {
   extraHtml = extraHtml || '';
-  const open = menuOpen[menuKey];
-  const visible = cats.filter(c => c.items.length);
-  view().innerHTML = extraHtml + visible.map(c => {
-    const isOpen = open.has(c.key);
-    const bg = MENU_BG[c.key] || 'var(--card)';
-    return `<div class="acc-head card click" data-cat="${c.key}" style="display:flex;align-items:center;justify-content:space-between;background:${bg}">
-        <span class="li-title" style="margin:0">${c.title}</span><span style="color:var(--muted);font-size:1.1rem">${isOpen ? '▾' : '▸'}</span></div>`
-      + (isOpen ? `<div style="margin:0 8px 8px">${c.items.map(([l, h]) => `<div class="card click" data-go="${h}" style="margin:6px 0;background:${bg}"><div class="li-title">${l}</div></div>`).join('')}</div>` : '');
-  }).join('');
-  view().querySelectorAll('[data-cat]').forEach(h => h.addEventListener('click', () => { const k = h.dataset.cat; open.has(k) ? open.delete(k) : open.add(k); menuKey === 'quick' ? screenQuickMenu() : screenSettingsMenu(); }));
-  view().querySelectorAll('[data-go]').forEach(c => c.addEventListener('click', () => {
-    const h = c.dataset.go;
+  view().innerHTML = extraHtml
+    + `<div class="field" style="margin-bottom:10px"><input id="menuSearchInput" placeholder="🔍 ابحث في القائمة..." value="${esc(menuSearch[menuKey] || '')}"></div>`
+    + `<div id="menuBody"></div>`;
+  const goHandler = (h) => {
     if (h === '__checkupdate') return (typeof window.mrahiCheckUpdate === 'function') ? window.mrahiCheckUpdate() : toast('التحديث متاح في تطبيق الجوال');
     if (h === '__feedback') { const v = window.MRAH_VERSION || ''; const subj = encodeURIComponent('ملاحظات حلالي' + (v ? ' — نسخة ' + v : '')); const body = encodeURIComponent('اكتب ملاحظتك أو اقتراحك هنا:\n\n\n——————\nنسخة التطبيق: ' + v); location.href = 'mailto:alaoufi@gmail.com?subject=' + subj + '&body=' + body; return; }
     setHash(h);
-  }));
+  };
+  const renderBody = () => {
+    const body = document.getElementById('menuBody'); if (!body) return;
+    const open = menuOpen[menuKey];
+    const q = (menuSearch[menuKey] || '').trim().toLowerCase();
+    if (q) {
+      // نتيجة بحث مسطّحة عبر كل الأقسام (بلا حاجة لفتحها يدوياً)
+      const matches = [];
+      cats.forEach(c => c.items.forEach(([l, h]) => { if (String(l).toLowerCase().includes(q)) matches.push([l, h, c.title]); }));
+      body.innerHTML = matches.length
+        ? matches.map(([l, h, ct]) => `<div class="card click" data-go="${h}"><div class="li-title">${l}</div><div class="li-sub muted">${ct}</div></div>`).join('')
+        : '<div class="muted" style="padding:12px 4px">لا توجد نتائج مطابقة.</div>';
+    } else {
+      const visible = cats.filter(c => c.items.length);
+      body.innerHTML = visible.map(c => {
+        const isOpen = open.has(c.key);
+        const bg = MENU_BG[c.key] || 'var(--card)';
+        return `<div class="acc-head card click" data-cat="${c.key}" style="display:flex;align-items:center;justify-content:space-between;background:${bg}">
+            <span class="li-title" style="margin:0">${c.title}</span><span style="color:var(--muted);font-size:1.1rem">${isOpen ? '▾' : '▸'}</span></div>`
+          + (isOpen ? `<div style="margin:0 8px 8px">${c.items.map(([l, h]) => `<div class="card click" data-go="${h}" style="margin:6px 0;background:${bg}"><div class="li-title">${l}</div></div>`).join('')}</div>` : '');
+      }).join('');
+    }
+    body.querySelectorAll('[data-cat]').forEach(h => h.addEventListener('click', () => { const k = h.dataset.cat; open.has(k) ? open.delete(k) : open.add(k); renderBody(); }));
+    body.querySelectorAll('[data-go]').forEach(c => c.addEventListener('click', () => goHandler(c.dataset.go)));
+  };
+  { const si = document.getElementById('menuSearchInput'); if (si) si.addEventListener('input', () => { menuSearch[menuKey] = si.value; renderBody(); }); }
+  // عناصر extraHtml (مثل بطاقة التحديث) ثابتة ولا تُعاد رسمتها — تُربط مرّة واحدة فقط هنا لتفادي تكرار المستمعين
+  view().querySelectorAll('[data-go]').forEach(c => { if (!c.closest('#menuBody')) c.addEventListener('click', () => goHandler(c.dataset.go)); });
+  renderBody();
 }
 // ⋮ الأدوات والعمليات — كل ما يُستخدم يومياً (الحلال/التكاثر/الصحة/أدوات)
 function screenQuickMenu() {
@@ -2609,6 +2634,8 @@ function screenSettingsMenu() {
       I(true, '🔐 التحكّم والإدارة (قفل التعديل)', '#/control'),
     ].filter(Boolean) },
     { key: 'data', title: '🗂️ البيانات والمحتوى', items: [
+      I(can('animals', 'view'), '💰 الميزانية', '#/finance'),
+      I(can('animals', 'view') || can('breeding', 'view') || can('vaccines', 'view') || can('treatments', 'view'), '🔔 التنبيهات', '#/alerts'),
       I(isAdmin(), '🗑️ سلة المحذوفات', '#/trash'),
       I(isSys(), '💡 النصائح والمعلومات', '#/tips'),
     ].filter(Boolean) },
@@ -3438,7 +3465,7 @@ function screenPens() {
     orphanBranches.forEach(p => { html += penRow(p, false, countFor(p.name)); });
     body += `<div class="card"><h3>🐑 ${esc(typeAr(tk))}</h3>${html}</div>`;
   });
-  view().innerHTML = `<div class="muted" style="margin-bottom:8px">حدّد نوع الحلال ثم اكتب اسم الحظيرة. يمكن جعلها «فرعاً» من حظيرة رئيسية (مثلاً حظيرة واحدة مقسّمة حسب الرعاية: ذكور/إناث صغار/حمل) — يظهر مجموع الرئيسية مع فروعها.</div>
+  view().innerHTML = `<div class="muted" style="margin-bottom:8px">حدّد نوع الحلال ثم اكتب اسم الحظيرة. يمكن جعلها «فرعاً» من حظيرة رئيسية (مثلاً حظيرة واحدة مقسّمة حسب الرعاية: ذكور/إناث صغار/حمل) — يظهر مجموع الرئيسية مع فروعها هنا، وكمربعات مستقلة + توزيع هرمي في «🔍 تفقد الحلال ← 📊 إحصائيات ← حسب الحظيرة».</div>
     <div class="card"><h3>➕ إضافة حظيرة</h3>
       <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">${typeSel}<input id="np_name" placeholder="اسم الحظيرة" style="flex:1;min-width:140px"></div>
       <div class="field" style="margin-top:8px"><label>تنتمي إلى (اختياري)</label><select id="np_parent">${parentOptsHtml(TYPES[0] ? TYPES[0].k : '')}</select></div>
@@ -3756,8 +3783,7 @@ function buildNav() {
   const tabs = [['#/home', '🏠', 'الرئيسية']];
   if (can('animals', 'view')) tabs.push(['#/animals', '🐑', 'الحلال']);
   if (can('animals', 'view')) tabs.push(['#/sires', '🐏', 'الفحول']);
-  if (can('animals', 'view')) tabs.push(['#/finance', '💰', 'الميزانية']);
-  if (can('animals', 'view') || can('breeding', 'view') || can('vaccines', 'view') || can('treatments', 'view')) tabs.push(['#/alerts', '🔔', 'التنبيهات']);
+  // الميزانية والتنبيهات انتقلتا إلى ☰ الإعدادات والإدارة ← 🗂️ البيانات والمحتوى
   const nav = document.getElementById('bottomnav');
   nav.style.gridTemplateColumns = `repeat(${tabs.length},1fr)`;
   nav.innerHTML = tabs.map(([r, i, l]) => `<button class="nav-item" data-route="${r}"><span class="nav-ic">${i}</span>${l}</button>`).join('');
