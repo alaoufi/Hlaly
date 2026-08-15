@@ -15,7 +15,7 @@ html, body { margin: 0; padding: 0; }
 body {
   /* عربي أولاً (بلا اعتماد على إنترنت — التطبيق محلي بالكامل، فلا خطوط ويب) ثم بدائل النظام */
   font-family: "Noto Naskh Arabic UI", "Noto Naskh Arabic", "Noto Sans Arabic", "Segoe UI", Tahoma, system-ui, sans-serif;
-  background: var(--bg); color: var(--text); line-height: 1.6;
+  background: var(--bg); color: var(--text); line-height: 1.4;
   text-rendering: optimizeLegibility; -webkit-font-smoothing: antialiased;
 }
 .hidden { display: none !important; }
@@ -126,8 +126,8 @@ code { word-break: break-all; overflow-wrap: anywhere; white-space: normal; dire
 .fab { position:fixed; bottom:86px; inset-inline-start:16px; background:var(--green); color:#fff; border:0; border-radius:999px; padding:14px 20px; font-weight:700; box-shadow:var(--shadow-md); cursor:pointer; z-index:15; min-height: 48px; }
 .fab:focus-visible, .card.hl:focus-visible { outline: none; box-shadow: var(--shadow-md), var(--focus-ring); }
 
-.li-title { font-weight: 700; font-size: 1.05rem; }
-.li-sub { color: var(--muted); font-size: .9rem; }
+.li-title { font-weight: 700; font-size: 1.05rem; line-height: 1.3; }
+.li-sub { color: var(--muted); font-size: .9rem; line-height: 1.3; }
 .li-sub.link { color: var(--green); text-decoration: underline; cursor: pointer; font-weight: 600; }
 .ptable { width: 100%; border-collapse: collapse; font-size: .9rem; }
 .ptable th, .ptable td { padding: 8px 6px; border-bottom: 1px solid var(--border-soft); text-align: start; }
