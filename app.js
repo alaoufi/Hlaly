@@ -1022,8 +1022,9 @@ function saveAnimalFilters() { try { localStorage.setItem('mrahi_f_status', JSON
 function toggleSel(arr, v) { const i = arr.indexOf(v); if (i >= 0) arr.splice(i, 1); else arr.push(v); }
 // التبويب المختار في شاشة سجل البهيمة (البيانات/النسب/الإنجاب/المرضي/العلاجات/التطعيمات)
 let animalRecTab = 'basic';
-// مرشّحات العرض: اختيار متعدّد؛ مصفوفة فارغة = الكل. تُحفظ آخر اختيار.
-// فلتر صارم: عدم تحديد أي رقاقة في صفّ = لا يطابق شيئاً (وليس «الكل»). القيم الافتراضية أدناه تختار الكل صراحةً حتى لا تظهر القائمة فارغة أول استخدام.
+// مرشّحات العرض: اختيار متعدّد؛ مصفوفة فارغة = «الكل» (لا قيد على هذا الصفّ). تُحفظ آخر اختيار.
+// لوحة الفلاتر الإضافية (الحالة/المصدر/الجنس/الحظيرة) قابلة للطيّ لتبسيط الشاشة — تبقى حالتها كما هي بين عمليات إعادة الرسم
+let animalFiltersOpen = false;
 const ALL_SOURCES = ['born', 'purchased', 'gift', 'sale'];
 const ALL_SEXES = ['male', 'female'];
 let animalStatusSel = loadFilterArr('mrahi_f_status', ['present']);   // 'present'|'sold'|'dead'|...
@@ -1136,12 +1137,18 @@ function screenAnimals() {
     const other = list.filter(a => !known.has(a.type));
     if (other.length) listHtml += `<div class="li-title" style="margin:12px 2px 6px">أخرى (${other.length})</div>` + other.map(animalCard).join('');
   } else { listHtml = list.map(animalCard).join(''); }
-  view().innerHTML = chips + stChips + srcChips + sexChips + penChip + countRow + (list.length ? listHtml : empty);
+  // لوحة الفلاتر الإضافية (الحالة/المصدر/الجنس/الحظيرة) مطوية افتراضياً — تبسيطاً للشاشة، تُفتح عند الحاجة فقط
+  const filtersToggle = `<div class="acc-head card click" id="filtToggle" style="display:flex;align-items:center;justify-content:space-between">
+      <span class="li-title" style="margin:0">⚙️ فلاتر إضافية (الحالة/المصدر/الجنس/الحظيرة)</span>
+      <span style="color:var(--muted);font-size:1.1rem">${animalFiltersOpen ? '▾' : '▸'}</span></div>`;
+  const filtersBody = animalFiltersOpen ? (stChips + srcChips + sexChips + penChip) : '';
+  view().innerHTML = chips + filtersToggle + filtersBody + countRow + (list.length ? listHtml : empty);
   view().querySelectorAll('[data-f]').forEach(c => c.addEventListener('click', () => { animalFilter = c.dataset.f; screenAnimals(); }));
   view().querySelectorAll('[data-s]').forEach(c => c.addEventListener('click', () => { const v = c.dataset.s; if (v === '') animalStatusSel = []; else toggleSel(animalStatusSel, v); saveAnimalFilters(); screenAnimals(); }));
   view().querySelectorAll('[data-src]').forEach(c => c.addEventListener('click', () => { const v = c.dataset.src; if (v === '') animalSourceSel = []; else toggleSel(animalSourceSel, v); saveAnimalFilters(); screenAnimals(); }));
   view().querySelectorAll('[data-sex]').forEach(c => c.addEventListener('click', () => { const v = c.dataset.sex; if (v === '') animalSexSel = []; else toggleSel(animalSexSel, v); saveAnimalFilters(); screenAnimals(); }));
   view().querySelectorAll('[data-nopen]').forEach(c => c.addEventListener('click', () => { noPenOnly = !noPenOnly; saveAnimalFilters(); screenAnimals(); }));
+  { const ft = document.getElementById('filtToggle'); if (ft) ft.addEventListener('click', () => { animalFiltersOpen = !animalFiltersOpen; screenAnimals(); }); }
   bindCards(view());
   { const af = document.getElementById('add_first'); if (af) af.addEventListener('click', () => setHash('#/animal-edit/0')); }
   { const bb = document.getElementById('bulkAddBtn'); if (bb) bb.addEventListener('click', () => setHash('#/bulk/buy')); }
@@ -3051,7 +3058,7 @@ function renderMenuScreen(menuKey, cats, extraHtml) {
       const matches = [];
       cats.forEach(c => c.items.forEach(([l, h]) => { if (String(l).toLowerCase().includes(q)) matches.push([l, h, c.title]); }));
       body.innerHTML = matches.length
-        ? matches.map(([l, h, ct]) => `<div class="card click" data-go="${h}"><div class="li-title">${l}</div><div class="li-sub muted">${ct}</div></div>`).join('')
+        ? matches.map(([l, h, ct]) => `<div class="card click menu-row" data-go="${h}"><div class="li-title">${l}</div><div class="li-sub muted">${ct}</div></div>`).join('')
         : '<div class="muted" style="padding:12px 4px">لا توجد نتائج مطابقة.</div>';
     } else {
       const visible = cats.filter(c => c.items.length);
@@ -3060,7 +3067,7 @@ function renderMenuScreen(menuKey, cats, extraHtml) {
         const bg = MENU_BG[c.key] || 'var(--card)';
         return `<div class="acc-head card click" data-cat="${c.key}" style="display:flex;align-items:center;justify-content:space-between;background:${bg}">
             <span class="li-title" style="margin:0">${c.title}</span><span style="color:var(--muted);font-size:1.1rem">${isOpen ? '▾' : '▸'}</span></div>`
-          + (isOpen ? `<div style="margin:0 8px 8px">${c.items.map(([l, h]) => `<div class="card click" data-go="${h}" style="margin:6px 0;background:${bg}"><div class="li-title">${l}</div></div>`).join('')}</div>` : '');
+          + (isOpen ? `<div style="margin:0 8px 6px">${c.items.map(([l, h]) => `<div class="card click menu-row" data-go="${h}" style="margin:4px 0;background:${bg}"><div class="li-title">${l}</div></div>`).join('')}</div>` : '');
       }).join('');
     }
     body.querySelectorAll('[data-cat]').forEach(h => h.addEventListener('click', () => { const k = h.dataset.cat; open.has(k) ? open.delete(k) : open.add(k); renderBody(); }));

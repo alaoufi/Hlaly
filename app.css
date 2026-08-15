@@ -58,6 +58,13 @@ code { word-break: break-all; overflow-wrap: anywhere; white-space: normal; dire
 .row .k { color: var(--muted); } .row .v { font-weight: 600; text-align: left; }
 .title-lg { font-size: 1.5rem; font-weight: 800; color: var(--green); margin: 4px 0 2px; }
 
+/* قوائم ⋮/☰ الجانبية (عناوين الأقسام وبنودها) — أسطر مضغوطة وخط أصغر، فهي قوائم نصّية كثيفة البنود لا بطاقات محتوى */
+.acc-head { padding: 9px 12px !important; margin-bottom: 3px !important; }
+.acc-head .li-title { font-size: .92rem; }
+.menu-row { padding: 8px 12px !important; margin: 3px 0 !important; }
+.menu-row .li-title { font-size: .88rem; font-weight: 600; line-height: 1.35; }
+.menu-row .li-sub { font-size: .78rem; }
+
 /* Stats */
 .stats { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-3); margin: var(--sp-3) 0; }
 .stat { border-radius: var(--radius); padding: var(--sp-4); box-shadow: var(--shadow); background: var(--card, #fff); }
@@ -65,9 +72,9 @@ code { word-break: break-all; overflow-wrap: anywhere; white-space: normal; dire
 .stat.green { background: var(--green-l); } .stat.amber { background: #FFE0B2; }
 .stat.blue { background: #B3E5FC; } .stat.red { background: #FFCDD2; }
 
-/* Chips */
-.chips { display: flex; gap: var(--sp-2); flex-wrap: wrap; margin-bottom: var(--sp-3); }
-.chip { border: 1px solid var(--green-l); background: #fff; color: var(--green-d); padding: 8px 14px; border-radius: 999px; font-size: .85rem; cursor: pointer; min-height: 34px; display: inline-flex; align-items: center; }
+/* Chips — كثيفة ومتقاربة عمداً (صفوف فلاتر متعدّدة قد تتكرّر عدّة مرّات في نفس الشاشة) */
+.chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+.chip { border: 1px solid var(--green-l); background: #fff; color: var(--green-d); padding: 5px 11px; border-radius: 999px; font-size: .78rem; cursor: pointer; min-height: 30px; display: inline-flex; align-items: center; }
 .chip.active { background: var(--green); color: #fff; border-color: var(--green); }
 .chip:focus-visible, .btn:focus-visible, .nav-item:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 /* تبويبات سجل البهيمة: صف قابل للتمرير أفقياً بدل الالتفاف */
