@@ -1017,20 +1017,34 @@ function ensurePensSeeded() {
   try { localStorage.setItem('mrahi_pens_seeded2', '1'); } catch (e) { /* تجاهل */ }
 }
 function allPens() { ensurePensSeeded(); return loadPens(); }
-// أسماء حظائر نوعٍ معيّن (+ الحظائر غير المخصّصة لنوع)
-function pensForType(typeKey) {
-  return allPens().filter(p => !p.type || p.type === typeKey).map(p => p.name).filter((p, i, a) => a.indexOf(p) === i).sort((a, b) => a.localeCompare(b, 'ar'));
-}
 function addPen(name, type, parent) { name = String(name || '').trim(); if (!name) return; const l = loadPens(); if (!l.some(p => p.name === name)) { l.push({ name, type: type || '', parent: parent || '' }); savePens(l); } }
 // الحظائر الرئيسية (بلا أب) لنوعٍ معيّن — تُستخدم كخيارات «تنتمي إلى» عند إنشاء فرع
 function rootPensForType(typeKey) { return allPens().filter(p => !p.parent && (!p.type || p.type === typeKey)); }
 function penChildren(name) { return allPens().filter(p => p.parent === name); }
+// خيارات حقل الحظيرة: الحظائر الرئيسية التي لها فروع تظهر كمجموعة (optgroup) بعنوان اسمها، وفروعها بادئتها «↳» تحتها —
+// هكذا يظهر التقسيم الهرمي أثناء اختيار حظيرة بهيمة، لا فقط داخل شاشة إدارة الحظائر نفسها.
 function penOptions(selected, typeKey) {
-  const sel = String(selected == null ? '' : selected).trim(); const names = pensForType(typeKey || '');
-  if (sel && !names.includes(sel)) names.unshift(sel);
-  return '<option value="">— حدّد الحظيرة —</option>'
-    + names.map(p => `<option value="${esc(p)}" ${p === sel ? 'selected' : ''}>${esc(p)}</option>`).join('')
-    + '<option value="__new__">➕ حظيرة جديدة…</option>';
+  const sel = String(selected == null ? '' : selected).trim();
+  const defs = allPens().filter(p => !p.type || p.type === typeKey);
+  const roots = defs.filter(p => !p.parent).sort((a, b) => a.name.localeCompare(b.name, 'ar'));
+  const seen = new Set();
+  let opts = '';
+  roots.forEach(r => {
+    seen.add(r.name);
+    const kids = defs.filter(c => c.parent === r.name).sort((a, b) => a.name.localeCompare(b.name, 'ar'));
+    if (kids.length) {
+      opts += `<optgroup label="🏠 ${esc(r.name)}">`
+        + `<option value="${esc(r.name)}" ${r.name === sel ? 'selected' : ''}>${esc(r.name)} (الحظيرة نفسها، بلا فرع محدَّد)</option>`
+        + kids.map(k => { seen.add(k.name); return `<option value="${esc(k.name)}" ${k.name === sel ? 'selected' : ''}>↳ ${esc(k.name)}</option>`; }).join('')
+        + `</optgroup>`;
+    } else {
+      opts += `<option value="${esc(r.name)}" ${r.name === sel ? 'selected' : ''}>${esc(r.name)}</option>`;
+    }
+  });
+  // فروع أبوها من نوع حلال آخر (نادر) — تُعرض احتياطاً حتى لا تختفي
+  defs.filter(p => p.parent && !seen.has(p.name)).forEach(p => { seen.add(p.name); opts += `<option value="${esc(p.name)}" ${p.name === sel ? 'selected' : ''}>↳ ${esc(p.name)}</option>`; });
+  if (sel && !seen.has(sel)) opts = `<option value="${esc(sel)}" selected>${esc(sel)}</option>` + opts;
+  return '<option value="">— حدّد الحظيرة —</option>' + opts + '<option value="__new__">➕ حظيرة جديدة…</option>';
 }
 // حقل الحظيرة بلا عنوان (أول خيار «حدّد الحظيرة» يقوم مقام العنوان)
 function penField(id, selected, typeKey) {
