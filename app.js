@@ -675,6 +675,8 @@ function goBack() { history.length > 1 ? history.back() : setHash('#/home'); }
 const ROUTES = {
   home: { t: 'حلالي', back: false, fn: screenHome },
   animals: { t: 'الحلال', back: false, fn: screenAnimals },
+  females: { t: 'الإناث', back: false, fn: screenFemales },
+  newborns: { t: 'المواليد', back: false, fn: screenNewborns },
   alerts: { t: 'التنبيهات', back: false, fn: screenAlerts },
   quick: { t: 'الأدوات والعمليات', back: true, fn: screenQuickMenu },
   settings: { t: 'الإعدادات والإدارة', back: true, fn: screenSettingsMenu },
@@ -900,10 +902,30 @@ function bindCards(root) {
 function offspringListModal(motherId) {
   const mother = animalById(motherId);
   const off = C.animals.filter(x => x.mother_id === motherId || x.father_id === motherId).sort((a, b) => (b.birth || '').localeCompare(a.birth || ''));
-  openModal('مواليد ' + (mother ? display(mother) : ''),
-    `<div class="muted" style="margin-bottom:6px">${off.length} مولود</div>`
-    + (off.length ? off.map(o => `<div class="card click" data-aid="${o.id}" style="margin:6px 0"><div class="li-title">${display(o)}</div><div class="li-sub">${esc(sexTerm(o))} • ${fmtDate(o.birth)}${o.pen ? ' • ' + esc(o.pen) : ''}</div></div>`).join('') : noItem()),
+  animalListModal('مواليد ' + (mother ? display(mother) : ''), off);
+}
+// نافذة عامة تعرض قائمة بهائم قابلة للنقر (فتح سجل كل واحدة)
+function animalListModal(title, list) {
+  openModal(title,
+    `<div class="muted" style="margin-bottom:6px">${list.length} بهيمة</div>`
+    + (list.length ? list.map(o => `<div class="card click" data-aid="${o.id}" style="margin:6px 0"><div class="li-title">${display(o)}</div><div class="li-sub">${esc(sexTerm(o))}${o.birth ? ' • ' + fmtDate(o.birth) : ''}${o.pen ? ' • ' + esc(o.pen) : ''}</div></div>`).join('') : noItem()),
     () => { document.querySelectorAll('#modalRoot [data-aid]').forEach(c => c.addEventListener('click', () => { closeModal(); setHash('#/animal/' + c.dataset.aid); })); });
+}
+// ربط الفحل بأبنائه/بناته والإناث اللي لقّحها — بمطابقة نصّية (اسم/رقم) مع حقل «الأب» في المواليد وحقلَي الفحل في التلقيح،
+// لأن father_id (الربط المباشر) غير مُستخدَم فعلياً في أي شاشة إضافة — يبقى الحقل نصّاً حرّاً دائماً (تلقيح من داخل الحظيرة أو خارجها)
+function sireMatchesText(fatherName, sire) {
+  const f = String(fatherName || '').trim(); if (!f) return false;
+  return f === String(sire.code || '').trim() || f === String(sire.name || '').trim();
+}
+function sireOffspring(sire) { return C.animals.filter(o => sireMatchesText(o.father_name, sire)); }
+function sireMatedFemales(sire) {
+  const ids = new Set();
+  C.matings.forEach(m => {
+    const sc = String(sire.code || '').trim(), sn = String(sire.name || '').trim();
+    const mc = String(m.sire_code || '').trim(), mn = String(m.sire_name || '').trim();
+    if ((sc && mc === sc) || (sn && mn === sn)) ids.add(m.animal_id);
+  });
+  return Array.from(ids).map(animalById).filter(Boolean);
 }
 function screenAnimals() {
   if (!can('animals', 'view')) { view().innerHTML = noPerm(); return; }
@@ -2334,12 +2356,15 @@ function screenSires() {
   const present = sortAnimals(sires.filter(s => s.status === 'present'));
   const others = sortAnimals(sires.filter(s => s.status !== 'present'));
   const card = (s) => {
-    const off = C.animals.filter(x => x.father_id === s.id).length;
+    const kids = sireOffspring(s);
+    const sons = kids.filter(k => k.sex === 'male').length, daughters = kids.filter(k => k.sex === 'female').length;
+    const dams = sireMatedFemales(s);
     const ic = STATUS_ICON[s.status] || '';
     return `<div class="card click" data-aid="${s.id}" style="margin:6px 0">
       <div class="li-title">🐏 ${display(s)}</div>
       <div class="li-sub">${arOf(TYPES, s.type)}${s.birth ? ' • ' + (ageText(s.birth) || '') : ''}${s.pen ? ' • 🏠 ' + esc(s.pen) : ''}${s.status !== 'present' ? ' • ' + ic + ' ' + arOf(STATUS, s.status) : ''}</div>
-      ${off ? `<div class="li-sub">👶 نتاجه: ${off}</div>` : ''}
+      ${kids.length ? `<div class="li-sub link" data-kids="${s.id}">👶 نتاجه: ${kids.length} (${sons} ذكور، ${daughters} إناث) — عرض</div>` : ''}
+      ${dams.length ? `<div class="li-sub link" data-dams="${s.id}">🐑 لقّح: ${dams.length} أنثى — عرض</div>` : ''}
       <div class="li-sub muted">المصدر: ${arOf(SOURCE, s.source || 'purchased')}</div></div>`;
   };
   view().innerHTML = `<div class="muted" style="margin-bottom:8px">فحول القطيع = الذكور المُعيَّنة «🐏 فحل للقطيع» — تُضاف شراءً أو من المواليد، أو تُحوَّل من أي ذكر لاحقاً من سجله.</div>
@@ -2347,9 +2372,50 @@ function screenSires() {
     ${can('animals', 'add') ? `<button class="btn" id="s_addbuy" style="margin:8px 0">➕ إضافة فحل (شراء)</button>` : ''}
     <div class="card"><h3>🟢 فحول في الحظيرة (${present.length})</h3>${present.length ? present.map(card).join('') : noItem()}</div>
     ${others.length ? `<div class="card"><h3>خارج الحظيرة (${others.length})</h3>${others.map(card).join('')}</div>` : ''}
-    <div class="muted" style="font-size:.82rem;margin-top:8px">لتحويل ذكر إلى فحل: افتح سجله ← تبويب «📋 البيانات» ← «🐏 تعيينه فحلاً».</div>`;
+    <div class="muted" style="font-size:.82rem;margin-top:8px">لتحويل ذكر إلى فحل: افتح سجله ← تبويب «📋 البيانات» ← «🐏 تعيينه فحلاً».<br>الأبناء/البنات والإناث الملقَّحة تُحسَب بمطابقة اسم/رقم الفحل مع حقل «الأب» — راجِعها لو تشابهت الأسماء بين فحلين.</div>`;
   bindCards(view());
+  view().querySelectorAll('[data-kids]').forEach(el => el.addEventListener('click', (e) => { e.stopPropagation(); const s = animalById(parseInt(el.dataset.kids, 10)); if (s) animalListModal('أبناء وبنات 🐏 ' + display(s), sireOffspring(s)); }));
+  view().querySelectorAll('[data-dams]').forEach(el => el.addEventListener('click', (e) => { e.stopPropagation(); const s = animalById(parseInt(el.dataset.dams, 10)); if (s) animalListModal('الإناث التي لقّحها 🐏 ' + display(s), sireMatedFemales(s)); }));
   const ab = document.getElementById('s_addbuy'); if (ab) ab.addEventListener('click', () => { animalFilter = 'sheep'; setHash('#/animal-edit/0'); });
+}
+
+/* ===== الإناث — البالغات القابلات للتلقيح (منفصلات عن أمّهاتهن) ===== */
+function screenFemales() {
+  if (!can('animals', 'view')) { view().innerHTML = noPerm(); return; }
+  // بلغت سن النضج حسب نوعها (أو بلا تاريخ ميلاد معروف = تُحسب بالغة احتياطاً)
+  const eligible = (a) => a.sex === 'female' && a.status === 'present' && (!a.birth || !pubertyOf(a.type) || ageMonths(a.birth) >= pubertyOf(a.type));
+  const list = sortAnimals(C.animals.filter(eligible));
+  const card = (a) => {
+    const offs = C.animals.filter(x => x.mother_id === a.id);
+    const lastMating = C.matings.filter(m => m.animal_id === a.id).sort((x, y) => (y.date || '').localeCompare(x.date || ''))[0];
+    const lastBirthOff = offs.slice().sort((x, y) => (y.birth || '').localeCompare(x.birth || ''))[0];
+    const sireInfo = lastMating ? (lastMating.sire_name || lastMating.sire_code) : (lastBirthOff ? lastBirthOff.father_name : '');
+    return `<div class="card click" data-aid="${a.id}" style="margin:6px 0">
+      <div class="li-title">${display(a)}</div>
+      <div class="li-sub">${arOf(TYPES, a.type)}${a.birth ? ' • ' + (ageText(a.birth) || '') : ''}${a.pen ? ' • 🏠 ' + esc(a.pen) : ''}</div>
+      ${offs.length ? `<div class="li-sub link" data-off="${a.id}">👶 إنتاجها: ${offs.length}${sireInfo ? ' • آخر فحل: ' + esc(sireInfo) : ''} — عرض</div>` : (sireInfo ? `<div class="li-sub">🐏 آخر تلقيح: ${esc(sireInfo)}</div>` : '')}</div>`;
+  };
+  view().innerHTML = `<div class="muted" style="margin-bottom:8px">الإناث البالغات سنّ النضج (منفصلات عن أمّهاتهن، قابلات للتلقيح) — ${list.length}</div>
+    ${list.length ? list.map(card).join('') : noItem()}`;
+  bindCards(view());
+  view().querySelectorAll('[data-off]').forEach(el => el.addEventListener('click', (e) => { e.stopPropagation(); offspringListModal(parseInt(el.dataset.off, 10)); }));
+}
+
+/* ===== المواليد — لسّه يتبعون أمّهم (غير محتسَبين في «في الحظيرة») ===== */
+function screenNewborns() {
+  if (!can('animals', 'view')) { view().innerHTML = noPerm(); return; }
+  const list = sortAnimals(C.animals.filter(a => a.status === 'present' && a.source === 'born' && !inHerdCount(a)));
+  const card = (a) => {
+    const mother = a.mother_id ? animalById(a.mother_id) : null;
+    return `<div class="card click" data-aid="${a.id}" style="margin:6px 0">
+      <div class="li-title">${display(a)}</div>
+      <div class="li-sub">${esc(sexTerm(a))}${a.birth ? ' • ' + (ageText(a.birth) || '') : ''}</div>
+      <div class="li-sub">🤱 الأم: ${mother ? display(mother) : (esc(a.mother_name) || '—')}</div>
+      ${a.father_name ? `<div class="li-sub">🐏 الفحل: ${esc(a.father_name)}</div>` : ''}</div>`;
+  };
+  view().innerHTML = `<div class="muted" style="margin-bottom:8px">مواليد لسّه يتبعون أمّهم ولم يُحتسبوا بعد في «في الحظيرة» — ${list.length}</div>
+    ${list.length ? list.map(card).join('') : noItem()}`;
+  bindCards(view());
 }
 // تعيين ذكر فحلاً (تحويل) مع تحديث معرّفه/اسمه
 function makeSireModal(a) {
@@ -3782,7 +3848,9 @@ const noPerm = () => '<div class="center-empty">ليست لديك صلاحية �
 function buildNav() {
   const tabs = [['#/home', '🏠', 'الرئيسية']];
   if (can('animals', 'view')) tabs.push(['#/animals', '🐑', 'الحلال']);
+  if (can('animals', 'view')) tabs.push(['#/females', '♀️', 'الإناث']);
   if (can('animals', 'view')) tabs.push(['#/sires', '🐏', 'الفحول']);
+  if (can('animals', 'view')) tabs.push(['#/newborns', '👶', 'المواليد']);
   // الميزانية والتنبيهات انتقلتا إلى ☰ الإعدادات والإدارة ← 🗂️ البيانات والمحتوى
   const nav = document.getElementById('bottomnav');
   nav.style.gridTemplateColumns = `repeat(${tabs.length},1fr)`;
