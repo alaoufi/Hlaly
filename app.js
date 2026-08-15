@@ -89,6 +89,13 @@ function countRuleFor(type) {
     femalePenId: v.femalePenId != null ? v.femalePenId : null,
   };
 }
+// عمر «بلغت» الفعلي لنوع مُعيَّن: عمر حدّ البلوغ المُعدّ من المستخدم (mrahi_count_age) إن كان مضبوطاً بوضع
+// «عند عمر»، وإلا الثابت البيولوجي pubertyOf كحدّ افتراضي معقول — مصدر واحد يُستخدَم في كل مكان يقرّر
+// "هل بلغت هذه البهيمة بعد؟" (احتساب الفحول، أهلية الإناث للتلقيح، بطاقة سجل البهيمة) فلا يتضارب مكانان.
+function matureAgeFor(type) {
+  const c = countRuleFor(type);
+  return (c.mode === 'age' && c.age > 0) ? c.age : pubertyOf(type);
+}
 // خيار عام: احتساب الذكور والفحول ضمن عدد الحظيرة (الافتراضي: نعم)
 function countIncludeMales() { try { return localStorage.getItem('mrahi_count_males') !== '0'; } catch (e) { return true; } }
 function countIncludeSires() { try { return localStorage.getItem('mrahi_count_sires') !== '0'; } catch (e) { return true; } }
@@ -129,7 +136,7 @@ function inHerdCount(a) {
   // في الوضع اليدوي (لا عتبة عددية) نرجع للثابت البيولوجي pubertyOf كحدّ افتراضي معقول فقط لا غير.
   // الذكر العادي: يُستبعد إن أُوقف خيار «احتساب الذكور»، وإلا يخضع لقاعدة العمر كالمعتاد.
   if (a.sex === 'male') {
-    const youngAge = (c.mode === 'age' && c.age > 0) ? c.age : pubertyOf(a.type);
+    const youngAge = matureAgeFor(a.type);
     const stillYoung = a.source === 'born' && a.birth && youngAge && ageMonths(a.birth) < youngAge;
     if (a.purpose === 'sire' && !stillYoung) return countIncludeSires();
     if (!countIncludeMales()) return false;
@@ -1576,7 +1583,7 @@ function screenAnimalDetail(arg) {
       ${withItems.length ? `<span class="badge off">⛔ تحت التحريم حتى ${fmtDate(withItems[0].withdrawal_end)}</span>` : ''}
       ${a.status !== 'present' ? `<span class="badge ${a.status === 'sold' ? 'sold' : a.status === 'dead' ? 'dead' : ''}">${arOf(STATUS, a.status)}</span>` : ''}
     </div>`;
-  const breedingAge = (!a.birth || !pubertyOf(a.type) || ageMonths(a.birth) >= pubertyOf(a.type));
+  const breedingAge = (() => { const m = matureAgeFor(a.type); return !a.birth || !m || ageMonths(a.birth) >= m; })();
   // ===== كفاءة الإنجاب (تُحتسب من النتاج والتلقيح) =====
   const birthDates = Array.from(new Set(offspring.map(o => o.birth).filter(Boolean))).sort();
   const parities = birthDates.length;                                  // عدد الولادات (تواريخ ميلاد مختلفة)
@@ -2725,8 +2732,8 @@ function screenSires() {
 let femaleFilter = 'all';   // 'all' | 'mated' | 'produced' | 'notmated'
 function screenFemales() {
   if (!can('animals', 'view')) { view().innerHTML = noPerm(); return; }
-  // بلغت سن النضج حسب نوعها (أو بلا تاريخ ميلاد معروف = تُحسب بالغة احتياطاً)
-  const eligible = (a) => a.sex === 'female' && a.status === 'present' && (!animalFilter || a.type === animalFilter) && (!a.birth || !pubertyOf(a.type) || ageMonths(a.birth) >= pubertyOf(a.type));
+  // بلغت سن النضج حسب نوعها (نفس عمر حدّ البلوغ المُعتمَد في كل مكان — matureAgeFor) — أو بلا تاريخ ميلاد معروف = تُحسب بالغة احتياطاً
+  const eligible = (a) => { const m = matureAgeFor(a.type); return a.sex === 'female' && a.status === 'present' && (!animalFilter || a.type === animalFilter) && (!a.birth || !m || ageMonths(a.birth) >= m); };
   const all = C.animals.filter(eligible);
   const matedIds = new Set(C.matings.map(m => m.animal_id));
   const producedIds = new Set(C.animals.filter(x => x.mother_id).map(x => x.mother_id));
@@ -2766,7 +2773,18 @@ let newbornSexFilter = 'all';   // 'all' | 'male' | 'female'
 let newbornAgeFilter = 'all';   // 'all' | 'lt1' | '1to3' | '3to6' | 'gt6'
 function screenNewborns() {
   if (!can('animals', 'view')) { view().innerHTML = noPerm(); return; }
-  const all = C.animals.filter(a => a.status === 'present' && a.source === 'born' && !inHerdCount(a) && (!animalFilter || a.type === animalFilter));
+  // فحل مُعيَّن (purpose='sire') بالغ فعلاً لكنه غير محتسَب بسبب إيقاف «احتساب الفحول» من الإعدادات لا يظهر هنا —
+  // هذا استبعاد سياسة إعداد، لا صغيراً حقيقياً "لسّه يتبع أمّه"؛ مكانه الوحيد 🐏 الفحول. الفحل الصغير فعلاً (لم يبلغ بعد) يبقى يظهر كالمعتاد.
+  const all = C.animals.filter(a => {
+    if (a.status !== 'present' || a.source !== 'born' || inHerdCount(a)) return false;
+    if (animalFilter && a.type !== animalFilter) return false;
+    if (a.sex === 'male' && a.purpose === 'sire') {
+      const m = matureAgeFor(a.type);
+      const stillYoung = a.birth && m && ageMonths(a.birth) < m;
+      if (!stillYoung) return false;
+    }
+    return true;
+  });
   const males = all.filter(a => a.sex === 'male');
   const females = all.filter(a => a.sex === 'female');
   // العتبة الأخيرة تتبع «عمر حدّ البلوغ» المُعدّ فعلياً (للنوع المحدَّد، أو أكبر عتبة معدّة بين الأنواع الظاهرة عند اختيار «الكل») —
@@ -3466,8 +3484,7 @@ function renderInspect() {
     const reasonOf = (a) => {
       if (a.counted === false) return 'manual';
       if (a.sex === 'male') {
-        const rc = countRuleFor(a.type);
-        const youngAge = (rc.mode === 'age' && rc.age > 0) ? rc.age : pubertyOf(a.type);
+        const youngAge = matureAgeFor(a.type);
         const stillYoung = a.source === 'born' && a.birth && youngAge && ageMonths(a.birth) < youngAge;
         if (a.purpose === 'sire' && !stillYoung) return 'sire';
         if (!countIncludeMales()) return 'male';
