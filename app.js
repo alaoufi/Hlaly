@@ -329,6 +329,7 @@ async function loadAll() {
     C.types = tr.error ? [] : (tr.data || []);
     if (C.types.length) TYPES = C.types.slice().sort((a, b) => (a.sort || 0) - (b.sort || 0)).map(t => ({ k: t.key, ar: t.ar, gest: t.gest, puberty: t.puberty, weaning: t.weaning }));
   } catch (e) { /* تجاهل */ }
+  await migratePensToIds(); // ترحيل الحظائر من الاعتماد على الاسم إلى رقم داخلي ثابت (مرة واحدة)
   await autoSeedTypes();      // تعبئة أنواع الحلال الافتراضية لتصبح قابلة للتعديل (مرة واحدة)
   await autoSeedVaccines();   // تعبئة أولية لأنواع التطعيمات الموصى بها (مرة واحدة) — أي تثبيت جديد
   await autoSeedTreatments(); // تعبئة أولية لأنواع العلاج الموصى بها (مرة واحدة) — أي تثبيت جديد
@@ -790,7 +791,7 @@ function screenHome() {
   if (q) q.addEventListener('input', () => {
     const term = q.value.trim().toLowerCase(); const box = document.getElementById('qr');
     if (!term) { box.innerHTML = ''; return; }
-    const res = C.animals.filter(a => (a.code || '').toLowerCase().includes(term) || (a.name || '').toLowerCase().includes(term) || (a.pen || '').toLowerCase().includes(term)).slice(0, 8);
+    const res = C.animals.filter(a => (a.code || '').toLowerCase().includes(term) || (a.name || '').toLowerCase().includes(term) || animalPenName(a).toLowerCase().includes(term)).slice(0, 8);
     box.innerHTML = res.length ? res.map(animalCard).join('') : '<div class="muted" style="padding:8px">لا نتائج</div>';
     bindCards(box);
   });
@@ -838,7 +839,7 @@ function screenAlerts() {
   const showMeds = can('treatments', 'view') && (lowMeds.length || expMeds.length);
   // تنبيهات مخصّصة أنشأها المستخدم (تُعرض أولاً)
   const rems = activeReminders().map(r => ({ r, mt: reminderMatches(r) })).filter(x => x.mt.length);
-  const remCards = rems.map(({ r, mt }) => `<div class="card" style="background:#ede7f6"><h3>🔔 ${esc(r.title || 'تنبيه')} <span class="muted" style="font-weight:400">(${mt.length})</span></h3>${mt.map(a => `<div class="row click" data-goa="${a.id}"><span class="k">${display(a)}</span><span class="v">${esc(sexTerm(a))}${a.birth ? ' • ' + (ageText(a.birth) || '') : ''}${a.pen ? ' • 🏠 ' + esc(a.pen) : ''}</span></div>`).join('')}</div>`).join('');
+  const remCards = rems.map(({ r, mt }) => `<div class="card" style="background:#ede7f6"><h3>🔔 ${esc(r.title || 'تنبيه')} <span class="muted" style="font-weight:400">(${mt.length})</span></h3>${mt.map(a => `<div class="row click" data-goa="${a.id}"><span class="k">${display(a)}</span><span class="v">${esc(sexTerm(a))}${a.birth ? ' • ' + (ageText(a.birth) || '') : ''}${animalPenName(a) ? ' • 🏠 ' + esc(animalPenName(a)) : ''}</span></div>`).join('')}</div>`).join('');
   view().innerHTML = remCards + `
     <div class="card" style="background:#fff8e1"><h3>🤰 ولادة متوقعة خلال ٧ أيام</h3>${births.length ? births.map(p => row(display(animalById(p.animal_id)), `${fmtDate(p.expected)} • ${daysUntil(p.expected)} يوم`)).join('') : noItem()}</div>
     <div class="card" style="background:#ffebee"><h3>🚫 انتهاء مدة التحريم (علاجات جارية)</h3>${treats.length ? treats.map(t => row(display(animalById(t.animal_id)), `${esc(t.med_name || '')} • ينتهي ${fmtDate(t.withdrawal_end)} (بعد ${daysUntil(t.withdrawal_end)} يوم)`)).join('') : noItem()}</div>
@@ -890,7 +891,7 @@ function animalCard(a) {
   return `<div class="card click" data-aid="${a.id}">
     <div class="li-title">${display(a)}</div>
     <div class="li-sub">${arOf(TYPES, a.type)} • ${esc(sexTerm(a))}${a.sex === 'male' && a.purpose ? ' • ' + arOf(MALE_PURPOSE, a.purpose) : ''} • <span class="badge ${st}">${arOf(STATUS, a.status)}</span></div>
-    ${a.pen ? `<div class="li-sub">🏠 ${esc(a.pen)}</div>` : ''}
+    ${animalPenName(a) ? `<div class="li-sub">🏠 ${esc(animalPenName(a))}</div>` : ''}
     ${off ? `<div class="li-sub link" data-off="${a.id}">👶 المواليد: ${off} — عرض</div>` : ''}
     ${mother ? `<div class="li-sub link" data-momopen="${a.mother_id}">🤱 الأم: ${display(mother)}</div>` : (a.mother_name ? `<div class="li-sub">🤱 الأم: ${esc(a.mother_name)}</div>` : '')}
     ${nextVacc || wd ? `<div class="li-sub" style="display:flex;gap:6px;flex-wrap:wrap">${nextVacc ? `<span class="badge">💉 ${daysUntil(nextVacc.next_due) < 0 ? 'تطعيم متأخّر منذ' : 'تطعيم قادم'} ${fmtDate(nextVacc.next_due)}</span>` : ''}${wd ? `<span class="badge dead">⛔ تحت التحريم حتى ${fmtDate(wd)}</span>` : ''}</div>` : ''}
@@ -912,7 +913,7 @@ function offspringListModal(motherId) {
 function animalListModal(title, list) {
   openModal(title,
     `<div class="muted" style="margin-bottom:6px">${list.length} بهيمة</div>`
-    + (list.length ? list.map(o => `<div class="card click" data-aid="${o.id}" style="margin:6px 0"><div class="li-title">${display(o)}</div><div class="li-sub">${esc(sexTerm(o))}${o.birth ? ' • ' + fmtDate(o.birth) : ''}${o.pen ? ' • ' + esc(o.pen) : ''}</div></div>`).join('') : noItem()),
+    + (list.length ? list.map(o => `<div class="card click" data-aid="${o.id}" style="margin:6px 0"><div class="li-title">${display(o)}</div><div class="li-sub">${esc(sexTerm(o))}${o.birth ? ' • ' + fmtDate(o.birth) : ''}${animalPenName(o) ? ' • ' + esc(animalPenName(o)) : ''}</div></div>`).join('') : noItem()),
     () => { document.querySelectorAll('#modalRoot [data-aid]').forEach(c => c.addEventListener('click', () => { closeModal(); setHash('#/animal/' + c.dataset.aid); })); });
 }
 // ربط الفحل بأبنائه/بناته والإناث اللي لقّحها — بمطابقة نصّية (اسم/رقم) مع حقل «الأب» في المواليد وحقلَي الفحل في التلقيح،
@@ -1001,50 +1002,58 @@ const strOpts = (arr) => [{ k: '', ar: '— بدون —' }].concat(arr.map(s =>
 const colorDot = (name) => COLOR_HEX[name] ? `<span style="display:inline-block;width:11px;height:11px;border-radius:50%;background:${COLOR_HEX[name]};border:1px solid #bbb;vertical-align:middle;margin-inline-start:4px"></span>` : '';
 
 /* ===== الحظائر: مرتبطة بنوع الحلال، قائمة منسدلة قابلة للإدارة ===== */
-// كل حظيرة: { name, type, parent } — type مفتاح نوع الحلال ('' = لأي نوع)، parent اسم حظيرة رئيسية إن كانت هذه فرعاً منها ('' = رئيسية). تُخزَّن في mrahi_pens.
+// كل حظيرة: { id, name, type, parentId } — id رقم داخلي ثابت لا يتغيّر أبداً، type مفتاح نوع الحلال ('' = لأي نوع)،
+// parentId رقم حظيرة رئيسية إن كانت هذه فرعاً منها (null = رئيسية). تُخزَّن في mrahi_pens.
+// البهائم تربط بالحظيرة عبر pen_id (رقم) لا بالاسم — لذا أي تعديل على اسم الحظيرة يظهر فوراً في كل مكان دون أي عملية تحديث جماعي.
 // التقسيم الهرمي بمستوى واحد فقط (رئيسية ← فروع) — يكفي لتقسيم حظيرة واحدة حسب الرعاية (ذكور/إناث صغار/حمل...) مع بقائها حظيرة واحدة منطقياً.
 function loadPens() {
-  return loadList('mrahi_pens').map(p => typeof p === 'string' ? { name: p.trim(), type: '', parent: '' } : { name: String(p.name == null ? '' : p.name).trim(), type: p.type || '', parent: String(p.parent || '').trim() }).filter(p => p.name);
+  return loadList('mrahi_pens').filter(p => p && p.id != null).map(p => ({ id: p.id, name: String(p.name == null ? '' : p.name).trim(), type: p.type || '', parentId: p.parentId != null ? p.parentId : null })).filter(p => p.name);
 }
 function savePens(arr) { saveList('mrahi_pens', arr); }
-// تعبئة/ترقية القائمة من حظائر البهائم الموجودة مرّة واحدة (مع إسناد النوع)
-function ensurePensSeeded() {
-  let done = false; try { done = !!localStorage.getItem('mrahi_pens_seeded2'); } catch (e) { /* تجاهل */ }
-  if (done) return;
-  const l = loadPens();
-  (C.animals || []).forEach(a => { const nm = String(a.pen == null ? '' : a.pen).trim(); if (!nm) return; const tk = a.type || ''; const ex = l.find(p => p.name === nm); if (ex) { if (!ex.type && tk) ex.type = tk; } else l.push({ name: nm, type: tk, parent: '' }); });
-  savePens(l);
-  try { localStorage.setItem('mrahi_pens_seeded2', '1'); } catch (e) { /* تجاهل */ }
+function allPens() { return loadPens(); }
+function nextPenId() {
+  let seq = 0; try { seq = parseInt(localStorage.getItem('mrahi_pen_id_seq') || '0', 10) || 0; } catch (e) { /* تجاهل */ }
+  seq += 1;
+  try { localStorage.setItem('mrahi_pen_id_seq', String(seq)); } catch (e) { /* تجاهل */ }
+  return seq;
 }
-function allPens() { ensurePensSeeded(); return loadPens(); }
-function addPen(name, type, parent) { name = String(name || '').trim(); if (!name) return; const l = loadPens(); if (!l.some(p => p.name === name)) { l.push({ name, type: type || '', parent: parent || '' }); savePens(l); } }
+function addPen(name, type, parentId) {
+  name = String(name || '').trim(); if (!name) return null;
+  const l = loadPens();
+  const existing = l.find(p => p.name === name);
+  if (existing) return existing.id;
+  const pen = { id: nextPenId(), name, type: type || '', parentId: parentId != null ? parentId : null };
+  l.push(pen); savePens(l);
+  return pen.id;
+}
+function penById(id) { if (id == null || id === '') return null; const n = typeof id === 'number' ? id : parseInt(id, 10); return allPens().find(p => p.id === n) || null; }
 // الحظائر الرئيسية (بلا أب) لنوعٍ معيّن — تُستخدم كخيارات «تنتمي إلى» عند إنشاء فرع
-function rootPensForType(typeKey) { return allPens().filter(p => !p.parent && (!p.type || p.type === typeKey)); }
-function penChildren(name) { return allPens().filter(p => p.parent === name); }
-// خيارات حقل الحظيرة: الحظائر الرئيسية التي لها فروع تظهر كمجموعة (optgroup) بعنوان اسمها، وفروعها بادئتها «↳» تحتها —
-// هكذا يظهر التقسيم الهرمي أثناء اختيار حظيرة بهيمة، لا فقط داخل شاشة إدارة الحظائر نفسها.
-function penOptions(selected, typeKey) {
-  const sel = String(selected == null ? '' : selected).trim();
+function rootPensForType(typeKey) { return allPens().filter(p => p.parentId == null && (!p.type || p.type === typeKey)); }
+function penChildren(id) { return allPens().filter(p => p.parentId === id); }
+// اسم حظيرة البهيمة الحالي (يُقرأ دائماً من تعريف الحظيرة عبر رقمها — لا يوجد نص مخزَّن على البهيمة نفسها)
+function animalPenName(a) { const p = a && a.pen_id != null ? penById(a.pen_id) : null; return p ? p.name : ''; }
+// خيارات حقل الحظيرة: كل فرع نصّه يذكر اسم رئيسيته صراحةً داخل نص الخيار نفسه (بدل الاعتماد على optgroup فقط) —
+// يضمن ظهورها بوضوح مهما اختلف عرض قائمة الاختيار الأصلية على الجهاز. القيمة المخزَّنة في كل <option> هي رقم الحظيرة.
+function penOptions(selectedId, typeKey) {
+  const sel = selectedId != null && selectedId !== '' ? (typeof selectedId === 'number' ? selectedId : parseInt(selectedId, 10)) : null;
   const defs = allPens().filter(p => !p.type || p.type === typeKey);
-  const roots = defs.filter(p => !p.parent).sort((a, b) => a.name.localeCompare(b.name, 'ar'));
+  const roots = defs.filter(p => p.parentId == null).sort((a, b) => a.name.localeCompare(b.name, 'ar'));
   const seen = new Set();
   let opts = '';
-  // كل فرع نصّه يذكر اسم رئيسيته صراحةً داخل نص الخيار نفسه (بدل الاعتماد على optgroup فقط) —
-  // يضمن ظهورها بوضوح مهما اختلف عرض قائمة الاختيار الأصلية على الجهاز.
   roots.forEach(r => {
-    seen.add(r.name);
-    opts += `<option value="${esc(r.name)}" ${r.name === sel ? 'selected' : ''}>🏠 ${esc(r.name)}</option>`;
-    const kids = defs.filter(c => c.parent === r.name).sort((a, b) => a.name.localeCompare(b.name, 'ar'));
-    kids.forEach(k => { seen.add(k.name); opts += `<option value="${esc(k.name)}" ${k.name === sel ? 'selected' : ''}>${esc(r.name)} ↳ ${esc(k.name)}</option>`; });
+    seen.add(r.id);
+    opts += `<option value="${r.id}" ${r.id === sel ? 'selected' : ''}>🏠 ${esc(r.name)}</option>`;
+    const kids = defs.filter(c => c.parentId === r.id).sort((a, b) => a.name.localeCompare(b.name, 'ar'));
+    kids.forEach(k => { seen.add(k.id); opts += `<option value="${k.id}" ${k.id === sel ? 'selected' : ''}>${esc(r.name)} ↳ ${esc(k.name)}</option>`; });
   });
   // فروع أبوها من نوع حلال آخر (نادر) — تُعرض احتياطاً حتى لا تختفي
-  defs.filter(p => p.parent && !seen.has(p.name)).forEach(p => { seen.add(p.name); opts += `<option value="${esc(p.name)}" ${p.name === sel ? 'selected' : ''}>${esc(p.parent)} ↳ ${esc(p.name)}</option>`; });
-  if (sel && !seen.has(sel)) opts = `<option value="${esc(sel)}" selected>${esc(sel)}</option>` + opts;
+  defs.filter(p => p.parentId != null && !seen.has(p.id)).forEach(p => { seen.add(p.id); const parentName = (penById(p.parentId) || {}).name || '؟'; opts += `<option value="${p.id}" ${p.id === sel ? 'selected' : ''}>${esc(parentName)} ↳ ${esc(p.name)}</option>`; });
+  if (sel != null && !seen.has(sel)) { const stalePen = penById(sel); if (stalePen) opts = `<option value="${sel}" selected>${esc(stalePen.name)}</option>` + opts; }
   return '<option value="">— حدّد الحظيرة —</option>' + opts + '<option value="__new__">➕ حظيرة جديدة…</option>';
 }
 // حقل الحظيرة بلا عنوان (أول خيار «حدّد الحظيرة» يقوم مقام العنوان)
-function penField(id, selected, typeKey) {
-  return `<div class="field"><select id="${id}">${penOptions(selected, typeKey)}</select>
+function penField(id, selectedId, typeKey) {
+  return `<div class="field"><select id="${id}">${penOptions(selectedId, typeKey)}</select>
     <input id="${id}_new" type="text" placeholder="اكتب اسم الحظيرة الجديدة" style="display:none;margin-top:6px"></div>`;
 }
 function bindPenField(id) {
@@ -1053,8 +1062,43 @@ function bindPenField(id) {
   s.addEventListener('change', upd); upd();
 }
 // إعادة بناء خيارات الحظيرة عند تغيير نوع الحلال
-function rebuildPen(penId, typeKey) { const s = document.getElementById(penId); if (!s) return; s.innerHTML = penOptions('', typeKey); bindPenField(penId); }
-function penValue(id, typeKey) { const s = val(id); if (s === '__new__') { const v = val(id + '_new').trim(); if (v) addPen(v, typeKey || ''); return v; } return s; }
+function rebuildPen(penId, typeKey) { const s = document.getElementById(penId); if (!s) return; s.innerHTML = penOptions(null, typeKey); bindPenField(penId); }
+// رقم الحظيرة المختارة (أو إنشاء حظيرة جديدة بالاسم المكتوب وإرجاع رقمها الجديد)
+function penValue(id, typeKey) {
+  const s = val(id);
+  if (s === '__new__') { const v = val(id + '_new').trim(); return v ? addPen(v, typeKey || '', null) : null; }
+  return s ? parseInt(s, 10) : null;
+}
+// ترحيل لمرة واحدة: الصيغة القديمة للحظائر كانت تُعرَّف بالاسم (وتُربط بالبهيمة عبر a.pen النصّي)، وأي تعديل للاسم
+// يتطلّب تحديث كل بهيمة مرتبطة به — وهذا ما كان يفشل بصمت عند قفل التعديل. الصيغة الجديدة تُسند لكل حظيرة رقماً
+// داخلياً ثابتاً (id) لا يتغيّر أبداً، وتربط البهيمة به عبر a.pen_id — فتعديل الاسم يظهر فوراً في كل مكان دون أي تحديث جماعي.
+async function migratePensToIds() {
+  let done = false; try { done = !!localStorage.getItem('mrahi_pens_id_migrated'); } catch (e) { /* تجاهل */ }
+  if (done) return;
+  try {
+    let raw = []; try { raw = JSON.parse(localStorage.getItem('mrahi_pens') || '[]'); } catch (e) { raw = []; }
+    const normalized = raw.map(p => typeof p === 'string' ? { name: p.trim(), type: '', parentName: '' } : { name: String(p.name == null ? '' : p.name).trim(), type: p.type || '', parentName: String(p.parent || '').trim() }).filter(p => p.name);
+    (C.animals || []).forEach(a => {
+      const nm = String(a.pen == null ? '' : a.pen).trim(); if (!nm) return;
+      if (!normalized.some(p => p.name === nm)) normalized.push({ name: nm, type: a.type || '', parentName: '' });
+    });
+    const uniq = []; const seenNames = new Set();
+    normalized.forEach(p => { if (!seenNames.has(p.name)) { seenNames.add(p.name); uniq.push(p); } });
+    const withIds = uniq.map((p, i) => ({ id: i + 1, name: p.name, type: p.type, parentName: p.parentName }));
+    const byName = {}; withIds.forEach(p => { byName[p.name] = p; });
+    const finalPens = withIds.map(p => ({ id: p.id, name: p.name, type: p.type, parentId: (p.parentName && byName[p.parentName]) ? byName[p.parentName].id : null }));
+    savePens(finalPens);
+    try { localStorage.setItem('mrahi_pen_id_seq', String(finalPens.length)); } catch (e) { /* تجاهل */ }
+    const byNameFinal = {}; finalPens.forEach(p => { byNameFinal[p.name] = p.id; });
+    for (const a of (C.animals || [])) {
+      const nm = String(a.pen == null ? '' : a.pen).trim();
+      if (!nm || a.pen_id != null) continue;
+      const pid = byNameFinal[nm];
+      if (pid != null) { try { await dbUpdate('animals', a.id, { pen_id: pid }, true); a.pen_id = pid; } catch (e) { /* أفضل جهد */ } }
+    }
+    try { localStorage.setItem('mrahi_pens_id_migrated', '1'); } catch (e) { /* تجاهل */ }
+  } catch (e) { /* أفضل جهد — لا نكسر الإقلاع بسبب الترحيل */ }
+}
 
 /* ===== إضافة/تعديل بهيمة ===== */
 function screenAnimalEdit(arg) {
@@ -1068,7 +1112,7 @@ function screenAnimalEdit(arg) {
     <div class="card"><h3>البيانات الأساسية</h3>
       ${a ? '' : '<div class="muted" style="margin-bottom:8px">المعرّف الخارجي (الوسم) اختياري — يمكنك تركه فارغاً وترقيمها لاحقاً.</div>'}
       ${fSelect('نوع الحلال', 'f_type', TYPES, a ? a.type : (animalFilter || 'sheep'))}
-      ${penField('f_pen', a ? a.pen : '', a ? a.type : (animalFilter || 'sheep'))}
+      ${penField('f_pen', a ? a.pen_id : null, a ? a.type : (animalFilter || 'sheep'))}
       ${fSelect('نوع المعرّف الخارجي', 'f_kind', IDKIND, a ? a.idkind : 'number')}
       ${fInput('المعرّف الخارجي / الوسم (اختياري — قد يتغيّر أو يسقط)', 'f_code', a && a.code)}
       ${fSelect('لون الوسم', 'f_tagcolor', strOpts(tagColors()), a ? (a.tag_color || '') : '')}
@@ -1164,13 +1208,13 @@ function screenAnimalEdit(arg) {
   attachMic('f_code', { digits: true }); attachScan('f_code');
   attachMic('f_name'); attachMic('f_color'); attachMic('f_father'); attachMic('f_mother_name'); attachMic('f_notes', { append: true });
   // نسخ بيانات آخر إدخال (للبهائم الجديدة فقط)
-  { const cl = document.getElementById('cloneLast'); if (cl) cl.addEventListener('click', () => { const L = lastAnimal || {}; setVal('f_type', L.type); setVal('f_pen', L.pen); setVal('f_kind', L.idkind); setVal('f_sex', L.sex); setVal('f_source', L.source); setVal('f_color', L.color); setVal('f_tagcolor', L.tag_color || ''); setVal('f_tagshape', L.tag_shape || ''); setVal('f_father', L.father_name || ''); rebuildPen('f_pen', L.type || (animalFilter || 'sheep')); setVal('f_pen', L.pen || ''); syncKind(); toast('نُسخت بيانات آخر إدخال'); }); }
+  { const cl = document.getElementById('cloneLast'); if (cl) cl.addEventListener('click', () => { const L = lastAnimal || {}; setVal('f_type', L.type); setVal('f_kind', L.idkind); setVal('f_sex', L.sex); setVal('f_source', L.source); setVal('f_color', L.color); setVal('f_tagcolor', L.tag_color || ''); setVal('f_tagshape', L.tag_shape || ''); setVal('f_father', L.father_name || ''); rebuildPen('f_pen', L.type || (animalFilter || 'sheep')); setVal('f_pen', L.pen_id != null ? String(L.pen_id) : ''); syncKind(); toast('نُسخت بيانات آخر إدخال'); }); }
   document.getElementById('saveBtn').addEventListener('click', async () => {
     const code = val('f_code').trim(), name = val('f_name').trim();
     // المعرّف الخارجي اختياري — الرقم الداخلي الثابت يميّز البهيمة دائماً
     const status = a ? (val('f_status') || a.status || 'present') : 'present';   // الإضافة دائماً «موجودة»؛ الخروج (بيع/نفوق/اهداء) من الإجراء
     const isPurchased = val('f_source') === 'purchased';
-    const obj = { type: val('f_type'), pen: penValue('f_pen', val('f_type')), idkind: val('f_kind'), code, name, tag_color: val('f_tagcolor'), tag_shape: val('f_tagshape'), sex: val('f_sex'), purpose: val('f_sex') === 'male' ? val('f_purpose') : '', source: val('f_source'), designation: val('f_design'), buy_price: isPurchased && val('f_buyprice') !== '' ? parseFloat(val('f_buyprice')) : null, birth: val('f_birth') || null, color: val('f_color').trim(), status,
+    const obj = { type: val('f_type'), pen_id: penValue('f_pen', val('f_type')), idkind: val('f_kind'), code, name, tag_color: val('f_tagcolor'), tag_shape: val('f_tagshape'), sex: val('f_sex'), purpose: val('f_sex') === 'male' ? val('f_purpose') : '', source: val('f_source'), designation: val('f_design'), buy_price: isPurchased && val('f_buyprice') !== '' ? parseFloat(val('f_buyprice')) : null, birth: val('f_birth') || null, color: val('f_color').trim(), status,
       // المشترى: أمّها نصّ حرّ (من خارج الحظيرة) بدل ربطها بمعرّف بهيمة موجودة
       mother_id: isPurchased ? null : (parseInt(val('f_mother'), 10) || null),
       mother_name: isPurchased ? val('f_mother_name').trim() : '',
@@ -1222,7 +1266,7 @@ function screenAnimalEdit(arg) {
         if (ho && ho.checked) {
           const nMale = Math.max(0, parseInt(val('f_offmale'), 10) || 0);
           const nFemale = Math.max(0, parseInt(val('f_offfemale'), 10) || 0);
-          const offObj = (sex) => ({ type: obj.type, pen: obj.pen, idkind: 'number', code: '', name: '', sex, purpose: '', source: 'purchased', designation: '', buy_price: null, birth: null, color: '', status: 'present', mother_id: inserted.id, father_name: '', notes: 'مولود رافق أمّه عند الشراء' });
+          const offObj = (sex) => ({ type: obj.type, pen_id: obj.pen_id, idkind: 'number', code: '', name: '', sex, purpose: '', source: 'purchased', designation: '', buy_price: null, birth: null, color: '', status: 'present', mother_id: inserted.id, father_name: '', notes: 'مولود رافق أمّه عند الشراء' });
           for (let i = 0; i < nMale; i++) await dbInsert('animals', offObj('male'));
           for (let i = 0; i < nFemale; i++) await dbInsert('animals', offObj('female'));
         }
@@ -1231,8 +1275,8 @@ function screenAnimalEdit(arg) {
     if (ok) {
       // ثبّت آخر حظيرة وآخر بهيمة للإضافة التالية (للبهائم الجديدة) — تسريع الإدخال المتكرّر
       if (!a) {
-        lastPen = obj.pen || ''; try { localStorage.setItem('mrahi_last_pen', lastPen); } catch (e) {}
-        lastAnimal = { type: obj.type, pen: obj.pen, idkind: obj.idkind, sex: obj.sex, source: obj.source, color: obj.color, tag_color: obj.tag_color, tag_shape: obj.tag_shape, father_name: obj.father_name };
+        lastPen = obj.pen_id; try { localStorage.setItem('mrahi_last_pen', lastPen == null ? '' : String(lastPen)); } catch (e) {}
+        lastAnimal = { type: obj.type, pen_id: obj.pen_id, idkind: obj.idkind, sex: obj.sex, source: obj.source, color: obj.color, tag_color: obj.tag_color, tag_shape: obj.tag_shape, father_name: obj.father_name };
         try { localStorage.setItem('mrahi_last_animal', JSON.stringify(lastAnimal)); } catch (e) {}
       }
       toast('تم الحفظ'); await loadAll(); goBack();
@@ -1449,7 +1493,7 @@ function screenAnimalDetail(arg) {
       ${row('الجنس', (function () { var s = sexTerm(a), g = arOf(SEX, a.sex); return esc(s) + (s !== g ? ' <span class="muted">(' + g + ')</span>' : ''); })())}
       ${a.sex === 'male' && a.purpose ? row('غرض الذكر', arOf(MALE_PURPOSE, a.purpose)) : ''}
       ${a.designation ? row('الغرض', arOf(DESIGN, a.designation)) : ''}
-      ${row('🏠 المكان', esc(a.pen) || '—')}
+      ${row('🏠 المكان', esc(animalPenName(a)) || '—')}
       ${row('المصدر', arOf(SOURCE, a.source || 'purchased'))}
       ${((a.source || 'purchased') === 'purchased' && a.buy_price != null) ? row('💵 سعر الشراء', esc(String(a.buy_price))) : ''}
       ${row('تاريخ الميلاد', fmtDate(a.birth))}
@@ -1544,7 +1588,7 @@ function addOffspringModal(mother) {
     ${fSelect('الجنس', 'of_sex', SEX, 'female')}
     ${fInput('العدد', 'of_count', '', 'number', 'min="1" inputmode="numeric"')}
     ${fInput('تاريخ الميلاد', 'of_birth', todayStr(), 'date')}
-    ${penField('of_pen', mother.pen || '', mother.type)}
+    ${penField('of_pen', mother.pen_id, mother.type)}
     <div id="ofSingle">
       <div id="of_purposeBox">${fSelect('غرض الذكر', 'of_purpose', MALE_PURPOSE, '', '— غير محدّد —')}</div>
       ${fSelect('الغرض', 'of_des', DESIGN, '', '— غير محدّد —')}
@@ -1593,7 +1637,7 @@ function addOffspringModal(mother) {
     document.getElementById('of_save').addEventListener('click', async () => {
       const n = parseInt(val('of_count'), 10) || 0; if (n <= 0) { toast('أدخل عدد المواليد'); return; }
       const pen = penValue('of_pen', mother.type);
-      const base = { type: mother.type, pen, source: 'born', status: 'present', mother_id: mother.id, father_name: '', notes: '' };
+      const base = { type: mother.type, pen_id: pen, source: 'born', status: 'present', mother_id: mother.id, father_name: '', notes: '' };
       // العدد > 1: لكل مولود حقوله الكاملة المستقلّة
       if (n > 1) {
         if (!await confirm2(`إضافة ${n} مولوداً وربطها بـ${display(mother)}؟`)) return;
@@ -1616,7 +1660,7 @@ function addOffspringModal(mother) {
             await dbInsert('animals', o);
           }
         });
-        if (ok) { closeModal(); lastPen = pen; try { localStorage.setItem('mrahi_last_pen', pen); } catch (e) {} toast(`أُضيف ${n} مولوداً`); await loadAll(); screenAnimalDetail(String(mother.id)); }
+        if (ok) { closeModal(); lastPen = pen; try { localStorage.setItem('mrahi_last_pen', pen == null ? '' : String(pen)); } catch (e) {} toast(`أُضيف ${n} مولوداً`); await loadAll(); screenAnimalDetail(String(mother.id)); }
         return;
       }
       // مولود واحد: الحقول المشتركة + خيار الترقيم
@@ -1635,7 +1679,7 @@ function addOffspringModal(mother) {
       const sex = val('of_sex');
       const single = Object.assign({}, base, { sex, purpose: sex === 'male' ? val('of_purpose') : '', designation: val('of_des'), color: '', birth: val('of_birth') || null });
       const ok = await guard(async () => { for (const code of codes) await dbInsert('animals', { ...single, idkind: idkindFor(code), code, name: '' }); });
-      if (ok) { closeModal(); lastPen = pen; try { localStorage.setItem('mrahi_last_pen', pen); } catch (e) {} toast(`أُضيف ${codes.length} مولوداً`); await loadAll(); screenAnimalDetail(String(mother.id)); }
+      if (ok) { closeModal(); lastPen = pen; try { localStorage.setItem('mrahi_last_pen', pen == null ? '' : String(pen)); } catch (e) {} toast(`أُضيف ${codes.length} مولوداً`); await loadAll(); screenAnimalDetail(String(mother.id)); }
     });
   });
 }
@@ -1794,7 +1838,7 @@ function screenPregnancies() {
 function startPregBulkModal() {
   const all = C.animals.filter(a => a.status === 'present' && a.sex === 'female');
   if (!all.length) { toast('لا توجد إناث في الحظيرة'); return; }
-  const pens = [...new Set(all.map(a => a.pen || '').filter(Boolean))].sort();
+  const pens = [...new Set(all.map(a => a.pen_id).filter(id => id != null))].map(id => penById(id)).filter(Boolean).sort((a, b) => a.name.localeCompare(b.name, 'ar'));
   const typesUsed = TYPES.filter(t => all.some(a => a.type === t.k));
   let typeF = '', penF = '';
   const cnum = (a) => { const n = codeNumOf(a); return n == null ? 1e15 : n; };
@@ -1808,7 +1852,7 @@ function startPregBulkModal() {
   };
   const rowHtml = (a) => {
     const p = monOf(a.id); const age = curAge(p);
-    return `<div class="bulk-row" data-id="${a.id}" data-pen="${esc(a.pen || '')}" data-type="${a.type}" style="gap:10px${p ? ';background:color-mix(in srgb, var(--green) 12%, transparent);border-radius:8px' : ''}">
+    return `<div class="bulk-row" data-id="${a.id}" data-pen="${a.pen_id != null ? a.pen_id : ''}" data-type="${a.type}" style="gap:10px${p ? ';background:color-mix(in srgb, var(--green) 12%, transparent);border-radius:8px' : ''}">
       <span style="flex:1;font-weight:700">${display(a)}</span>
       <input data-age="${a.id}" type="number" inputmode="numeric" min="1" placeholder="العمر" value="${age != null ? age : ''}" style="width:74px;padding:8px;border:1px solid #ddd;border-radius:8px;text-align:center">
       <span class="muted" data-exp="${a.id}" style="font-size:.76rem;min-width:88px;text-align:left">${p ? '✅ 📅 ' + fmtDate(p.expected) : ''}</span></div>`;
@@ -1836,7 +1880,7 @@ function startPregBulkModal() {
     applyFilter(); updCount();
   };
   const typeChips = typesUsed.length > 1 ? `النوع: <div class="chips"><span class="chip active" data-typef="">الكل</span>${typesUsed.map(t => `<span class="chip" data-typef="${t.k}">${t.ar}</span>`).join('')}</div>` : '';
-  const penChips = pens.length > 1 ? `🏠 <div class="chips"><span class="chip active" data-penf="">الكل</span>${pens.map(p => `<span class="chip" data-penf="${esc(p)}">${esc(p)}</span>`).join('')}</div>` : '';
+  const penChips = pens.length > 1 ? `🏠 <div class="chips"><span class="chip active" data-penf="">الكل</span>${pens.map(p => `<span class="chip" data-penf="${p.id}">${esc(p.name)}</span>`).join('')}</div>` : '';
   openModal('🔊 متابعة الحمل بالسونار', `
     ${fInput('تاريخ السونار', 'pp_date', todayStr(), 'date')}
     ${typeChips}
@@ -1967,7 +2011,7 @@ function openBirthModal(preg) {
     document.getElementById('b_save').addEventListener('click', async () => {
       const n = parseInt(val('b_count'), 10) || 0; if (n <= 0) { toast('أدخل عدد المواليد'); return; }
       const date = val('b_date') || todayStr(), father = val('b_father').trim(), notes = val('b_notes').trim(), create = document.getElementById('b_create').checked;
-      const base = { type: mother.type, pen: mother.pen || '', source: 'born', status: 'present', mother_id: mother.id, father_name: father, notes };
+      const base = { type: mother.type, pen_id: mother.pen_id != null ? mother.pen_id : null, source: 'born', status: 'present', mother_id: mother.id, father_name: father, notes };
       // العدد > 1: لكل مولود حقوله الكاملة المستقلّة (جنس/غرض/معرّف)
       if (n > 1) {
         if (!await confirm2(`تسجيل ولادة ${n} مولوداً وربطها بـ${display(mother)}؟`)) return;
@@ -2497,7 +2541,7 @@ function screenSires() {
     const ic = STATUS_ICON[s.status] || '';
     return `<div class="card click" data-aid="${s.id}" style="margin:6px 0">
       <div class="li-title">🐏 ${display(s)}</div>
-      <div class="li-sub">${arOf(TYPES, s.type)}${s.birth ? ' • ' + (ageText(s.birth) || '') : ''}${s.pen ? ' • 🏠 ' + esc(s.pen) : ''}${s.status !== 'present' ? ' • ' + ic + ' ' + arOf(STATUS, s.status) : ''}</div>
+      <div class="li-sub">${arOf(TYPES, s.type)}${s.birth ? ' • ' + (ageText(s.birth) || '') : ''}${animalPenName(s) ? ' • 🏠 ' + esc(animalPenName(s)) : ''}${s.status !== 'present' ? ' • ' + ic + ' ' + arOf(STATUS, s.status) : ''}</div>
       ${kids.length ? `<div class="li-sub link" data-kids="${s.id}">👶 نتاجه: ${kids.length} (${sons} ذكور، ${daughters} إناث) — عرض</div>` : ''}
       ${dams.length ? `<div class="li-sub link" data-dams="${s.id}">🐑 لقّح: ${dams.length} أنثى — عرض</div>` : ''}
       <div class="li-sub muted">المصدر: ${arOf(SOURCE, s.source || 'purchased')}</div></div>`;
@@ -2536,7 +2580,7 @@ function screenFemales() {
     const sireInfo = lastMating ? (lastMating.sire_name || lastMating.sire_code) : (lastBirthOff ? lastBirthOff.father_name : '');
     return `<div class="card click" data-aid="${a.id}" style="margin:6px 0">
       <div class="li-title">${display(a)}</div>
-      <div class="li-sub">${arOf(TYPES, a.type)}${a.birth ? ' • ' + (ageText(a.birth) || '') : ''}${a.pen ? ' • 🏠 ' + esc(a.pen) : ''}</div>
+      <div class="li-sub">${arOf(TYPES, a.type)}${a.birth ? ' • ' + (ageText(a.birth) || '') : ''}${animalPenName(a) ? ' • 🏠 ' + esc(animalPenName(a)) : ''}</div>
       ${offs.length ? `<div class="li-sub link" data-off="${a.id}">👶 إنتاجها: ${offs.length}${sireInfo ? ' • آخر فحل: ' + esc(sireInfo) : ''} — عرض</div>` : (sireInfo ? `<div class="li-sub">🐏 آخر تلقيح: ${esc(sireInfo)}</div>` : '')}</div>`;
   };
   const chip = (k, label, n) => `<span class="chip ${femaleFilter === k ? 'active' : ''}" data-ff="${k}">${label} (${n})</span>`;
@@ -2738,12 +2782,12 @@ function renderBulkBody() {
       if (dups.length && !await confirm2(`${dups.length} معرّف مكرّر (${dups.slice(0, 4).join('، ')}${dups.length > 4 ? '…' : ''}). متابعة؟`)) return;
       if (!await confirm2(`حفظ ${bulkRows.length} رأساً؟`)) return;
       const pen = penValue('bk_pen', val('bk_type')), src = val('bk_source'), datev = val('bk_date') || null;
-      const base = { type: val('bk_type'), pen, source: src, status: 'present', color: val('bk_color').trim(),
+      const base = { type: val('bk_type'), pen_id: pen, source: src, status: 'present', color: val('bk_color').trim(),
         birth: src === 'born' ? datev : null, buy_date: src === 'purchased' ? datev : null,
         buy_price: val('bk_price') !== '' ? parseFloat(val('bk_price')) : null };
       const rows = bulkRows.slice();
       const ok = await guard(async () => { for (const r of rows) await dbInsert('animals', { ...base, sex: r.sex, idkind: idkindFor(r.code), code: r.code, name: '', mother_id: null, father_name: '', notes: '' }); });
-      if (ok) { bulkRows.length = 0; lastPen = pen; try { localStorage.setItem('mrahi_last_pen', pen); } catch (e) {} toast(`تم حفظ ${rows.length} رأساً — اضغط أي بهيمة لتعديلها`); bulkSel.clear(); await loadAll(); setHash('#/animals'); }
+      if (ok) { bulkRows.length = 0; lastPen = pen; try { localStorage.setItem('mrahi_last_pen', pen == null ? '' : String(pen)); } catch (e) {} toast(`تم حفظ ${rows.length} رأساً — اضغط أي بهيمة لتعديلها`); bulkSel.clear(); await loadAll(); setHash('#/animals'); }
     });
     renderRows();
     return;
@@ -2763,7 +2807,7 @@ function renderBulkBody() {
   let cands = C.animals.filter(a => a.status === 'present');
   if (bulkOp === 'mate') cands = cands.filter(a => a.sex === 'female');
   cands.sort((a, b) => b.id - a.id);
-  const listHtml = cands.length ? cands.map(a => `<label class="bulk-row"><input type="checkbox" data-sel="${a.id}" ${bulkSel.has(a.id) ? 'checked' : ''}><span>${display(a)} <span class="muted">${arOf(TYPES, a.type)}${a.pen ? ' • ' + esc(a.pen) : ''}</span></span></label>`).join('') : '<div class="muted">لا توجد بهائم مطابقة.</div>';
+  const listHtml = cands.length ? cands.map(a => `<label class="bulk-row"><input type="checkbox" data-sel="${a.id}" ${bulkSel.has(a.id) ? 'checked' : ''}><span>${display(a)} <span class="muted">${arOf(TYPES, a.type)}${animalPenName(a) ? ' • ' + esc(animalPenName(a)) : ''}</span></span></label>`).join('') : '<div class="muted">لا توجد بهائم مطابقة.</div>';
   body.innerHTML = `<div class="card"><h3>بيانات العملية</h3>${form}</div>
     <div class="card"><div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin:0">اختر البهائم</h3>${cands.length ? '<button class="btn sm outline" id="bk_all">تحديد/إلغاء الكل</button>' : ''}</div>
       ${cands.length ? `${fInput('🔍 بحث (رقم/حظيرة)', 'bk_search', '')}` : ''}
@@ -2887,7 +2931,6 @@ function settingsMenuCats() {
     ].filter(Boolean) },
     { key: 'app', title: '📱 التطبيق والمساعدة', items: [
       I(true, '📘 دليل الاستخدام', '#/guide'),
-      I(true, '🗺️ خريطة التطبيق', '#/sitemap'),
       I(window.MRAH_APK, '🔄 تحقق من وجود تحديث', '__checkupdate'),
       I(true, '📧 ملاحظات ومقترحات', '__feedback'),
     ].filter(Boolean) },
@@ -2896,6 +2939,8 @@ function settingsMenuCats() {
 // ☰ الإعدادات والإدارة — كل ما يُضبط مرّة ونادراً ما يتغيّر
 function screenSettingsMenu() {
   const cats = settingsMenuCats();
+  // خريطة التطبيق: بطاقة بارزة أول شيء يظهر — دليل مرئي لكل شيء، لا تختبئ داخل قسم فرعي
+  const mapCard = `<div class="card click hl" data-go="#/sitemap" style="background:#e8f5e9;border:1px solid var(--green)"><div class="li-title">🗺️ خريطة التطبيق</div><div class="li-sub">دليل مرئي لكل شيء — الشريط السفلي وكل قوائم ☰/⋮ في صفحة واحدة</div></div>`;
   // عند توفّر تحديث: بطاقة بارزة دائمة أعلى الصفحة (تسهيل)
   const upd = window.mrahiUpdateInfo;
   const topUpdate = (window.MRAH_APK && upd)
@@ -2907,7 +2952,7 @@ function screenSettingsMenu() {
   const footer = `<div class="muted" style="text-align:center;margin-top:18px;font-size:.85rem">
     <div style="font-weight:700;color:var(--green)">✨ التسهيل · الحفظ · التخطيط</div>
     حلالي — تطبيق محلّي • بياناتك على جهازك${ver}${licLine}</div>`;
-  renderMenuScreen('settings', cats, topUpdate);
+  renderMenuScreen('settings', cats, mapCard + topUpdate);
   view().insertAdjacentHTML('beforeend', footer);
 }
 
@@ -3222,7 +3267,7 @@ function exportJson() { const data = { exportedAt: new Date().toISOString(), ani
 function exportCsv() {
   const cell = s => { s = String(s == null ? '' : s); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
   const head = ['النوع', 'الحظيرة', 'المعرف', 'نوع المعرف', 'الاسم', 'الجنس', 'المصدر', 'تاريخ الميلاد', 'اللون', 'الحالة', 'تاريخ البيع', 'سعر البيع', 'تاريخ النفوق', 'رقم الأم', 'اسم الأب', 'ملاحظات'];
-  const rows = C.animals.map(a => [arOf(TYPES, a.type), a.pen, a.code, arOf(IDKIND, a.idkind), a.name, arOf(SEX, a.sex), arOf(SOURCE, a.source || 'purchased'), a.birth, a.color, arOf(STATUS, a.status), a.sale_date || '', a.sale_price != null ? a.sale_price : '', a.dead_date || '', a.mother_id ? (animalById(a.mother_id) || {}).code || '' : (a.mother_name || ''), a.father_name, a.notes].map(cell).join(','));
+  const rows = C.animals.map(a => [arOf(TYPES, a.type), animalPenName(a), a.code, arOf(IDKIND, a.idkind), a.name, arOf(SEX, a.sex), arOf(SOURCE, a.source || 'purchased'), a.birth, a.color, arOf(STATUS, a.status), a.sale_date || '', a.sale_price != null ? a.sale_price : '', a.dead_date || '', a.mother_id ? (animalById(a.mother_id) || {}).code || '' : (a.mother_name || ''), a.father_name, a.notes].map(cell).join(','));
   shareOrDownload('mrahi_animals_' + stamp() + '.csv', '﻿' + head.join(',') + '\n' + rows.join('\n'), 'text/csv');
 }
 
@@ -3233,7 +3278,7 @@ let entryLogType = '';   // نوع الحلال المعروض في سجل ال�
 let lineageMode = 'flat';   // عرض الأنساب: قائمة (الأم ← مواليدها) أو شجرة متعدّدة الأجيال
 let afSex = 'male', afSrc = 'born', afCmp = 'gt', afMonths = 3;   // كشف بالعمر (الجنس/المصدر/المقارنة/الأشهر)
 const codeNumOf = (a) => { const m = String(a.code || '').match(/(\d+)/); return m ? parseInt(m[1], 10) : null; };
-const aMini = (a) => `<div class="card click" data-aid="${a.id}" style="margin:6px 0"><div class="li-title">${display(a)}</div><div class="li-sub">${arOf(TYPES, a.type)} • ${esc(sexTerm(a))}${a.pen ? ' • ' + esc(a.pen) : ''}${a.status !== 'present' ? ' • ' + arOf(STATUS, a.status) : ''}</div></div>`;
+const aMini = (a) => `<div class="card click" data-aid="${a.id}" style="margin:6px 0"><div class="li-title">${display(a)}</div><div class="li-sub">${arOf(TYPES, a.type)} • ${esc(sexTerm(a))}${animalPenName(a) ? ' • ' + esc(animalPenName(a)) : ''}${a.status !== 'present' ? ' • ' + arOf(STATUS, a.status) : ''}</div></div>`;
 function screenInspect() {
   if (!can('animals', 'view')) { view().innerHTML = noPerm(); return; }
   const tabs = [
@@ -3320,15 +3365,16 @@ function renderInspect() {
     const pM = boughtAll.filter(a => a.sex === 'male').length, pF = boughtAll.filter(a => a.sex === 'female').length;
     const sire = presentT.filter(a => a.sex === 'male' && a.purpose === 'sire').length;
     const forSale = presentT.filter(a => a.sex === 'male' && a.purpose === 'sale').length;
-    const pens = {}; presentT.forEach(a => { const p = a.pen || '— بلا حظيرة'; pens[p] = (pens[p] || 0) + 1; });
+    const pens = {}; presentT.forEach(a => { const p = animalPenName(a) || '— بلا حظيرة'; pens[p] = (pens[p] || 0) + 1; });
     const penList = Object.entries(pens).sort((x, y) => y[1] - x[1]);
     // حظائر رئيسية مقسّمة لفروع (مثلاً حظيرة واحدة مقسّمة حسب الرعاية: ذكور/إناث صغار/حمل) — تُعرض كمربعات بإجمالي كل رئيسية مع فروعها
+    const pensById = {}; presentT.forEach(a => { if (a.pen_id != null) pensById[a.pen_id] = (pensById[a.pen_id] || 0) + 1; });
     const penDefsT = allPens().filter(p => !p.type || p.type === TK);
-    const rootsWithKids = penDefsT.filter(p => !p.parent && penDefsT.some(c => c.parent === p.name));
-    const penTotal = (nm) => (pens[nm] || 0) + penDefsT.filter(c => c.parent === nm).reduce((s, c) => s + (pens[c.name] || 0), 0);
+    const rootsWithKids = penDefsT.filter(p => p.parentId == null && penDefsT.some(c => c.parentId === p.id));
+    const penTotal = (id) => (pensById[id] || 0) + penDefsT.filter(c => c.parentId === id).reduce((s, c) => s + (pensById[c.id] || 0), 0);
     const hierBoxesHtml = rootsWithKids.length ? `<div class="card"><h3>🏠 حسب الحظيرة (رئيسية وفروعها)</h3>
-        <div class="stats" style="grid-template-columns:repeat(${Math.min(rootsWithKids.length, 3)},1fr)">${rootsWithKids.map(r => `<div class="stat"><div class="n">${penTotal(r.name)}</div><div class="l">${esc(r.name)}</div></div>`).join('')}</div>
-        ${rootsWithKids.map(r => `<div style="margin-top:10px">${row('🏠 ' + esc(r.name), penTotal(r.name) + ' (إجمالي)')}${penDefsT.filter(c => c.parent === r.name).sort((a, b) => a.name.localeCompare(b.name, 'ar')).map(c => row('↳ ' + esc(c.name), String(pens[c.name] || 0))).join('')}</div>`).join('')}
+        <div class="stats" style="grid-template-columns:repeat(${Math.min(rootsWithKids.length, 3)},1fr)">${rootsWithKids.map(r => `<div class="stat"><div class="n">${penTotal(r.id)}</div><div class="l">${esc(r.name)}</div></div>`).join('')}</div>
+        ${rootsWithKids.map(r => `<div style="margin-top:10px">${row('🏠 ' + esc(r.name), penTotal(r.id) + ' (إجمالي)')}${penDefsT.filter(c => c.parentId === r.id).sort((a, b) => a.name.localeCompare(b.name, 'ar')).map(c => row('↳ ' + esc(c.name), String(pensById[c.id] || 0))).join('')}</div>`).join('')}
       </div>` : '';
     const withBirth = presentT.filter(a => a.birth);
     const noBirth = presentT.length - withBirth.length;
@@ -3366,7 +3412,7 @@ function renderInspect() {
   if (inspectTab === 'index') {
     const arr = present.slice().sort((a, b) => { const x = codeNumOf(a), y = codeNumOf(b); if (x == null && y == null) return a.id - b.id; if (x == null) return 1; if (y == null) return -1; return x - y; });
     body.innerHTML = `<div class="muted" style="margin:4px 0 8px">فهرس تسلسلي — ${arr.length} رأس في الحظيرة</div>`
-      + (arr.length ? arr.map((a, i) => `<div class="card click" data-aid="${a.id}"><div class="li-title">${i + 1}. ${display(a)}</div><div class="li-sub">${arOf(TYPES, a.type)} • ${esc(sexTerm(a))}${a.pen ? ' • ' + esc(a.pen) : ''}</div></div>`).join('') : noItem());
+      + (arr.length ? arr.map((a, i) => `<div class="card click" data-aid="${a.id}"><div class="li-title">${i + 1}. ${display(a)}</div><div class="li-sub">${arOf(TYPES, a.type)} • ${esc(sexTerm(a))}${animalPenName(a) ? ' • ' + esc(animalPenName(a)) : ''}</div></div>`).join('') : noItem());
     bindCards(body); return;
   }
   if (inspectTab === 'dups') {
@@ -3381,7 +3427,7 @@ function renderInspect() {
     const cnt = {}; A.forEach(a => { if (a.mother_id) cnt[a.mother_id] = (cnt[a.mother_id] || 0) + 1; });
     const moms = Object.entries(cnt).map(([id, n]) => ({ a: animalById(parseInt(id, 10)), n })).filter(x => x.a).sort((x, y) => y.n - x.n);
     body.innerHTML = `<div class="muted" style="margin:4px 0 8px">الأمهات حسب عدد المواليد المسجّلة (${moms.length} أم منتِجة)</div>`
-      + (moms.length ? moms.map(({ a, n }) => `<div class="card click" data-aid="${a.id}"><div class="li-title">${display(a)}</div><div class="li-sub">👶 ${n} مولود • ${arOf(TYPES, a.type)}${a.pen ? ' • ' + esc(a.pen) : ''}</div></div>`).join('') : noItem());
+      + (moms.length ? moms.map(({ a, n }) => `<div class="card click" data-aid="${a.id}"><div class="li-title">${display(a)}</div><div class="li-sub">👶 ${n} مولود • ${arOf(TYPES, a.type)}${animalPenName(a) ? ' • ' + esc(animalPenName(a)) : ''}</div></div>`).join('') : noItem());
     bindCards(body); return;
   }
   if (inspectTab === 'agefilter') {
@@ -3403,7 +3449,7 @@ function renderInspect() {
       const noB = present.filter(a => !a.birth && (afSex === 'all' || a.sex === afSex) && (afSrc === 'all' || (a.source || 'purchased') === afSrc)).length;
       const res = document.getElementById('af_result');
       res.innerHTML = `<div class="card hl"><div class="li-title">النتيجة: ${arr.length} رأس</div><div class="li-sub">${afSex === 'male' ? 'ذكور' : afSex === 'female' ? 'إناث' : 'الكل'} • ${afSrc === 'born' ? 'مواليد' : afSrc === 'purchased' ? 'مشترى' : 'كل المصادر'} • ${afCmp === 'gt' ? 'أكبر من' : 'أصغر من'} ${afMonths} شهر${noB ? ` • (${noB} بلا ميلاد غير محسوبة)` : ''}</div></div>`
-        + (arr.length ? arr.map(a => `<div class="card click" data-aid="${a.id}"><div class="li-title">${display(a)} <span class="muted" style="font-weight:400">🎂 ${ageText(a.birth)}</span></div><div class="li-sub">${arOf(TYPES, a.type)} • ${esc(sexTerm(a))}${a.pen ? ' • ' + esc(a.pen) : ''}</div></div>`).join('') : noItem());
+        + (arr.length ? arr.map(a => `<div class="card click" data-aid="${a.id}"><div class="li-title">${display(a)} <span class="muted" style="font-weight:400">🎂 ${ageText(a.birth)}</span></div><div class="li-sub">${arOf(TYPES, a.type)} • ${esc(sexTerm(a))}${animalPenName(a) ? ' • ' + esc(animalPenName(a)) : ''}</div></div>`).join('') : noItem());
       bindCards(res);
     };
     body.querySelectorAll('[data-afs]').forEach(c => c.addEventListener('click', () => { afSex = c.dataset.afs; body.querySelectorAll('[data-afs]').forEach(x => x.classList.toggle('active', x.dataset.afs === afSex)); compute(); }));
@@ -3718,29 +3764,29 @@ function screenCountAge() {
 }
 function screenPens() {
   if (!can('animals', 'edit')) { view().innerHTML = noPerm(); return; }
-  const pens = allPens();   // [{name,type,parent}]
-  const countFor = (nm) => (C.animals || []).filter(a => (a.pen || '') === nm).length;
-  const totalFor = (nm) => countFor(nm) + penChildren(nm).reduce((s, c) => s + countFor(c.name), 0);
+  const pens = allPens();   // [{id,name,type,parentId}]
+  const countFor = (id) => (C.animals || []).filter(a => a.pen_id === id).length;
+  const totalFor = (id) => countFor(id) + penChildren(id).reduce((s, c) => s + countFor(c.id), 0);
   const typeAr = (tk) => tk ? arOf(TYPES, tk) : 'أي نوع';
   const groups = {}; pens.forEach(p => { (groups[p.type || ''] = groups[p.type || ''] || []).push(p); });
   const typeSel = `<select id="np_type">${TYPES.map(t => `<option value="${t.k}">${t.ar}</option>`).join('')}<option value="">أي نوع</option></select>`;
-  const penRow = (p, isChild, total) => `<div ${isChild ? '' : `class="click" data-penroot="${esc(p.name)}"`} style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #eee${isChild ? ';padding-inline-start:22px' : ''}">
-      <span class="li-title" style="font-weight:600">${isChild ? '↳ ' : '🏠 '}${esc(p.name)} <span class="muted" style="font-weight:400;font-size:.8rem">(${total} بهيمة${total !== countFor(p.name) ? ' — إجمالي مع الفروع' : ''})</span></span>
+  const penRow = (p, isChild, total) => `<div ${isChild ? '' : `class="click" data-penroot="${p.id}"`} style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #eee${isChild ? ';padding-inline-start:22px' : ''}">
+      <span class="li-title" style="font-weight:600">${isChild ? '↳ ' : '🏠 '}${esc(p.name)} <span class="muted" style="font-weight:400;font-size:.8rem">(${total} بهيمة${total !== countFor(p.id) ? ' — إجمالي مع الفروع' : ''})</span></span>
       <span style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">
-        <button class="btn sm" data-penadd="${esc(p.name)}">➕ إضافة بهائم</button>
-        ${countFor(p.name) ? `<button class="btn sm outline" data-penmove="${esc(p.name)}">🔀 نقل</button>` : ''}
-        <button class="btn sm outline" data-penedit="${esc(p.name)}">تعديل</button><button class="btn sm danger" data-pendel="${esc(p.name)}">حذف</button></span></div>`;
+        <button class="btn sm" data-penadd="${p.id}">➕ إضافة بهائم</button>
+        ${countFor(p.id) ? `<button class="btn sm outline" data-penmove="${p.id}">🔀 نقل</button>` : ''}
+        <button class="btn sm outline" data-penedit="${p.id}">تعديل</button><button class="btn sm danger" data-pendel="${p.id}">حذف</button></span></div>`;
   let body = '';
   TYPES.map(t => t.k).concat(['']).forEach(tk => {
     const arr = groups[tk]; if (!arr || !arr.length) return;
-    const roots = arr.filter(p => !p.parent).sort((a, b) => a.name.localeCompare(b.name, 'ar'));
-    const orphanBranches = arr.filter(p => p.parent && !arr.some(q => q.name === p.parent));   // أب من مجموعة أخرى أو محذوف — تُعرض مستقلة احتياطاً
+    const roots = arr.filter(p => p.parentId == null).sort((a, b) => a.name.localeCompare(b.name, 'ar'));
+    const orphanBranches = arr.filter(p => p.parentId != null && !arr.some(q => q.id === p.parentId));   // أب من مجموعة أخرى أو محذوف — تُعرض مستقلة احتياطاً
     let html = '';
     roots.forEach(p => {
-      html += penRow(p, false, totalFor(p.name));
-      penChildren(p.name).filter(c => arr.includes(c)).sort((a, b) => a.name.localeCompare(b.name, 'ar')).forEach(c => { html += penRow(c, true, countFor(c.name)); });
+      html += penRow(p, false, totalFor(p.id));
+      penChildren(p.id).filter(c => arr.includes(c)).sort((a, b) => a.name.localeCompare(b.name, 'ar')).forEach(c => { html += penRow(c, true, countFor(c.id)); });
     });
-    orphanBranches.forEach(p => { html += penRow(p, false, countFor(p.name)); });
+    orphanBranches.forEach(p => { html += penRow(p, false, countFor(p.id)); });
     body += `<div class="card"><h3>🐑 ${esc(typeAr(tk))}</h3>${html}</div>`;
   });
   view().innerHTML = `<div class="card" style="background:#fff8e1">
@@ -3751,7 +3797,7 @@ function screenPens() {
         <b>٣)</b> تفتح نافذة فروعها — اكتب اسم الفرع الجديد واضغط «➕ إضافة حظيرة فرعية».
       </div>
       <div class="muted" style="font-size:.8rem;margin-top:8px">➕ «إضافة بهائم» يضيف بهائم موجودة (من أي حظيرة أخرى أو بلا حظيرة) لهذه الحظيرة. 🔀 «نقل» ينقل بهائمها المحدَّدة لحظيرة أخرى نقلاً كاملاً — لا تبقى أي علاقة بالحظيرة السابقة.</div>
-      <div class="muted" style="font-size:.8rem;margin-top:4px">الحظيرة مجرّد تصنيف مكاني — لا تُخفي البهيمة عن تبويباتها الأخرى: الأنثى تبقى تظهر في ♀️ الإناث، المولود في 👶 المواليد، الفحل في 🐏 الفحول، وتُحتسب في «في الحظيرة» بالرئيسية كالمعتاد.</div>
+      <div class="muted" style="font-size:.8rem;margin-top:4px">الحظيرة مجرّد تصنيف مكاني — لا تُخفي البهيمة عن تبويباتها الأخرى: الأنثى تبقى تظهر في ♀️ الإناث، المولود في 👶 المواليد، الفحل في 🐏 الفحول، وتُحتسب في «في الحظيرة» بالرئيسية كالمعتاد. البهيمة مرتبطة برقم الحظيرة الداخلي الثابت لا باسمها — فتعديل الاسم يظهر فوراً في كل مكان.</div>
     </div>
     <div class="card"><h3>➕ إضافة حظيرة رئيسية جديدة</h3>
       <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">${typeSel}<input id="np_name" placeholder="اسم الحظيرة" style="flex:1;min-width:140px"><button class="btn sm" id="np_add">إضافة</button></div></div>`
@@ -3759,25 +3805,25 @@ function screenPens() {
   document.getElementById('np_add').addEventListener('click', async () => {
     const n = val('np_name').trim(); if (!n) { toast('اكتب اسم الحظيرة'); return; }
     if (allPens().some(p => p.name === n)) { await confirm2(`الاسم «${n}» مستخدَم مسبقاً لحظيرة أخرى — اختر اسماً مختلفاً.`, { title: 'الاسم موجود مسبقاً', okText: 'حسناً' }); return; }
-    addPen(n, val('np_type'), '');
+    addPen(n, val('np_type'), null);
     toast('أُضيفت'); screenPens();
   });
   view().querySelectorAll('[data-penroot]').forEach(el => el.addEventListener('click', (e) => {
     if (e.target.closest('button')) return;   // لا تفتح الحظيرة عند الضغط على تعديل/حذف/نقل
-    penRootModal(el.dataset.penroot);
+    penRootModal(parseInt(el.dataset.penroot, 10));
   }));
-  view().querySelectorAll('[data-penedit]').forEach(b => b.addEventListener('click', (e) => { e.stopPropagation(); penRenameModal(b.dataset.penedit); }));
-  view().querySelectorAll('[data-pendel]').forEach(b => b.addEventListener('click', (e) => { e.stopPropagation(); penDelete(b.dataset.pendel); }));
-  view().querySelectorAll('[data-penmove]').forEach(b => b.addEventListener('click', (e) => { e.stopPropagation(); penMoveModal(b.dataset.penmove); }));
-  view().querySelectorAll('[data-penadd]').forEach(b => b.addEventListener('click', (e) => { e.stopPropagation(); penAssignModal(b.dataset.penadd); }));
+  view().querySelectorAll('[data-penedit]').forEach(b => b.addEventListener('click', (e) => { e.stopPropagation(); penRenameModal(parseInt(b.dataset.penedit, 10)); }));
+  view().querySelectorAll('[data-pendel]').forEach(b => b.addEventListener('click', (e) => { e.stopPropagation(); penDelete(parseInt(b.dataset.pendel, 10)); }));
+  view().querySelectorAll('[data-penmove]').forEach(b => b.addEventListener('click', (e) => { e.stopPropagation(); penMoveModal(parseInt(b.dataset.penmove, 10)); }));
+  view().querySelectorAll('[data-penadd]').forEach(b => b.addEventListener('click', (e) => { e.stopPropagation(); penAssignModal(parseInt(b.dataset.penadd, 10)); }));
 }
 // إضافة بهائم موجودة (من أي حظيرة أخرى أو بلا حظيرة) إلى هذه الحظيرة — يعمل حتى لو كانت الحظيرة فارغة (بعكس «نقل» الذي يحتاج مصدراً فيه بهائم أصلاً)
-function penAssignModal(penName) {
-  const pen = allPens().find(p => p.name === penName); if (!pen) return;
-  const candidates = (C.animals || []).filter(a => a.status === 'present' && (a.pen || '') !== penName && (!pen.type || a.type === pen.type)).sort((a, b) => (a.pen || '').localeCompare(b.pen || '', 'ar'));
+function penAssignModal(penId) {
+  const pen = penById(penId); if (!pen) return;
+  const candidates = (C.animals || []).filter(a => a.status === 'present' && a.pen_id !== penId && (!pen.type || a.type === pen.type)).sort((a, b) => animalPenName(a).localeCompare(animalPenName(b), 'ar'));
   if (!candidates.length) { toast('لا توجد بهائم أخرى (من نفس النوع) يمكن إضافتها'); return; }
-  const rows = candidates.map(a => `<label class="bulk-row"><input type="checkbox" data-pa="${a.id}"><span>${display(a)} <span class="muted">${arOf(TYPES, a.type)} • ${a.pen ? esc(a.pen) : 'بلا حظيرة'}</span></span></label>`).join('');
-  openModal('➕ إضافة بهائم إلى 🏠 ' + penName, `
+  const rows = candidates.map(a => `<label class="bulk-row"><input type="checkbox" data-pa="${a.id}"><span>${display(a)} <span class="muted">${arOf(TYPES, a.type)} • ${animalPenName(a) ? esc(animalPenName(a)) : 'بلا حظيرة'}</span></span></label>`).join('');
+  openModal('➕ إضافة بهائم إلى 🏠 ' + pen.name, `
     <div class="muted" style="margin-bottom:8px">اختر البهائم المطلوب إضافتها لهذه الحظيرة (${candidates.length} بهيمة متاحة).</div>
     <input id="pa_search" placeholder="🔍 بحث بالاسم/الرقم...">
     <div id="pa_list" style="margin-top:8px">${rows}</div>
@@ -3790,17 +3836,17 @@ function penAssignModal(penName) {
     document.getElementById('pa_go').addEventListener('click', async () => {
       const ids = [...document.querySelectorAll('[data-pa]:checked')].map(c => parseInt(c.dataset.pa, 10));
       if (!ids.length) { toast('اختر بهيمة واحدة على الأقل'); return; }
-      if (!await confirm2(`إضافة ${ids.length} بهيمة إلى «${penName}»؟`)) return;
-      const ok = await guard(async () => { for (const id of ids) await dbUpdate('animals', id, { pen: penName }); });
+      if (!await confirm2(`إضافة ${ids.length} بهيمة إلى «${pen.name}»؟`)) return;
+      const ok = await guard(async () => { for (const id of ids) await dbUpdate('animals', id, { pen_id: penId }); });
       if (ok) { closeModal(); toast('تمت الإضافة'); await loadAll(); screenPens(); }
     });
   });
 }
 // فتح حظيرة رئيسية: عرض فروعها الحالية + إضافة فرع جديد منها مباشرة (الطريقة الأوضح لإضافة فرع)
-function penRootModal(name) {
-  const cur = allPens().find(p => p.name === name); if (!cur) return;
-  const kids = penChildren(name);
-  openModal('🏠 ' + name, `
+function penRootModal(id) {
+  const cur = penById(id); if (!cur) return;
+  const kids = penChildren(id);
+  openModal('🏠 ' + cur.name, `
     <div class="muted" style="margin-bottom:8px">${kids.length ? kids.length + ' فرع حالياً' : 'لا توجد فروع بعد'}</div>
     ${kids.length ? kids.map(k => `<div class="card" style="margin:6px 0"><div class="li-title">↳ ${esc(k.name)}</div></div>`).join('') : ''}
     <div class="field" style="margin-top:10px"><label>اسم الفرع الجديد</label><input id="pb_name" placeholder="مثلاً: ذكور / إناث صغار / حمل"></div>
@@ -3808,69 +3854,65 @@ function penRootModal(name) {
     document.getElementById('pb_add').addEventListener('click', async () => {
       const n = val('pb_name').trim(); if (!n) { toast('اكتب اسم الفرع'); return; }
       if (allPens().some(p => p.name === n)) { await confirm2(`الاسم «${n}» مستخدَم مسبقاً لحظيرة أخرى (رئيسية أو فرعية) — اختر اسماً مختلفاً.`, { title: 'الاسم موجود مسبقاً', okText: 'حسناً' }); return; }
-      addPen(n, cur.type, name);
+      addPen(n, cur.type, id);
       toast('أُضيف الفرع'); closeModal(); screenPens();
     });
   });
 }
-// نقل كل بهائم حظيرة (أو المحدَّد منها) إلى حظيرة أخرى — نقل كامل: pen يُستبدَل بالكامل، لا تبقى أي علاقة بالحظيرة السابقة
-function penMoveModal(fromName) {
-  const animals = (C.animals || []).filter(a => (a.pen || '') === fromName && a.status === 'present');
+// نقل كل بهائم حظيرة (أو المحدَّد منها) إلى حظيرة أخرى — نقل كامل: pen_id يُستبدَل بالكامل، لا تبقى أي علاقة بالحظيرة السابقة
+function penMoveModal(fromId) {
+  const fromPen = penById(fromId); if (!fromPen) return;
+  const animals = (C.animals || []).filter(a => a.pen_id === fromId && a.status === 'present');
   if (!animals.length) { toast('لا توجد بهائم في هذه الحظيرة'); return; }
-  const destOpts = allPens().filter(p => p.name !== fromName).map(p => `<option value="${esc(p.name)}">${p.parent ? esc(p.parent) + ' ↳ ' + esc(p.name) : '🏠 ' + esc(p.name)}</option>`).join('');
+  const destOpts = allPens().filter(p => p.id !== fromId).map(p => `<option value="${p.id}">${p.parentId != null ? esc((penById(p.parentId) || {}).name || '؟') + ' ↳ ' + esc(p.name) : '🏠 ' + esc(p.name)}</option>`).join('');
   const rows = animals.map(a => `<label class="bulk-row"><input type="checkbox" data-mv="${a.id}" checked><span>${display(a)} <span class="muted">${arOf(TYPES, a.type)}</span></span></label>`).join('');
-  openModal('نقل من 🏠 ' + fromName, `
+  openModal('نقل من 🏠 ' + fromPen.name, `
     <div class="muted" style="margin-bottom:8px">${animals.length} بهيمة — اختر من تريد نقله والحظيرة الجديدة.</div>
     <div class="field"><label>إلى حظيرة</label><select id="pm_dest"><option value="">— اختر —</option>${destOpts}</select></div>
     <div style="margin-top:8px">${rows}</div>
     <button class="btn" id="pm_go" style="margin-top:10px">🔀 نقل المحدَّد</button>`, () => {
     document.getElementById('pm_go').addEventListener('click', async () => {
-      const dest = val('pm_dest'); if (!dest) { toast('اختر الحظيرة الجديدة'); return; }
+      const destRaw = val('pm_dest'); if (!destRaw) { toast('اختر الحظيرة الجديدة'); return; }
+      const destId = parseInt(destRaw, 10);
+      const destPen = penById(destId);
       const ids = [...document.querySelectorAll('[data-mv]:checked')].map(c => parseInt(c.dataset.mv, 10));
       if (!ids.length) { toast('اختر بهيمة واحدة على الأقل'); return; }
-      if (!await confirm2(`نقل ${ids.length} بهيمة من «${fromName}» إلى «${dest}»؟ نقل كامل — لن تبقى في «${fromName}».`, { danger: true })) return;
-      const ok = await guard(async () => { for (const id of ids) await dbUpdate('animals', id, { pen: dest }); });
+      if (!await confirm2(`نقل ${ids.length} بهيمة من «${fromPen.name}» إلى «${destPen ? destPen.name : ''}»؟ نقل كامل — لن تبقى في «${fromPen.name}».`, { danger: true })) return;
+      const ok = await guard(async () => { for (const id of ids) await dbUpdate('animals', id, { pen_id: destId }); });
       if (ok) { closeModal(); toast('تم النقل'); await loadAll(); screenPens(); }
     });
   });
 }
-function penRenameModal(oldName) {
-  const cur = allPens().find(p => p.name === oldName) || { name: oldName, type: '', parent: '' };
-  const parentOptsHtml = (typeKey) => '<option value="">— حظيرة رئيسية (بلا أب) —</option>' + rootPensForType(typeKey).filter(r => r.name !== oldName).map(r => `<option value="${esc(r.name)}" ${r.name === cur.parent ? 'selected' : ''}>فرع من: ${esc(r.name)}</option>`).join('');
-  openModal('تعديل الحظيرة', `${fInput('الاسم', 'pe_name', oldName)}${fSelect('نوع الحلال', 'pe_type', TYPES, cur.type, 'أي نوع')}
+// تعديل حظيرة — لا حاجة لأي تحديث للبهائم عند تغيير الاسم: كلّها مرتبطة برقم الحظيرة الثابت (pen_id) لا باسمها،
+// فالاسم الجديد يظهر فوراً في كل مكان (بطاقات البهائم، الإحصائيات، البحث...) بمجرّد قراءته من تعريف الحظيرة.
+function penRenameModal(id) {
+  const cur = penById(id) || { id, name: '', type: '', parentId: null };
+  const parentOptsHtml = (typeKey) => '<option value="">— حظيرة رئيسية (بلا أب) —</option>' + rootPensForType(typeKey).filter(r => r.id !== id).map(r => `<option value="${r.id}" ${r.id === cur.parentId ? 'selected' : ''}>فرع من: ${esc(r.name)}</option>`).join('');
+  openModal('تعديل الحظيرة', `${fInput('الاسم', 'pe_name', cur.name)}${fSelect('نوع الحلال', 'pe_type', TYPES, cur.type, 'أي نوع')}
     <div class="field"><label>تنتمي إلى (اختياري)</label><select id="pe_parent">${parentOptsHtml(cur.type)}</select></div>
-    <div class="muted" style="font-size:.82rem;margin-bottom:6px">تغيير الاسم يُحدَّث في البهائم المسجّلة بهذه الحظيرة.</div><button class="btn" id="pe_save">حفظ</button>`, () => {
+    <button class="btn" id="pe_save">حفظ</button>`, () => {
     { const pt = document.getElementById('pe_type'); if (pt) pt.addEventListener('change', () => { const ps = document.getElementById('pe_parent'); if (ps) ps.innerHTML = parentOptsHtml(val('pe_type')); }); }
     document.getElementById('pe_save').addEventListener('click', async () => {
       const nn = val('pe_name').trim(); if (!nn) { toast('اكتب الاسم'); return; }
       const nt = val('pe_type');
-      const np = val('pe_parent');
-      if (np === oldName) { toast('لا يمكن أن تكون الحظيرة فرعاً من نفسها'); return; }
-      if (np && penChildren(oldName).length) { toast('لا يمكن جعلها فرعاً وهي نفسها تحوي فروعاً — أزل فروعها أولاً'); return; }
-      const l = loadPens().map(p => {
-        if (p.name === oldName) return { name: nn, type: nt, parent: np };
-        if (p.parent === oldName) return Object.assign({}, p, { parent: nn });   // تحديث اسم الأب في فروعها إن غُيّر الاسم
-        return p;
-      });
-      savePens(l.filter((p, i, a) => a.findIndex(q => q.name === p.name) === i));
-      let affected = [];
-      if (nn !== oldName) {
-        affected = (C.animals || []).filter(a => (a.pen || '') === oldName);
-        const ok = await guard(async () => { for (const a of affected) await dbUpdate('animals', a.id, { pen: nn }); });
-        if (!ok) { toast('تعذّر الحفظ'); return; }
-        await loadAll();
-      }
-      closeModal(); toast(`تم الحفظ${affected.length ? ` (${affected.length} بهيمة)` : ''}`); screenPens();
+      const npRaw = val('pe_parent');
+      const np = npRaw ? parseInt(npRaw, 10) : null;
+      if (np === id) { toast('لا يمكن أن تكون الحظيرة فرعاً من نفسها'); return; }
+      if (np != null && penChildren(id).length) { toast('لا يمكن جعلها فرعاً وهي نفسها تحوي فروعاً — أزل فروعها أولاً'); return; }
+      const l = loadPens().map(p => p.id === id ? { id, name: nn, type: nt, parentId: np } : p);
+      savePens(l);
+      closeModal(); toast('تم الحفظ'); screenPens();
     });
   });
 }
-async function penDelete(name) {
-  const used = (C.animals || []).filter(a => (a.pen || '') === name).length;
-  if (used) { await confirm2(`لا يمكن حذف «${name}» — عليها ${used} بهيمة. انقل البهائم لحظيرة أخرى أو أخرِجها أولاً.`, { title: 'تعذّر الحذف', okText: 'حسناً' }); return; }
-  const kids = penChildren(name);
-  if (kids.length) { await confirm2(`لا يمكن حذف «${name}» — لديها ${kids.length} فرع (${kids.map(k => k.name).join('، ')}). احذف الفروع أولاً أو انقلها لحظيرة رئيسية أخرى.`, { title: 'تعذّر الحذف', okText: 'حسناً' }); return; }
-  if (!await confirm2(`حذف «${name}» من القائمة؟`)) return;
-  savePens(loadPens().filter(p => p.name !== name));
+async function penDelete(id) {
+  const pen = penById(id); if (!pen) return;
+  const used = (C.animals || []).filter(a => a.pen_id === id).length;
+  if (used) { await confirm2(`لا يمكن حذف «${pen.name}» — عليها ${used} بهيمة. انقل البهائم لحظيرة أخرى أو أخرِجها أولاً.`, { title: 'تعذّر الحذف', okText: 'حسناً' }); return; }
+  const kids = penChildren(id);
+  if (kids.length) { await confirm2(`لا يمكن حذف «${pen.name}» — لديها ${kids.length} فرع (${kids.map(k => k.name).join('، ')}). احذف الفروع أولاً أو انقلها لحظيرة رئيسية أخرى.`, { title: 'تعذّر الحذف', okText: 'حسناً' }); return; }
+  if (!await confirm2(`حذف «${pen.name}» من القائمة؟`)) return;
+  savePens(loadPens().filter(p => p.id !== id));
   toast('حُذفت'); screenPens();
 }
 
@@ -3908,7 +3950,7 @@ function remAnimalRows(typeKey, selected) {
   const list = C.animals.filter(a => a.status === 'present' && (!typeKey || a.type === typeKey)).sort((a, b) => (b.birth || '').localeCompare(a.birth || ''));
   return list.length ? list.map(a => {
     const mom = a.mother_id ? animalById(a.mother_id) : null;
-    const extra = [esc(sexTerm(a)), a.birth ? 'مواليد ' + fmtDate(a.birth) : '', mom ? '🤱 أم: ' + display(mom) : '', a.pen ? '🏠 ' + esc(a.pen) : ''].filter(Boolean).join(' • ');
+    const extra = [esc(sexTerm(a)), a.birth ? 'مواليد ' + fmtDate(a.birth) : '', mom ? '🤱 أم: ' + display(mom) : '', animalPenName(a) ? '🏠 ' + esc(animalPenName(a)) : ''].filter(Boolean).join(' • ');
     return `<label class="bulk-row"><input type="checkbox" data-rid="${a.id}" ${sel.includes(a.id) ? 'checked' : ''}><span>${display(a)} <span class="muted" style="font-size:.85rem">${extra}</span></span></label>`;
   }).join('') : '<div class="muted" style="padding:6px">لا بهائم مطابقة.</div>';
 }
