@@ -3784,7 +3784,7 @@ function screenPens() {
     let html = '';
     roots.forEach(p => {
       html += penRow(p, false, totalFor(p.id));
-      penChildren(p.id).filter(c => arr.includes(c)).sort((a, b) => a.name.localeCompare(b.name, 'ar')).forEach(c => { html += penRow(c, true, countFor(c.id)); });
+      penChildren(p.id).filter(c => arr.some(q => q.id === c.id)).sort((a, b) => a.name.localeCompare(b.name, 'ar')).forEach(c => { html += penRow(c, true, countFor(c.id)); });
     });
     orphanBranches.forEach(p => { html += penRow(p, false, countFor(p.id)); });
     body += `<div class="card"><h3>🐑 ${esc(typeAr(tk))}</h3>${html}</div>`;
