@@ -3697,7 +3697,15 @@ function screenPens() {
     orphanBranches.forEach(p => { html += penRow(p, false, countFor(p.name)); });
     body += `<div class="card"><h3>🐑 ${esc(typeAr(tk))}</h3>${html}</div>`;
   });
-  view().innerHTML = `<div class="muted" style="margin-bottom:8px">اضغط أي حظيرة رئيسية (🏠) لإضافة حظيرة فرعية منها. «🔀 نقل» ينقل بهائم الحظيرة لحظيرة أخرى (نقل كامل — لا تبقى أي علاقة بالحظيرة السابقة).</div>
+  view().innerHTML = `<div class="card" style="background:#fff8e1">
+      <h3>🏠 كيف أفتح حظيرة فرعية؟</h3>
+      <div class="muted" style="font-size:.85rem;line-height:1.9">
+        <b>١)</b> أضِف حظيرة رئيسية من البطاقة تحت (اسم + نوع الحلال).<br>
+        <b>٢)</b> بعد إضافتها ستظهر في القائمة أسفل — <b>اضغط عليها هي نفسها</b> (على السطر، ليس على زر تعديل/حذف).<br>
+        <b>٣)</b> تفتح نافذة فروعها — اكتب اسم الفرع الجديد واضغط «➕ إضافة حظيرة فرعية».
+      </div>
+      <div class="muted" style="font-size:.8rem;margin-top:8px">🔀 زر «نقل» على أي حظيرة ينقل بهائمها المحدَّدة لحظيرة أخرى نقلاً كاملاً — لا تبقى أي علاقة بالحظيرة السابقة.</div>
+    </div>
     <div class="card"><h3>➕ إضافة حظيرة رئيسية جديدة</h3>
       <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">${typeSel}<input id="np_name" placeholder="اسم الحظيرة" style="flex:1;min-width:140px"><button class="btn sm" id="np_add">إضافة</button></div></div>`
     + (body || '<div class="muted">لا توجد حظائر بعد — أضِف أول حظيرة.</div>');
