@@ -315,7 +315,7 @@ function sexTerm(a) {
 }
 // تنبيهات مخصّصة: شرط (عمر بالأشهر و/أو تاريخ) + نطاق (نوع أو بهائم محدّدة) + رسالة
 function loadReminders() { try { return JSON.parse(localStorage.getItem('mrahi_reminders') || '[]') || []; } catch (e) { return []; } }
-function saveReminders(a) { try { localStorage.setItem('mrahi_reminders', JSON.stringify(a)); } catch (e) {} }
+function saveReminders(a) { try { localStorage.setItem('mrahi_reminders', JSON.stringify(a)); } catch (e) {} refreshNotifications().catch(() => { /* أفضل جهد */ }); }
 function reminderMatches(r) {
   let list = C.animals.filter(a => a.status === 'present');
   if (r.type) list = list.filter(a => a.type === r.type);
@@ -352,6 +352,7 @@ async function loadAll() {
     C.tips = tp.error ? [] : (tp.data || []);
   } catch (e) { C.tips = []; }
   try { await sb.rpc('mrahi_purge_trash'); } catch (e) { /* تنظيف أفضل جهد */ }
+  maybeRefreshNotifications();   // أفضل جهد، غير مُنتظَرة — تُحدّث إشعارات الجهاز المجدولة إن كان الإذن ممنوحاً
 }
 // خرائط أنواع البهائم: من المفاتيح الإنجليزية إلى الأسماء العربية في التطبيق
 const SP_AR = { sheep: ['نعيم', 'حري', 'نجد', 'غنم'], goat: ['ماعز'], camel: ['إبل'], cattle: ['بقر'] };
@@ -894,6 +895,112 @@ function screenAlerts() {
     const ok = await guard(async () => { await dbUpdate('animals', id, { pen_transfer_skip: destId }, true); });   // تجاهل الاقتراح ليس تعديلاً حقيقياً على بيانات البهيمة — لا يحتاج فتح قفل التعديل
     if (ok) { toast('تم التجاهل'); await loadAll(); screenAlerts(); }
   }));
+}
+
+/* ===== إشعارات الجهاز (Local Notifications) — تصل حتى لو كان التطبيق مغلقاً، عبر @capacitor/local-notifications =====
+   تُجدوَل محلياً بالكامل (بلا خادم/إنترنت): قرب الولادة، مواعيد التطعيم، جرعات العلاج، انتهاء فترة التحريم، والتنبيهات المخصّصة. */
+function notifPlugin() { try { return (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.LocalNotifications) || null; } catch (e) { return null; } }
+function notifAvail() { return !!(window.MRAH_APK && notifPlugin()); }
+async function notifPermissionGranted() {
+  const P = notifPlugin(); if (!P) return false;
+  try { const r = await P.checkPermissions(); return !!(r && r.display === 'granted'); } catch (e) { return false; }
+}
+// يُستدعى عند أول تشغيل، أو عند إنشاء أول تنبيه مخصّص — يعرض حوار نظام أندرويد الرسمي لطلب الإذن
+async function requestNotifPermission() {
+  const P = notifPlugin(); if (!P) return false;
+  try { const r = await P.requestPermissions(); return !!(r && r.display === 'granted'); } catch (e) { return false; }
+}
+// موعد الإشعار: يوم محدَّد الساعة (٨ صباحاً افتراضياً) بتوقيت الجهاز — يُرجع null إن كان الموعد قد مضى (لا نُجدوِل إلا المستقبل)
+function notifAt(dateStr, hour) {
+  if (!dateStr) return null;
+  const d = new Date(asciiDigits(dateStr).slice(0, 10) + 'T00:00:00');
+  if (isNaN(d.getTime())) return null;
+  d.setHours(hour != null ? hour : 8, 0, 0, 0);
+  return d.getTime() > Date.now() ? d : null;
+}
+let _lastNotifRefresh = 0;
+// نسخة «أفضل جهد» غير مُنتظَرة (fire-and-forget) — تُستدعى بكثرة (كل loadAll) فتُقيَّد بفاصل زمني كي لا تُثقل الجسر الأصلي
+function maybeRefreshNotifications() {
+  const now = Date.now();
+  if (now - _lastNotifRefresh < 120000) return;   // مرة كل دقيقتين كحدّ أقصى
+  _lastNotifRefresh = now;
+  refreshNotifications().catch(() => { /* أفضل جهد */ });
+}
+// إعادة جدولة كل إشعارات التطبيق من الصفر بناءً على البيانات الحالية — تُستدعى عند فتح التطبيق وبعد أي حفظ ذي صلة.
+// إعادة الجدولة الكاملة (إلغاء ثم جدولة) في كل مرة تضمن عدم بقاء إشعار قديم بعد حذف/تعديل بياناته (لا حاجة لتتبّع الفروق يدوياً).
+async function refreshNotifications() {
+  if (!notifAvail() || !(await notifPermissionGranted())) return;
+  const P = notifPlugin();
+  try {
+    const pending = await P.getPending();
+    const ours = ((pending && pending.notifications) || []).filter(n => n.id < 900000000).map(n => ({ id: n.id }));
+    if (ours.length) await P.cancel({ notifications: ours });
+  } catch (e) { /* أفضل جهد */ }
+
+  const notifs = [];
+  const vtName = (id) => { const t = C.vaccineTypes.find(x => x.id === id); return t ? t.name : 'تطعيم'; };
+
+  // قرب الولادة: تنبيه مسبق قبل يومين + تنبيه يوم الولادة المتوقّعة نفسه
+  (C.pregnancies || []).filter(p => p.status === 'monitoring' && p.expected).forEach(p => {
+    const a = animalById(p.animal_id); if (!a) return;
+    const soon = notifAt(addDays(p.expected, -2));
+    if (soon) notifs.push({ id: 1500000 + p.id, title: '🤰 اقتربت الولادة', body: `${display(a)} — الولادة المتوقّعة بعد يومين`, schedule: { at: soon } });
+    const today = notifAt(p.expected);
+    if (today) notifs.push({ id: 1000000 + p.id, title: '🤰 الولادة المتوقّعة اليوم', body: display(a), schedule: { at: today } });
+  });
+  // مواعيد التطعيم
+  (C.vaccinations || []).filter(v => v.next_due).forEach(v => {
+    const at = notifAt(v.next_due); if (!at) return;
+    const a = animalById(v.animal_id); if (!a) return;
+    notifs.push({ id: 2000000 + v.id, title: '💉 موعد تطعيم اليوم', body: `${display(a)} — ${vtName(v.type_id)}`, schedule: { at } });
+  });
+  // جرعات العلاج القادمة
+  (C.treatments || []).filter(t => t.next_due).forEach(t => {
+    const at = notifAt(t.next_due); if (!at) return;
+    const a = animalById(t.animal_id); if (!a) return;
+    notifs.push({ id: 3000000 + t.id, title: '💊 جرعة علاج اليوم', body: `${display(a)} — ${t.med_name || ''}`, schedule: { at } });
+  });
+  // انتهاء فترة التحريم (علاجات وتطعيمات كلاهما يحمل withdrawal_end)
+  (C.treatments || []).filter(t => t.withdrawal_end).forEach(t => {
+    const at = notifAt(t.withdrawal_end); if (!at) return;
+    const a = animalById(t.animal_id); if (!a) return;
+    notifs.push({ id: 4000000 + t.id, title: '⛔ انتهاء فترة التحريم اليوم', body: `${display(a)} — ${t.med_name || ''}`, schedule: { at } });
+  });
+  (C.vaccinations || []).filter(v => v.withdrawal_end).forEach(v => {
+    const at = notifAt(v.withdrawal_end); if (!at) return;
+    const a = animalById(v.animal_id); if (!a) return;
+    notifs.push({ id: 4500000 + v.id, title: '⛔ انتهاء فترة التحريم اليوم', body: `${display(a)} — ${vtName(v.type_id)}`, schedule: { at } });
+  });
+  // تنبيهات مخصّصة (تذكير مفتوح): شرط تاريخ محدَّد (إشعار واحد)، أو عمر مُحدَّد (إشعار لكل بهيمة ضمن النطاق تبلغه مستقبلاً)
+  activeReminders().forEach(r => {
+    const title = '🔔 ' + (r.title || 'تنبيه');
+    if (r.date) {
+      const at = notifAt(r.date);
+      if (at) notifs.push({ id: 5000000 + r.id, title, body: title, schedule: { at } });
+      return;
+    }
+    if (r.months) {
+      const scope = C.animals.filter(a => a.status === 'present' && (!r.type || a.type === r.type) && (!r.animals || !r.animals.length || r.animals.includes(a.id)));
+      scope.forEach(a => {
+        if (!a.birth) return;
+        const at = notifAt(addMonths(a.birth, r.months));
+        if (at) notifs.push({ id: 5000000 + (r.id % 9000) * 100000 + (a.id % 100000), title, body: `${title} — ${display(a)}`, schedule: { at } });
+      });
+    }
+  });
+
+  if (!notifs.length) return;
+  try { await P.schedule({ notifications: notifs }); } catch (e) { /* أفضل جهد */ }
+}
+// طلب الإذن أول مرة فقط (عند أول تشغيل) — لا يُعاد تلقائياً بعد ذلك مهما كان قرار المستخدم؛ يبقى بإمكانه طلبه يدوياً لاحقاً (مثلاً عند إنشاء أول تنبيه مخصّص)
+async function ensureNotifPermissionOnce() {
+  if (!notifAvail()) return;
+  let asked = false; try { asked = !!localStorage.getItem('mrahi_notif_asked'); } catch (e) {}
+  if (asked) return;
+  try { localStorage.setItem('mrahi_notif_asked', '1'); } catch (e) {}
+  if (await notifPermissionGranted()) { refreshNotifications().catch(() => {}); return; }
+  const ok = await confirm2('يرسل حلالي تذكيرات (قرب الولادة، مواعيد التطعيم، جرعات العلاج، انتهاء فترة التحريم، وتنبيهاتك المخصّصة) حتى عند إغلاق التطبيق — تحتاج السماح بالإشعارات لجهازك.', { okText: 'السماح بالإشعارات' });
+  if (ok) { await requestNotifPermission(); refreshNotifications().catch(() => {}); }
 }
 
 /* ===== الحلال ===== */
@@ -4056,7 +4163,7 @@ function reminderModal(r) {
     document.getElementById('rem_specific').addEventListener('change', (e) => { box.style.display = e.target.checked ? '' : 'none'; });
     document.getElementById('rem_type').addEventListener('change', rebuild);
     { const se = document.getElementById('rem_search'); if (se) se.addEventListener('input', () => { const t = se.value.trim().toLowerCase(); document.querySelectorAll('#rem_list .bulk-row').forEach(rw => { rw.style.display = (!t || rw.textContent.toLowerCase().includes(t)) ? '' : 'none'; }); }); }
-    document.getElementById('rem_save').addEventListener('click', () => {
+    document.getElementById('rem_save').addEventListener('click', async () => {
       const title = val('rem_title').trim(); if (!title) { toast('اكتب الرسالة'); return; }
       const months = parseInt(asciiDigits(val('rem_months')), 10) || 0;
       const date = asciiDigits(val('rem_date')).slice(0, 10) || '';
@@ -4067,6 +4174,8 @@ function reminderModal(r) {
       const obj = { id: r.id || (Date.now() + Math.floor(Math.random() * 1000)), title, type: val('rem_type'), months, date, animals, on: r.on !== false };
       if (isEdit) { const i = list.findIndex(x => x.id === r.id); if (i >= 0) list[i] = obj; else list.push(obj); } else list.push(obj);
       saveReminders(list); closeModal(); toast('تم الحفظ'); screenReminders();
+      // طلب إذن الإشعارات عند إنشاء/تعديل تنبيه — إن لم يكن ممنوحاً بعد (يهمّ خاصة أول تنبيه مخصّص ينشئه المستخدم)
+      if (notifAvail() && !(await notifPermissionGranted())) await requestNotifPermission();
     });
   });
 }
@@ -4306,6 +4415,7 @@ async function startLocalMode() {
   showLoading(false);
   if (!location.hash) location.hash = '#/home';
   render();
+  ensureNotifPermissionOnce();   // أفضل جهد، غير مُنتظَرة — لا تُبطئ فتح التطبيق
 }
 
 // ===== بوابة التفعيل (ترخيص مربوط بالجهاز) =====
