@@ -711,6 +711,7 @@ const ROUTES = {
   trash: { t: 'سلة المحذوفات', back: true, fn: screenTrash },
   tips: { t: 'النصائح والمعلومات', back: true, fn: screenTips },
   guide: { t: 'دليل الاستخدام', back: true, fn: screenGuide },
+  sitemap: { t: 'خريطة التطبيق', back: true, fn: screenSiteMap },
 };
 function parseHash() { const raw = (location.hash || '#/home').replace(/^#\//, ''); const p = raw.split('/'); return { name: p[0] || 'home', arg: p[1] }; }
 
@@ -2791,17 +2792,18 @@ async function bulkApply() {
 const menuOpen = { quick: new Set(['breeding']), settings: new Set(['herd']) };   // التصنيفات المفتوحة لكل قائمة
 const menuSearch = { quick: '', settings: '' };   // نص البحث الحالي لكل قائمة (يُمسح عند مغادرة الشاشة)
 const MENU_BG = { breeding: '#e8f5e9', health: '#e3f2fd', tools: '#fff8e1', herd: '#e8f5e9', security: '#ffebee', data: '#f3e5f5', app: '#eceff1' };
+// وجهات القوائم الخاصة (__checkupdate/__feedback) — مصدر وحيد يستخدمه ⋮/☰ وشاشة خريطة التطبيق معاً
+function menuGoHandler(h) {
+  if (h === '__checkupdate') return (typeof window.mrahiCheckUpdate === 'function') ? window.mrahiCheckUpdate() : toast('التحديث متاح في تطبيق الجوال');
+  if (h === '__feedback') { const v = window.MRAH_VERSION || ''; const subj = encodeURIComponent('ملاحظات حلالي' + (v ? ' — نسخة ' + v : '')); const body = encodeURIComponent('اكتب ملاحظتك أو اقتراحك هنا:\n\n\n——————\nنسخة التطبيق: ' + v); location.href = 'mailto:alaoufi@gmail.com?subject=' + subj + '&body=' + body; return; }
+  setHash(h);
+}
 // عارض عام لقائمة أقسام قابلة للطيّ مع بحث نصّي فوري (يشترك بينه ⋮ و☰)
 function renderMenuScreen(menuKey, cats, extraHtml) {
   extraHtml = extraHtml || '';
   view().innerHTML = extraHtml
     + `<div class="field" style="margin-bottom:10px"><input id="menuSearchInput" placeholder="🔍 ابحث في القائمة..." value="${esc(menuSearch[menuKey] || '')}"></div>`
     + `<div id="menuBody"></div>`;
-  const goHandler = (h) => {
-    if (h === '__checkupdate') return (typeof window.mrahiCheckUpdate === 'function') ? window.mrahiCheckUpdate() : toast('التحديث متاح في تطبيق الجوال');
-    if (h === '__feedback') { const v = window.MRAH_VERSION || ''; const subj = encodeURIComponent('ملاحظات حلالي' + (v ? ' — نسخة ' + v : '')); const body = encodeURIComponent('اكتب ملاحظتك أو اقتراحك هنا:\n\n\n——————\nنسخة التطبيق: ' + v); location.href = 'mailto:alaoufi@gmail.com?subject=' + subj + '&body=' + body; return; }
-    setHash(h);
-  };
   const renderBody = () => {
     const body = document.getElementById('menuBody'); if (!body) return;
     const open = menuOpen[menuKey];
@@ -2824,17 +2826,18 @@ function renderMenuScreen(menuKey, cats, extraHtml) {
       }).join('');
     }
     body.querySelectorAll('[data-cat]').forEach(h => h.addEventListener('click', () => { const k = h.dataset.cat; open.has(k) ? open.delete(k) : open.add(k); renderBody(); }));
-    body.querySelectorAll('[data-go]').forEach(c => c.addEventListener('click', () => goHandler(c.dataset.go)));
+    body.querySelectorAll('[data-go]').forEach(c => c.addEventListener('click', () => menuGoHandler(c.dataset.go)));
   };
   { const si = document.getElementById('menuSearchInput'); if (si) si.addEventListener('input', () => { menuSearch[menuKey] = si.value; renderBody(); }); }
   // عناصر extraHtml (مثل بطاقة التحديث) ثابتة ولا تُعاد رسمتها — تُربط مرّة واحدة فقط هنا لتفادي تكرار المستمعين
-  view().querySelectorAll('[data-go]').forEach(c => { if (!c.closest('#menuBody')) c.addEventListener('click', () => goHandler(c.dataset.go)); });
+  view().querySelectorAll('[data-go]').forEach(c => { if (!c.closest('#menuBody')) c.addEventListener('click', () => menuGoHandler(c.dataset.go)); });
   renderBody();
 }
 // ⋮ الأدوات والعمليات — كل ما يُستخدم يومياً (الحلال/التكاثر/الصحة/أدوات)
-function screenQuickMenu() {
+// تعريف أقسام ⋮ الأدوات — مصدر وحيد يستخدمه كل من القائمة نفسها وشاشة «خريطة التطبيق» (لتفادي أي تعارض بينهما مستقبلاً)
+function quickMenuCats() {
   const I = (cond, label, hash) => cond ? [label, hash] : null;
-  const cats = [
+  return [
     { key: 'breeding', title: '🐑 الحلال والتكاثر', items: [
       I(can('animals', 'view'), '🔍 تفقد الحلال وإحصائيات', '#/inspect'),
       I(can('breeding', 'view'), '🤰 الحمل والمتابعة', '#/pregnancies'),
@@ -2854,12 +2857,12 @@ function screenQuickMenu() {
       I(can('backup', 'view'), '💾 النسخ الاحتياطي', '#/backup'),
     ].filter(Boolean) },
   ];
-  renderMenuScreen('quick', cats);
 }
-// ☰ الإعدادات والإدارة — كل ما يُضبط مرّة ونادراً ما يتغيّر
-function screenSettingsMenu() {
+function screenQuickMenu() { renderMenuScreen('quick', quickMenuCats()); }
+// تعريف أقسام ☰ الإعدادات — مصدر وحيد (نفس فكرة quickMenuCats أعلاه)
+function settingsMenuCats() {
   const I = (cond, label, hash) => cond ? [label, hash] : null;
-  const cats = [
+  return [
     { key: 'herd', title: '⚙️ إعدادات الحظيرة', items: [
       I(can('animals', 'edit'), '⚙️ أنواع الحلال، الحظائر، الترقيم، التنبيهات…', '#/herdsettings'),
     ].filter(Boolean) },
@@ -2874,10 +2877,15 @@ function screenSettingsMenu() {
     ].filter(Boolean) },
     { key: 'app', title: '📱 التطبيق والمساعدة', items: [
       I(true, '📘 دليل الاستخدام', '#/guide'),
+      I(true, '🗺️ خريطة التطبيق', '#/sitemap'),
       I(window.MRAH_APK, '🔄 تحقق من وجود تحديث', '__checkupdate'),
       I(true, '📧 ملاحظات ومقترحات', '__feedback'),
     ].filter(Boolean) },
   ];
+}
+// ☰ الإعدادات والإدارة — كل ما يُضبط مرّة ونادراً ما يتغيّر
+function screenSettingsMenu() {
+  const cats = settingsMenuCats();
   // عند توفّر تحديث: بطاقة بارزة دائمة أعلى الصفحة (تسهيل)
   const upd = window.mrahiUpdateInfo;
   const topUpdate = (window.MRAH_APK && upd)
@@ -2891,6 +2899,31 @@ function screenSettingsMenu() {
     حلالي — تطبيق محلّي • بياناتك على جهازك${ver}${licLine}</div>`;
   renderMenuScreen('settings', cats, topUpdate);
   view().insertAdjacentHTML('beforeend', footer);
+}
+
+/* ===== خريطة التطبيق — دليل مرئي لكل شيء، مبنية من نفس تعريفات القوائم الفعلية فلا تنحرف عنها ===== */
+function screenSiteMap() {
+  const navStep = (ic, title, desc, hash) => `<div class="card click" data-go="${hash}" style="display:flex;gap:10px;align-items:flex-start;margin:6px 0;padding:10px 12px">
+      <div style="font-size:1.5rem;flex:0 0 auto;line-height:1">${ic}</div>
+      <div style="min-width:0"><div class="li-title" style="font-size:.92rem">${esc(title)}</div><div class="li-sub">${esc(desc)}</div></div>
+    </div>`;
+  const itemRow = (label, hash, bg) => `<div class="card click" data-go="${hash}" style="margin:5px 0;padding:9px 12px;background:${bg}"><div class="li-title" style="font-size:.87rem;font-weight:500">${label}</div></div>`;
+  const catBlock = (cats, bg) => cats.map(c => `<div style="margin:14px 0 4px"><div class="li-title" style="font-size:.9rem;font-weight:700;color:var(--green-d,#1B5E20)">${c.title}</div>${c.items.map(([l, h]) => itemRow(l, h, bg)).join('')}</div>`).join('');
+
+  view().innerHTML = `<div class="muted" style="margin-bottom:10px">دليل مرئي لكل شيء في حلالي — اضغط أي بند للانتقال إليه مباشرة.</div>
+    <div class="card"><h3>📱 الشريط السفلي</h3>
+      <div class="muted" style="font-size:.82rem;margin-bottom:6px">من اليمين لليسار:</div>
+      ${navStep('🏠', 'الرئيسية', 'لوحة الحالة — ملخّص، بحث سريع، إحصاءات قابلة للنقر', '#/home')}
+      ${navStep('🐑', 'الحلال', 'كل الحلال، بكل المرشّحات (نوع/حالة/مصدر/جنس)', '#/animals')}
+      ${navStep('♀️', 'الإناث', 'البالغات سنّ النضج فقط — إحصائيات وفلتر (ملقّحة/معها مواليد/لم تُلقّح)', '#/females')}
+      ${navStep('🐏', 'الفحول', 'فحول القطيع باسمها — أبناؤهم وبناتهم والإناث الملقَّحة', '#/sires')}
+      ${navStep('👶', 'المواليد', 'الصغار غير المحتسَبين بعد — إحصائيات وفلتر جنس/عمر', '#/newborns')}
+      <div class="muted" style="font-size:.8rem;margin-top:8px">📷 كل بهيمة لها تبويب «الوسائط» في سجلّها (صور/فيديو/صوت). شارتا 💉 التطعيم و⛔ التحريم تظهران على كل بطاقة بهيمة.</div>
+    </div>
+    <div class="card"><h3>☰ الإعدادات والإدارة</h3>${catBlock(settingsMenuCats(), '#e8f5e9')}</div>
+    <div class="card"><h3>⋮ الأدوات والعمليات</h3>${catBlock(quickMenuCats(), '#e3f2fd')}</div>
+    <div class="muted" style="text-align:center;margin-top:14px;font-size:.82rem">🔍 كلتا القائمتين ☰/⋮ فيها بحث فوري أعلاهما أيضاً.</div>`;
+  view().querySelectorAll('[data-go]').forEach(c => c.addEventListener('click', () => menuGoHandler(c.dataset.go)));
 }
 
 /* ===== دليل الاستخدام (كتاب ثلاثي الأبعاد) ===== */
