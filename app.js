@@ -1029,20 +1029,16 @@ function penOptions(selected, typeKey) {
   const roots = defs.filter(p => !p.parent).sort((a, b) => a.name.localeCompare(b.name, 'ar'));
   const seen = new Set();
   let opts = '';
+  // كل فرع نصّه يذكر اسم رئيسيته صراحةً داخل نص الخيار نفسه (بدل الاعتماد على optgroup فقط) —
+  // يضمن ظهورها بوضوح مهما اختلف عرض قائمة الاختيار الأصلية على الجهاز.
   roots.forEach(r => {
     seen.add(r.name);
+    opts += `<option value="${esc(r.name)}" ${r.name === sel ? 'selected' : ''}>🏠 ${esc(r.name)}</option>`;
     const kids = defs.filter(c => c.parent === r.name).sort((a, b) => a.name.localeCompare(b.name, 'ar'));
-    if (kids.length) {
-      opts += `<optgroup label="🏠 ${esc(r.name)}">`
-        + `<option value="${esc(r.name)}" ${r.name === sel ? 'selected' : ''}>${esc(r.name)} (الحظيرة نفسها، بلا فرع محدَّد)</option>`
-        + kids.map(k => { seen.add(k.name); return `<option value="${esc(k.name)}" ${k.name === sel ? 'selected' : ''}>↳ ${esc(k.name)}</option>`; }).join('')
-        + `</optgroup>`;
-    } else {
-      opts += `<option value="${esc(r.name)}" ${r.name === sel ? 'selected' : ''}>${esc(r.name)}</option>`;
-    }
+    kids.forEach(k => { seen.add(k.name); opts += `<option value="${esc(k.name)}" ${k.name === sel ? 'selected' : ''}>${esc(r.name)} ↳ ${esc(k.name)}</option>`; });
   });
   // فروع أبوها من نوع حلال آخر (نادر) — تُعرض احتياطاً حتى لا تختفي
-  defs.filter(p => p.parent && !seen.has(p.name)).forEach(p => { seen.add(p.name); opts += `<option value="${esc(p.name)}" ${p.name === sel ? 'selected' : ''}>↳ ${esc(p.name)}</option>`; });
+  defs.filter(p => p.parent && !seen.has(p.name)).forEach(p => { seen.add(p.name); opts += `<option value="${esc(p.name)}" ${p.name === sel ? 'selected' : ''}>${esc(p.parent)} ↳ ${esc(p.name)}</option>`; });
   if (sel && !seen.has(sel)) opts = `<option value="${esc(sel)}" selected>${esc(sel)}</option>` + opts;
   return '<option value="">— حدّد الحظيرة —</option>' + opts + '<option value="__new__">➕ حظيرة جديدة…</option>';
 }
@@ -3821,7 +3817,7 @@ function penRootModal(name) {
 function penMoveModal(fromName) {
   const animals = (C.animals || []).filter(a => (a.pen || '') === fromName && a.status === 'present');
   if (!animals.length) { toast('لا توجد بهائم في هذه الحظيرة'); return; }
-  const destOpts = allPens().filter(p => p.name !== fromName).map(p => `<option value="${esc(p.name)}">${p.parent ? '↳ ' : '🏠 '}${esc(p.name)}</option>`).join('');
+  const destOpts = allPens().filter(p => p.name !== fromName).map(p => `<option value="${esc(p.name)}">${p.parent ? esc(p.parent) + ' ↳ ' + esc(p.name) : '🏠 ' + esc(p.name)}</option>`).join('');
   const rows = animals.map(a => `<label class="bulk-row"><input type="checkbox" data-mv="${a.id}" checked><span>${display(a)} <span class="muted">${arOf(TYPES, a.type)}</span></span></label>`).join('');
   openModal('نقل من 🏠 ' + fromName, `
     <div class="muted" style="margin-bottom:8px">${animals.length} بهيمة — اختر من تريد نقله والحظيرة الجديدة.</div>
