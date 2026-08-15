@@ -188,9 +188,11 @@ const noItem = () => '<div class="muted">لا يوجد</div>';
 /* ===== مساعدات إدخال متقدّمة: إدخال صوتي + مسح بالكاميرا ===== */
 const setVal = (id, v) => { const el = document.getElementById(id); if (el) { el.value = (v == null ? '' : v); el.dispatchEvent(new Event('change', { bubbles: true })); } };
 // موارد الوسائط النشطة (كاميرا/ميكروفون) — تُحرَّر بصرامة عند التنقّل أو الخروج أو الخلفية (منع تسريب الذاكرة/تعليق الجهاز)
-const _media = { stream: null, rec: null, scanStop: true };
+const _media = { stream: null, rec: null, scanStop: true, recorder: null };
 function releaseMedia() {
   _media.scanStop = true;
+  try { if (_media.recorder && _media.recorder.state !== 'inactive') { _media.recorder.onstop = null; _media.recorder.stop(); } } catch (e) {}
+  _media.recorder = null;
   try { if (_media.stream) _media.stream.getTracks().forEach(t => { try { t.stop(); } catch (e) {} }); } catch (e) {}
   _media.stream = null;
   try { if (_media.rec) { _media.rec.onresult = _media.rec.onerror = _media.rec.onend = null; _media.rec.abort(); } } catch (e) {}
@@ -227,6 +229,7 @@ function attachMic(inputId, opts = {}) {
   });
 }
 const scanAvail = () => ('BarcodeDetector' in window) && !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+const audioRecAvail = () => (typeof MediaRecorder !== 'undefined') && !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
 // يضيف زر 📷 بجانب حقل لمسح باركود/QR على الوسم بالكاميرا
 function attachScan(inputId) {
   if (!scanAvail()) return;
@@ -1231,6 +1234,96 @@ function screenAnimalEdit(arg) {
   });
 }
 
+/* ===== وسائط البهيمة (صور/فيديو/صوت) — Blob محلي في IndexedDB، لا تُرفع لأي خادم ولا تُحمَّل ضمن ذاكرة التطبيق دفعة واحدة (طلب عند الحاجة فقط) ===== */
+async function mediaListFor(animalId) {
+  try { const { data } = await sb.from('mrahi_media').select().eq('animal_id', animalId).order('created_at', { ascending: false }); return data || []; }
+  catch (e) { return []; }
+}
+// تصغير الصورة قبل الحفظ (أقصى بُعد 1600px، جودة .82) لتقليل حجم التخزين على الجهاز
+function compressImage(file) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      const maxDim = 1600;
+      let width = img.naturalWidth, height = img.naturalHeight;
+      if (width > maxDim || height > maxDim) { const r = Math.min(maxDim / width, maxDim / height); width = Math.round(width * r); height = Math.round(height * r); }
+      const canvas = document.createElement('canvas'); canvas.width = width; canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) { URL.revokeObjectURL(url); resolve(file); return; }
+      ctx.drawImage(img, 0, 0, width, height);
+      canvas.toBlob(blob => { URL.revokeObjectURL(url); resolve(blob || file); }, 'image/jpeg', 0.82);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); resolve(file); };
+    img.src = url;
+  });
+}
+async function mediaAddFiles(animalId, files, kind) {
+  for (const file of Array.from(files)) {
+    let blob = file;
+    if (kind === 'photo') { try { blob = await compressImage(file); } catch (e) { blob = file; } }
+    await guard(async () => { await sb.from('mrahi_media').insert({ animal_id: animalId, kind, blob, mime: blob.type || file.type || '', created_at: new Date().toISOString() }); });
+  }
+}
+async function mediaDeleteOne(id) {
+  if (isEditLocked()) { toast('🔒 الحذف مقفول مؤقّتاً — افتحه من أيقونة ⋮ أعلى الشاشة'); return false; }
+  return await guard(async () => { await sb.from('mrahi_media').delete().eq('id', id); });
+}
+// تسجيل صوتي مباشر داخل التطبيق (بدل فتح تطبيق تسجيل خارجي) — يشارك _media لضمان إيقافه عند أي تنقّل
+async function startAudioRecording() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    _media.stream = stream;
+    const chunks = [];
+    const rec = new MediaRecorder(stream);
+    rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+    rec._chunks = chunks;
+    rec.start();
+    _media.recorder = rec;
+    return true;
+  } catch (e) { toast('تعذّر الوصول للميكروفون'); return false; }
+}
+function stopAudioRecording() {
+  return new Promise((resolve) => {
+    const rec = _media.recorder;
+    if (!rec) { resolve(null); return; }
+    rec.onstop = () => {
+      const blob = new Blob(rec._chunks, { type: rec.mimeType || 'audio/webm' });
+      try { rec.stream.getTracks().forEach(t => t.stop()); } catch (e) {}
+      if (_media.recorder === rec) _media.recorder = null;
+      if (_media.stream === rec.stream) _media.stream = null;
+      resolve(blob);
+    };
+    try { rec.stop(); } catch (e) { resolve(null); }
+  });
+}
+function mediaThumbHtml(m) {
+  const url = URL.createObjectURL(m.blob);
+  if (m.kind === 'photo') return `<div class="card click" data-medview="${m.id}" style="padding:0;overflow:hidden;position:relative"><img src="${url}" style="width:100%;height:110px;object-fit:cover;display:block"><button class="btn sm danger" data-meddel="${m.id}" style="position:absolute;top:4px;left:4px;padding:2px 8px;line-height:1">✕</button></div>`;
+  if (m.kind === 'video') return `<div class="card" style="padding:6px;position:relative;grid-column:1/-1"><video src="${url}" controls style="width:100%;border-radius:8px;display:block"></video><button class="btn sm danger" data-meddel="${m.id}" style="margin-top:6px">🗑️ حذف الفيديو</button></div>`;
+  return `<div class="card" style="padding:6px;grid-column:1/-1"><audio src="${url}" controls style="width:100%"></audio><button class="btn sm danger" data-meddel="${m.id}" style="margin-top:6px">🗑️ حذف التسجيل</button></div>`;
+}
+function mediaViewModal(m) {
+  if (!m) return;
+  const url = URL.createObjectURL(m.blob);
+  openModal('صورة', `<img src="${url}" style="width:100%;border-radius:10px">`);
+}
+async function refreshMediaList(animalId) {
+  const box = document.getElementById('mediaList'); if (!box) return;
+  const items = await mediaListFor(animalId);
+  const photos = items.filter(m => m.kind === 'photo'), others = items.filter(m => m.kind !== 'photo');
+  box.innerHTML = items.length
+    ? (photos.length ? `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">${photos.map(mediaThumbHtml).join('')}</div>` : '') + others.map(mediaThumbHtml).join('')
+    : noItem();
+  box.querySelectorAll('[data-meddel]').forEach(b => b.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    if (!await confirm2('حذف هذا الملف نهائياً؟ لا يمكن التراجع.', { danger: true })) return;
+    const ok = await mediaDeleteOne(parseInt(b.dataset.meddel, 10));
+    if (ok) { toast('تم الحذف'); refreshMediaList(animalId); }
+  }));
+  box.querySelectorAll('[data-medview]').forEach(el => el.addEventListener('click', () => mediaViewModal(items.find(m => m.id === parseInt(el.dataset.medview, 10)))));
+}
+
 /* ===== سجل البهيمة ===== */
 function screenAnimalDetail(arg) {
   if (!can('animals', 'view')) { view().innerHTML = noPerm(); return; }
@@ -1369,6 +1462,16 @@ function screenAnimalDetail(arg) {
           : `<button class="btn sm outline" id="qBack">↩ إعادة للحظيرة</button>`) : ''}
       </div></div>`;
 
+  REC.media = `<div class="card"><h3>📷 الوسائط</h3>
+      <div class="muted" style="font-size:.82rem;margin-bottom:8px">صور وفيديو وتسجيلات صوتية لهذه البهيمة — محفوظة على جهازك فقط، لا تُرفع لأي خادم.</div>
+      ${can('animals', 'edit') ? `<div class="btn-row" style="flex-wrap:wrap">
+        <label class="btn sm outline" style="cursor:pointer">📷 إضافة صور<input type="file" id="med_photo" accept="image/*" multiple style="display:none"></label>
+        <label class="btn sm outline" style="cursor:pointer">🎥 إضافة فيديو<input type="file" id="med_video" accept="video/*" multiple style="display:none"></label>
+        ${audioRecAvail() ? `<button class="btn sm outline" id="med_rec_start">🎙️ تسجيل صوت</button>
+        <button class="btn sm danger hidden" id="med_rec_stop">⏹️ إيقاف وحفظ التسجيل</button>` : ''}
+      </div>` : ''}
+      <div id="mediaList" class="muted" style="margin-top:10px">جارٍ التحميل…</div></div>`;
+
   // ===== تبويبات مستقلّة: يختار المستخدم التبويب فيظهر وحده =====
   const recTabs = [{ k: 'basic', ar: '📋 البيانات' }];
   if (can('animals', 'view')) recTabs.push({ k: 'lineage', ar: '🌳 النسب' });
@@ -1376,12 +1479,30 @@ function screenAnimalDetail(arg) {
   if (can('treatments', 'view')) recTabs.push({ k: 'medical', ar: '🩺 المرضي' });
   if (can('treatments', 'view')) recTabs.push({ k: 'treat', ar: '💊 العلاجات' });
   if (can('vaccines', 'view')) recTabs.push({ k: 'vacc', ar: '💉 التطعيمات' });
+  recTabs.push({ k: 'media', ar: '📷 الوسائط' });
   if (!recTabs.find(t => t.k === animalRecTab)) animalRecTab = 'basic';
   const recChips = `<div class="chips animal-tabs" style="margin:8px 0">${recTabs.map(t => `<span class="chip ${animalRecTab === t.k ? 'active' : ''}" data-rec="${t.k}">${t.ar}</span>`).join('')}</div>`;
 
   view().innerHTML = summary + recChips + `<div id="recBody">${REC[animalRecTab] || ''}</div><div style="height:30px"></div>`;
   bindCards(view());
   view().querySelectorAll('[data-rec]').forEach(c => c.addEventListener('click', () => { animalRecTab = c.dataset.rec; screenAnimalDetail(String(id)); }));
+  if (animalRecTab === 'media') {
+    refreshMediaList(id);
+    const mp = document.getElementById('med_photo'); if (mp) mp.addEventListener('change', async () => { if (!mp.files.length) return; await mediaAddFiles(id, mp.files, 'photo'); mp.value = ''; toast('تمت الإضافة'); refreshMediaList(id); });
+    const mv = document.getElementById('med_video'); if (mv) mv.addEventListener('change', async () => { if (!mv.files.length) return; await mediaAddFiles(id, mv.files, 'video'); mv.value = ''; toast('تمت الإضافة'); refreshMediaList(id); });
+    const mrStart = document.getElementById('med_rec_start'), mrStop = document.getElementById('med_rec_stop');
+    if (mrStart) mrStart.addEventListener('click', async () => {
+      const ok = await startAudioRecording(); if (!ok) return;
+      mrStart.classList.add('hidden'); mrStop.classList.remove('hidden'); toast('🎙️ جارٍ التسجيل…');
+    });
+    if (mrStop) mrStop.addEventListener('click', async () => {
+      const blob = await stopAudioRecording();
+      mrStop.classList.add('hidden'); mrStart.classList.remove('hidden');
+      if (!blob || !blob.size) { toast('لم يُسجَّل شيء'); return; }
+      await guard(async () => { await sb.from('mrahi_media').insert({ animal_id: id, kind: 'audio', blob, mime: blob.type || 'audio/webm', created_at: new Date().toISOString() }); });
+      toast('تم حفظ التسجيل'); refreshMediaList(id);
+    });
+  }
   const qs = document.getElementById('qSell'); if (qs) qs.addEventListener('click', () => quickSell(a));
   const qd = document.getElementById('qDead'); if (qd) qd.addEventListener('click', () => quickDead(a));
   const qg = document.getElementById('qGift'); if (qg) qg.addEventListener('click', () => quickGift(a));
@@ -3580,9 +3701,9 @@ function screenPens() {
     <div class="card"><h3>➕ إضافة حظيرة رئيسية جديدة</h3>
       <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">${typeSel}<input id="np_name" placeholder="اسم الحظيرة" style="flex:1;min-width:140px"><button class="btn sm" id="np_add">إضافة</button></div></div>`
     + (body || '<div class="muted">لا توجد حظائر بعد — أضِف أول حظيرة.</div>');
-  document.getElementById('np_add').addEventListener('click', () => {
+  document.getElementById('np_add').addEventListener('click', async () => {
     const n = val('np_name').trim(); if (!n) { toast('اكتب اسم الحظيرة'); return; }
-    if (allPens().some(p => p.name === n)) { toast('الاسم موجود مسبقاً'); return; }
+    if (allPens().some(p => p.name === n)) { await confirm2(`الاسم «${n}» مستخدَم مسبقاً لحظيرة أخرى — اختر اسماً مختلفاً.`, { title: 'الاسم موجود مسبقاً', okText: 'حسناً' }); return; }
     addPen(n, val('np_type'), '');
     toast('أُضيفت'); screenPens();
   });
@@ -3603,9 +3724,9 @@ function penRootModal(name) {
     ${kids.length ? kids.map(k => `<div class="card" style="margin:6px 0"><div class="li-title">↳ ${esc(k.name)}</div></div>`).join('') : ''}
     <div class="field" style="margin-top:10px"><label>اسم الفرع الجديد</label><input id="pb_name" placeholder="مثلاً: ذكور / إناث صغار / حمل"></div>
     <button class="btn" id="pb_add">➕ إضافة حظيرة فرعية</button>`, () => {
-    document.getElementById('pb_add').addEventListener('click', () => {
+    document.getElementById('pb_add').addEventListener('click', async () => {
       const n = val('pb_name').trim(); if (!n) { toast('اكتب اسم الفرع'); return; }
-      if (allPens().some(p => p.name === n)) { toast('الاسم موجود مسبقاً'); return; }
+      if (allPens().some(p => p.name === n)) { await confirm2(`الاسم «${n}» مستخدَم مسبقاً لحظيرة أخرى (رئيسية أو فرعية) — اختر اسماً مختلفاً.`, { title: 'الاسم موجود مسبقاً', okText: 'حسناً' }); return; }
       addPen(n, cur.type, name);
       toast('أُضيف الفرع'); closeModal(); screenPens();
     });
