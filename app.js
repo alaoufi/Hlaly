@@ -1124,7 +1124,7 @@ function screenAnimals() {
   const presentInList = list.filter(a => a.status === 'present');
   const countedInList = presentInList.filter(inHerdCount).length;
   const gapInList = presentInList.length - countedInList;
-  // زر «إضافة جماعية» نُقل إلى ☰ الإعدادات ← إعدادات الحظيرة ← التصنيف والحظائر (وهو متاح أيضاً من ⋮ الأدوات) — تبسيطاً لهذه الشاشة
+  // زر «إضافة جماعية» نُقل إلى ☰ الإعدادات ← إعدادات الحظيرة ← التصنيف والحظائر (مكان واحد فقط، بلا تكرار) — تبسيطاً لهذه الشاشة
   const countRow = `<div style="margin-bottom:6px">
       <span class="muted">العدد: ${list.length}</span>
       ${gapInList > 0 ? `<div class="muted" style="font-size:.8rem;margin-top:2px">منها ${countedInList} محتسَبة ضمن «في الحظيرة» بالرئيسية، و${gapInList} غير محتسَبة (صغار تتبع أمّها أو ذكور/فحول مستبعدون حسب الإعدادات) — <span class="link" id="goSmart" style="color:var(--green);cursor:pointer">🧠 التفاصيل</span></div>` : ''}</div>`;
@@ -3103,7 +3103,6 @@ function quickMenuCats() {
     { key: 'breeding', title: '🐑 الحلال والتكاثر', items: [
       I(can('animals', 'view'), '🔍 تفقد الحلال وإحصائيات', '#/inspect'),
       I(can('breeding', 'view'), '🤰 الحمل والمتابعة', '#/pregnancies'),
-      I(can('animals', 'add'), '📋 إضافة جماعية (دفعة)', '#/bulk/buy'),
       I(can('animals', 'add') || can('animals', 'edit') || can('vaccines', 'edit') || can('treatments', 'edit') || can('breeding', 'edit'), '⚙️ عمليات جماعية (تطعيم/علاج/بيع…)', '#/bulk'),
     ].filter(Boolean) },
     { key: 'health', title: '💉 الصحة (تطعيم وعلاج)', items: [
