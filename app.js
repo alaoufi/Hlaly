@@ -3560,10 +3560,9 @@ function screenPens() {
   const typeAr = (tk) => tk ? arOf(TYPES, tk) : 'أي نوع';
   const groups = {}; pens.forEach(p => { (groups[p.type || ''] = groups[p.type || ''] || []).push(p); });
   const typeSel = `<select id="np_type">${TYPES.map(t => `<option value="${t.k}">${t.ar}</option>`).join('')}<option value="">أي نوع</option></select>`;
-  const parentOptsHtml = (typeKey) => '<option value="">— حظيرة رئيسية (بلا أب) —</option>' + rootPensForType(typeKey).map(r => `<option value="${esc(r.name)}">فرع من: ${esc(r.name)}</option>`).join('');
-  const penRow = (p, isChild, total) => `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #eee${isChild ? ';padding-inline-start:22px' : ''}">
+  const penRow = (p, isChild, total) => `<div ${isChild ? '' : `class="click" data-penroot="${esc(p.name)}"`} style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #eee${isChild ? ';padding-inline-start:22px' : ''}">
       <span class="li-title" style="font-weight:600">${isChild ? '↳ ' : '🏠 '}${esc(p.name)} <span class="muted" style="font-weight:400;font-size:.8rem">(${total} بهيمة${total !== countFor(p.name) ? ' — إجمالي مع الفروع' : ''})</span></span>
-      <span style="display:flex;gap:6px"><button class="btn sm outline" data-penedit="${esc(p.name)}">تعديل</button><button class="btn sm danger" data-pendel="${esc(p.name)}">حذف</button></span></div>`;
+      <span style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">${countFor(p.name) ? `<button class="btn sm outline" data-penmove="${esc(p.name)}">🔀 نقل</button>` : ''}<button class="btn sm outline" data-penedit="${esc(p.name)}">تعديل</button><button class="btn sm danger" data-pendel="${esc(p.name)}">حذف</button></span></div>`;
   let body = '';
   TYPES.map(t => t.k).concat(['']).forEach(tk => {
     const arr = groups[tk]; if (!arr || !arr.length) return;
@@ -3577,21 +3576,61 @@ function screenPens() {
     orphanBranches.forEach(p => { html += penRow(p, false, countFor(p.name)); });
     body += `<div class="card"><h3>🐑 ${esc(typeAr(tk))}</h3>${html}</div>`;
   });
-  view().innerHTML = `<div class="muted" style="margin-bottom:8px">حدّد نوع الحلال ثم اكتب اسم الحظيرة. يمكن جعلها «فرعاً» من حظيرة رئيسية (مثلاً حظيرة واحدة مقسّمة حسب الرعاية: ذكور/إناث صغار/حمل) — يظهر مجموع الرئيسية مع فروعها هنا، وكمربعات مستقلة + توزيع هرمي في «🔍 تفقد الحلال ← 📊 إحصائيات ← حسب الحظيرة».</div>
-    <div class="card"><h3>➕ إضافة حظيرة</h3>
-      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">${typeSel}<input id="np_name" placeholder="اسم الحظيرة" style="flex:1;min-width:140px"></div>
-      <div class="field" style="margin-top:8px"><label>تنتمي إلى (اختياري)</label><select id="np_parent">${parentOptsHtml(TYPES[0] ? TYPES[0].k : '')}</select></div>
-      <button class="btn sm" id="np_add" style="margin-top:4px">إضافة</button></div>`
+  view().innerHTML = `<div class="muted" style="margin-bottom:8px">اضغط أي حظيرة رئيسية (🏠) لإضافة حظيرة فرعية منها. «🔀 نقل» ينقل بهائم الحظيرة لحظيرة أخرى (نقل كامل — لا تبقى أي علاقة بالحظيرة السابقة).</div>
+    <div class="card"><h3>➕ إضافة حظيرة رئيسية جديدة</h3>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">${typeSel}<input id="np_name" placeholder="اسم الحظيرة" style="flex:1;min-width:140px"><button class="btn sm" id="np_add">إضافة</button></div></div>`
     + (body || '<div class="muted">لا توجد حظائر بعد — أضِف أول حظيرة.</div>');
-  { const ts = document.getElementById('np_type'); if (ts) ts.addEventListener('change', () => { const ps = document.getElementById('np_parent'); if (ps) ps.innerHTML = parentOptsHtml(val('np_type')); }); }
   document.getElementById('np_add').addEventListener('click', () => {
     const n = val('np_name').trim(); if (!n) { toast('اكتب اسم الحظيرة'); return; }
     if (allPens().some(p => p.name === n)) { toast('الاسم موجود مسبقاً'); return; }
-    addPen(n, val('np_type'), val('np_parent'));
+    addPen(n, val('np_type'), '');
     toast('أُضيفت'); screenPens();
   });
-  view().querySelectorAll('[data-penedit]').forEach(b => b.addEventListener('click', () => penRenameModal(b.dataset.penedit)));
-  view().querySelectorAll('[data-pendel]').forEach(b => b.addEventListener('click', () => penDelete(b.dataset.pendel)));
+  view().querySelectorAll('[data-penroot]').forEach(el => el.addEventListener('click', (e) => {
+    if (e.target.closest('button')) return;   // لا تفتح الحظيرة عند الضغط على تعديل/حذف/نقل
+    penRootModal(el.dataset.penroot);
+  }));
+  view().querySelectorAll('[data-penedit]').forEach(b => b.addEventListener('click', (e) => { e.stopPropagation(); penRenameModal(b.dataset.penedit); }));
+  view().querySelectorAll('[data-pendel]').forEach(b => b.addEventListener('click', (e) => { e.stopPropagation(); penDelete(b.dataset.pendel); }));
+  view().querySelectorAll('[data-penmove]').forEach(b => b.addEventListener('click', (e) => { e.stopPropagation(); penMoveModal(b.dataset.penmove); }));
+}
+// فتح حظيرة رئيسية: عرض فروعها الحالية + إضافة فرع جديد منها مباشرة (الطريقة الأوضح لإضافة فرع)
+function penRootModal(name) {
+  const cur = allPens().find(p => p.name === name); if (!cur) return;
+  const kids = penChildren(name);
+  openModal('🏠 ' + name, `
+    <div class="muted" style="margin-bottom:8px">${kids.length ? kids.length + ' فرع حالياً' : 'لا توجد فروع بعد'}</div>
+    ${kids.length ? kids.map(k => `<div class="card" style="margin:6px 0"><div class="li-title">↳ ${esc(k.name)}</div></div>`).join('') : ''}
+    <div class="field" style="margin-top:10px"><label>اسم الفرع الجديد</label><input id="pb_name" placeholder="مثلاً: ذكور / إناث صغار / حمل"></div>
+    <button class="btn" id="pb_add">➕ إضافة حظيرة فرعية</button>`, () => {
+    document.getElementById('pb_add').addEventListener('click', () => {
+      const n = val('pb_name').trim(); if (!n) { toast('اكتب اسم الفرع'); return; }
+      if (allPens().some(p => p.name === n)) { toast('الاسم موجود مسبقاً'); return; }
+      addPen(n, cur.type, name);
+      toast('أُضيف الفرع'); closeModal(); screenPens();
+    });
+  });
+}
+// نقل كل بهائم حظيرة (أو المحدَّد منها) إلى حظيرة أخرى — نقل كامل: pen يُستبدَل بالكامل، لا تبقى أي علاقة بالحظيرة السابقة
+function penMoveModal(fromName) {
+  const animals = (C.animals || []).filter(a => (a.pen || '') === fromName && a.status === 'present');
+  if (!animals.length) { toast('لا توجد بهائم في هذه الحظيرة'); return; }
+  const destOpts = allPens().filter(p => p.name !== fromName).map(p => `<option value="${esc(p.name)}">${p.parent ? '↳ ' : '🏠 '}${esc(p.name)}</option>`).join('');
+  const rows = animals.map(a => `<label class="bulk-row"><input type="checkbox" data-mv="${a.id}" checked><span>${display(a)} <span class="muted">${arOf(TYPES, a.type)}</span></span></label>`).join('');
+  openModal('نقل من 🏠 ' + fromName, `
+    <div class="muted" style="margin-bottom:8px">${animals.length} بهيمة — اختر من تريد نقله والحظيرة الجديدة.</div>
+    <div class="field"><label>إلى حظيرة</label><select id="pm_dest"><option value="">— اختر —</option>${destOpts}</select></div>
+    <div style="margin-top:8px">${rows}</div>
+    <button class="btn" id="pm_go" style="margin-top:10px">🔀 نقل المحدَّد</button>`, () => {
+    document.getElementById('pm_go').addEventListener('click', async () => {
+      const dest = val('pm_dest'); if (!dest) { toast('اختر الحظيرة الجديدة'); return; }
+      const ids = [...document.querySelectorAll('[data-mv]:checked')].map(c => parseInt(c.dataset.mv, 10));
+      if (!ids.length) { toast('اختر بهيمة واحدة على الأقل'); return; }
+      if (!await confirm2(`نقل ${ids.length} بهيمة من «${fromName}» إلى «${dest}»؟ نقل كامل — لن تبقى في «${fromName}».`, { danger: true })) return;
+      const ok = await guard(async () => { for (const id of ids) await dbUpdate('animals', id, { pen: dest }); });
+      if (ok) { closeModal(); toast('تم النقل'); await loadAll(); screenPens(); }
+    });
+  });
 }
 function penRenameModal(oldName) {
   const cur = allPens().find(p => p.name === oldName) || { name: oldName, type: '', parent: '' };
