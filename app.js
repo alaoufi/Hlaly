@@ -3730,7 +3730,10 @@ function screenPens() {
   const typeSel = `<select id="np_type">${TYPES.map(t => `<option value="${t.k}">${t.ar}</option>`).join('')}<option value="">أي نوع</option></select>`;
   const penRow = (p, isChild, total) => `<div ${isChild ? '' : `class="click" data-penroot="${esc(p.name)}"`} style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #eee${isChild ? ';padding-inline-start:22px' : ''}">
       <span class="li-title" style="font-weight:600">${isChild ? '↳ ' : '🏠 '}${esc(p.name)} <span class="muted" style="font-weight:400;font-size:.8rem">(${total} بهيمة${total !== countFor(p.name) ? ' — إجمالي مع الفروع' : ''})</span></span>
-      <span style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">${countFor(p.name) ? `<button class="btn sm outline" data-penmove="${esc(p.name)}">🔀 نقل</button>` : ''}<button class="btn sm outline" data-penedit="${esc(p.name)}">تعديل</button><button class="btn sm danger" data-pendel="${esc(p.name)}">حذف</button></span></div>`;
+      <span style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">
+        <button class="btn sm" data-penadd="${esc(p.name)}">➕ إضافة بهائم</button>
+        ${countFor(p.name) ? `<button class="btn sm outline" data-penmove="${esc(p.name)}">🔀 نقل</button>` : ''}
+        <button class="btn sm outline" data-penedit="${esc(p.name)}">تعديل</button><button class="btn sm danger" data-pendel="${esc(p.name)}">حذف</button></span></div>`;
   let body = '';
   TYPES.map(t => t.k).concat(['']).forEach(tk => {
     const arr = groups[tk]; if (!arr || !arr.length) return;
@@ -3751,7 +3754,8 @@ function screenPens() {
         <b>٢)</b> بعد إضافتها ستظهر في القائمة أسفل — <b>اضغط عليها هي نفسها</b> (على السطر، ليس على زر تعديل/حذف).<br>
         <b>٣)</b> تفتح نافذة فروعها — اكتب اسم الفرع الجديد واضغط «➕ إضافة حظيرة فرعية».
       </div>
-      <div class="muted" style="font-size:.8rem;margin-top:8px">🔀 زر «نقل» على أي حظيرة ينقل بهائمها المحدَّدة لحظيرة أخرى نقلاً كاملاً — لا تبقى أي علاقة بالحظيرة السابقة.</div>
+      <div class="muted" style="font-size:.8rem;margin-top:8px">➕ «إضافة بهائم» يضيف بهائم موجودة (من أي حظيرة أخرى أو بلا حظيرة) لهذه الحظيرة. 🔀 «نقل» ينقل بهائمها المحدَّدة لحظيرة أخرى نقلاً كاملاً — لا تبقى أي علاقة بالحظيرة السابقة.</div>
+      <div class="muted" style="font-size:.8rem;margin-top:4px">الحظيرة مجرّد تصنيف مكاني — لا تُخفي البهيمة عن تبويباتها الأخرى: الأنثى تبقى تظهر في ♀️ الإناث، المولود في 👶 المواليد، الفحل في 🐏 الفحول، وتُحتسب في «في الحظيرة» بالرئيسية كالمعتاد.</div>
     </div>
     <div class="card"><h3>➕ إضافة حظيرة رئيسية جديدة</h3>
       <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">${typeSel}<input id="np_name" placeholder="اسم الحظيرة" style="flex:1;min-width:140px"><button class="btn sm" id="np_add">إضافة</button></div></div>`
@@ -3769,6 +3773,32 @@ function screenPens() {
   view().querySelectorAll('[data-penedit]').forEach(b => b.addEventListener('click', (e) => { e.stopPropagation(); penRenameModal(b.dataset.penedit); }));
   view().querySelectorAll('[data-pendel]').forEach(b => b.addEventListener('click', (e) => { e.stopPropagation(); penDelete(b.dataset.pendel); }));
   view().querySelectorAll('[data-penmove]').forEach(b => b.addEventListener('click', (e) => { e.stopPropagation(); penMoveModal(b.dataset.penmove); }));
+  view().querySelectorAll('[data-penadd]').forEach(b => b.addEventListener('click', (e) => { e.stopPropagation(); penAssignModal(b.dataset.penadd); }));
+}
+// إضافة بهائم موجودة (من أي حظيرة أخرى أو بلا حظيرة) إلى هذه الحظيرة — يعمل حتى لو كانت الحظيرة فارغة (بعكس «نقل» الذي يحتاج مصدراً فيه بهائم أصلاً)
+function penAssignModal(penName) {
+  const pen = allPens().find(p => p.name === penName); if (!pen) return;
+  const candidates = (C.animals || []).filter(a => a.status === 'present' && (a.pen || '') !== penName && (!pen.type || a.type === pen.type)).sort((a, b) => (a.pen || '').localeCompare(b.pen || '', 'ar'));
+  if (!candidates.length) { toast('لا توجد بهائم أخرى (من نفس النوع) يمكن إضافتها'); return; }
+  const rows = candidates.map(a => `<label class="bulk-row"><input type="checkbox" data-pa="${a.id}"><span>${display(a)} <span class="muted">${arOf(TYPES, a.type)} • ${a.pen ? esc(a.pen) : 'بلا حظيرة'}</span></span></label>`).join('');
+  openModal('➕ إضافة بهائم إلى 🏠 ' + penName, `
+    <div class="muted" style="margin-bottom:8px">اختر البهائم المطلوب إضافتها لهذه الحظيرة (${candidates.length} بهيمة متاحة).</div>
+    <input id="pa_search" placeholder="🔍 بحث بالاسم/الرقم...">
+    <div id="pa_list" style="margin-top:8px">${rows}</div>
+    <button class="btn" id="pa_go" style="margin-top:10px">➕ إضافة المحدَّد</button>`, () => {
+    const search = document.getElementById('pa_search');
+    if (search) search.addEventListener('input', () => {
+      const q = search.value.trim().toLowerCase();
+      document.querySelectorAll('#pa_list .bulk-row').forEach(r => { r.style.display = !q || r.textContent.toLowerCase().includes(q) ? '' : 'none'; });
+    });
+    document.getElementById('pa_go').addEventListener('click', async () => {
+      const ids = [...document.querySelectorAll('[data-pa]:checked')].map(c => parseInt(c.dataset.pa, 10));
+      if (!ids.length) { toast('اختر بهيمة واحدة على الأقل'); return; }
+      if (!await confirm2(`إضافة ${ids.length} بهيمة إلى «${penName}»؟`)) return;
+      const ok = await guard(async () => { for (const id of ids) await dbUpdate('animals', id, { pen: penName }); });
+      if (ok) { closeModal(); toast('تمت الإضافة'); await loadAll(); screenPens(); }
+    });
+  });
 }
 // فتح حظيرة رئيسية: عرض فروعها الحالية + إضافة فرع جديد منها مباشرة (الطريقة الأوضح لإضافة فرع)
 function penRootModal(name) {
