@@ -1124,10 +1124,9 @@ function screenAnimals() {
   const presentInList = list.filter(a => a.status === 'present');
   const countedInList = presentInList.filter(inHerdCount).length;
   const gapInList = presentInList.length - countedInList;
+  // زر «إضافة جماعية» نُقل إلى ☰ الإعدادات ← إعدادات الحظيرة ← التصنيف والحظائر (وهو متاح أيضاً من ⋮ الأدوات) — تبسيطاً لهذه الشاشة
   const countRow = `<div style="margin-bottom:6px">
-      <div style="display:flex;justify-content:space-between;align-items:center">
-        <span class="muted">العدد: ${list.length}</span>
-        ${canEdit ? '<button class="btn sm outline" id="bulkAddBtn">📋 إضافة جماعية</button>' : ''}</div>
+      <span class="muted">العدد: ${list.length}</span>
       ${gapInList > 0 ? `<div class="muted" style="font-size:.8rem;margin-top:2px">منها ${countedInList} محتسَبة ضمن «في الحظيرة» بالرئيسية، و${gapInList} غير محتسَبة (صغار تتبع أمّها أو ذكور/فحول مستبعدون حسب الإعدادات) — <span class="link" id="goSmart" style="color:var(--green);cursor:pointer">🧠 التفاصيل</span></div>` : ''}</div>`;
   // عند عرض «الكل»: تُجمَّع البطاقات حسب النوع (كل نوع مستقلّ بعنوانه)؛ وعند تحديد نوع تُعرض مباشرةً
   let listHtml;
@@ -1151,7 +1150,6 @@ function screenAnimals() {
   { const ft = document.getElementById('filtToggle'); if (ft) ft.addEventListener('click', () => { animalFiltersOpen = !animalFiltersOpen; screenAnimals(); }); }
   bindCards(view());
   { const af = document.getElementById('add_first'); if (af) af.addEventListener('click', () => setHash('#/animal-edit/0')); }
-  { const bb = document.getElementById('bulkAddBtn'); if (bb) bb.addEventListener('click', () => setHash('#/bulk/buy')); }
   { const gs = document.getElementById('goSmart'); if (gs) gs.addEventListener('click', () => { inspectTab = 'smart'; setHash('#/inspect'); }); }
   if (canEdit) addFab('+ إضافة بهيمة', () => setHash('#/animal-edit/0'));
 }
@@ -3517,36 +3515,43 @@ function renderInspect() {
       }
       return 'young';
     };
-    const reasons = { manual: 0, sire: 0, male: 0, young: 0 };
-    notCounted.forEach(a => { reasons[reasonOf(a)]++; });
-    const sold = A.filter(a => a.status === 'sold').length, dead = A.filter(a => a.status === 'dead').length;
-    const given = A.filter(a => a.status === 'given').length, missing = A.filter(a => a.status === 'missing').length, slaughtered = A.filter(a => a.status === 'slaughtered').length;
+    const reasonLists = { manual: [], sire: [], male: [], young: [] };
+    notCounted.forEach(a => { reasonLists[reasonOf(a)].push(a); });
+    const soldL = A.filter(a => a.status === 'sold'), deadL = A.filter(a => a.status === 'dead');
+    const givenL = A.filter(a => a.status === 'given'), missingL = A.filter(a => a.status === 'missing'), slaughteredL = A.filter(a => a.status === 'slaughtered');
     const byType = TYPES.map(t => {
       const pt = present.filter(a => a.type === t.k);
       if (!pt.length) return null;
-      const ct = pt.filter(inHerdCount).length;
-      return { t, total: pt.length, counted: ct };
+      const ct = pt.filter(inHerdCount);
+      return { t, all: pt, counted: ct };
     }).filter(Boolean);
+    // كل رقم هنا قابل للضغط — يفتح قائمة البهائم فعلياً، وكل بهيمة في القائمة رابط مباشر لسجلّها (بدل رقم صامت فقط)
+    const inspRowLists = {};
+    let rk = 0;
+    const clickRow = (label, list, title) => { const key = 'r' + (rk++); inspRowLists[key] = { list, title: title || label }; return `<div class="row click" data-rowlist="${key}"><span class="k">${label}</span><span class="v">${list.length}</span></div>`; };
     body.innerHTML = `
-      <div class="muted" style="margin:4px 0 8px">يوضّح هذا التحليل مصدر كل رقم، ولماذا قد يختلف عدد «في الحظيرة» بالرئيسية عن «العدد» أعلى قائمة الحلال.</div>
+      <div class="muted" style="margin:4px 0 8px">يوضّح هذا التحليل مصدر كل رقم، ولماذا قد يختلف عدد «في الحظيرة» بالرئيسية عن «العدد» أعلى قائمة الحلال. اضغط أي رقم لعرض بهائمه.</div>
       <div class="card"><h3>🟢 في الحظيرة (رقم الرئيسية)</h3>
         <div class="stats" style="grid-template-columns:1fr 1fr">
-          <div class="stat green"><div class="n">${counted.length}</div><div class="l">محتسَبة الآن</div></div>
-          <div class="stat"><div class="n">${notCounted.length}</div><div class="l">موجودة وغير محتسَبة</div></div>
+          <div class="stat green click" data-rowlist="cAll" style="cursor:pointer"><div class="n">${counted.length}</div><div class="l">محتسَبة الآن</div></div>
+          <div class="stat click" data-rowlist="ncAll" style="cursor:pointer"><div class="n">${notCounted.length}</div><div class="l">موجودة وغير محتسَبة</div></div>
         </div>
-        ${row('إجمالي الموجود حالياً (كل الحالة present)', String(present.length))}</div>
+        ${clickRow('إجمالي الموجود حالياً (كل الحالة present)', present, 'كل البهائم الموجودة')}</div>
       ${notCounted.length ? `<div class="card"><h3>❓ لماذا لا تُحتسب هذه الـ${notCounted.length}؟</h3>
-        ${reasons.young ? row('👶 صغار لسّه تتبع أمّها (لم تبلغ عمر الاحتساب)', String(reasons.young)) : ''}
-        ${reasons.male ? row('♂ ذكور مستبعدة (إعداد «احتساب الذكور» مطفأ)', String(reasons.male)) : ''}
-        ${reasons.sire ? row('🐏 فحول مستبعدة (إعداد «احتساب الفحول» مطفأ)', String(reasons.sire)) : ''}
-        ${reasons.manual ? row('✋ استُبعدت يدوياً من سجل البهيمة', String(reasons.manual)) : ''}
+        ${reasonLists.young.length ? clickRow('👶 صغار لسّه تتبع أمّها (لم تبلغ عمر الاحتساب)', reasonLists.young) : ''}
+        ${reasonLists.male.length ? clickRow('♂ ذكور مستبعدة (إعداد «احتساب الذكور» مطفأ)', reasonLists.male) : ''}
+        ${reasonLists.sire.length ? clickRow('🐏 فحول مستبعدة (إعداد «احتساب الفحول» مطفأ)', reasonLists.sire) : ''}
+        ${reasonLists.manual.length ? clickRow('✋ استُبعدت يدوياً من سجل البهيمة', reasonLists.manual) : ''}
         <div class="muted" style="font-size:.8rem;margin-top:6px">تظهر هذه البهائم في قائمة «الحلال» ما لم تُخفِها من الإعدادات (احتساب الذكور/الفحول أو إظهار المواليد غير المحتسَبة).</div></div>` : ''}
       <div class="card"><h3>📋 لماذا يختلف «العدد» أعلى قائمة الحلال؟</h3>
         <div class="muted" style="font-size:.85rem">قائمة الحلال تعرض حسب المرشّحات المحدَّدة فيها فقط (نوع/حالة/مصدر/جنس) — قد تشمل مباعة أو نافقة أو غيرها معاً، وقد تُظهر الصغار غير المحتسَبة. لذا «العدد» هناك ليس بالضرورة مطابقاً لعدد «في الحظيرة» بالرئيسية، وهذا طبيعي وليس خطأً.</div></div>
-      ${byType.length ? `<div class="card"><h3>حسب النوع</h3>${byType.map(x => row(esc(x.t.ar), `${x.counted} محتسَب من أصل ${x.total} موجود`)).join('')}</div>` : ''}
+      ${byType.length ? `<div class="card"><h3>حسب النوع</h3>${byType.map(x => { const key = 'r' + (rk++); inspRowLists[key] = { list: x.all, title: esc(x.t.ar) + ' — كل الموجود' }; return `<div class="row click" data-rowlist="${key}"><span class="k">${esc(x.t.ar)}</span><span class="v">${x.counted.length} محتسَب من أصل ${x.all.length}</span></div>`; }).join('')}</div>` : ''}
       <div class="card"><h3>خارج الحظيرة حالياً</h3>
-        ${row('مباعة', String(sold))}${row('نافقة', String(dead))}${given ? row('🎁 اهداء', String(given)) : ''}${missing ? row('🔎 مفقودة', String(missing)) : ''}${slaughtered ? row('🔪 ذُبحت', String(slaughtered)) : ''}
-        ${row('إجمالي كل السجلات (كل الحالات، كل الوقت)', String(A.length))}</div>`;
+        ${clickRow('مباعة', soldL)}${clickRow('نافقة', deadL)}${givenL.length ? clickRow('🎁 اهداء', givenL) : ''}${missingL.length ? clickRow('🔎 مفقودة', missingL) : ''}${slaughteredL.length ? clickRow('🔪 ذُبحت', slaughteredL) : ''}
+        ${clickRow('إجمالي كل السجلات (كل الحالات، كل الوقت)', A, 'كل السجلات')}</div>`;
+    inspRowLists.cAll = { list: counted, title: 'البهائم المحتسَبة الآن' };
+    inspRowLists.ncAll = { list: notCounted, title: 'البهائم الموجودة غير المحتسَبة' };
+    body.querySelectorAll('[data-rowlist]').forEach(el => el.addEventListener('click', () => { const d = inspRowLists[el.dataset.rowlist]; if (d) animalListModal(d.title, d.list); }));
     return;
   }
   if (inspectTab === 'entrylog') {
@@ -3926,6 +3931,7 @@ function screenHerdSettings() {
       ['🏠', 'الحظائر (إضافة/تعديل)', '#/pens'],
       ['🏷️', 'شكل ولون الرقم', '#/taglists'],
       ['🔤', 'مصطلحات الذكر والأنثى', '#/terms'],
+      ['📋', 'إضافة جماعية (دفعة) — عدّة رؤوس دفعة واحدة', '#/bulk/buy'],
     ] },
     { h: '🔔 التنبيهات', items: [
       ['🔔', 'تنبيهات مخصّصة (للبيع/التطعيم…)', '#/reminders'],
