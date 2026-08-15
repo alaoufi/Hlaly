@@ -122,15 +122,18 @@ function inHerdCount(a) {
   if (!a || a.status !== 'present') return false;
   if (a.counted === true) return true;    // أُضيفت يدوياً للعدّ
   if (a.counted === false) return false;   // أُخرجت يدوياً من العدّ
+  const c = countRuleFor(a.type);
   // الذكور: الفحل البالغ لا يخضع لقاعدة «يتبع أمّه» — يُحتسب إن كان الخيار مفعّلاً ويُستبعد إن أُوقف.
   // الفحل الصغير (مولود ولم يبلغ بعد) يبقى يتبع القاعدة العادية كأي ذكر حتى يبلغ.
+  // «يبلغ» هنا تعني بالضبط عمر حدّ البلوغ المُعدّ لنوعه (c.age) — نفس العتبة المستخدَمة أدناه للجميع؛
+  // في الوضع اليدوي (لا عتبة عددية) نرجع للثابت البيولوجي pubertyOf كحدّ افتراضي معقول فقط لا غير.
   // الذكر العادي: يُستبعد إن أُوقف خيار «احتساب الذكور»، وإلا يخضع لقاعدة العمر كالمعتاد.
   if (a.sex === 'male') {
-    const stillYoung = a.source === 'born' && a.birth && pubertyOf(a.type) && ageMonths(a.birth) < pubertyOf(a.type);
+    const youngAge = (c.mode === 'age' && c.age > 0) ? c.age : pubertyOf(a.type);
+    const stillYoung = a.source === 'born' && a.birth && youngAge && ageMonths(a.birth) < youngAge;
     if (a.purpose === 'sire' && !stillYoung) return countIncludeSires();
     if (!countIncludeMales()) return false;
   }
-  const c = countRuleFor(a.type);
   if (c.sex !== 'both' && a.sex !== c.sex) return true;   // القاعدة لا تنطبق على هذا الجنس
   if (c.mode === 'manual') return a.source !== 'born';     // المواليد تُضاف يدوياً؛ المشترى/الاهداء يُحتسب
   if (!c.age) return true;
@@ -3470,7 +3473,9 @@ function renderInspect() {
     const reasonOf = (a) => {
       if (a.counted === false) return 'manual';
       if (a.sex === 'male') {
-        const stillYoung = a.source === 'born' && a.birth && pubertyOf(a.type) && ageMonths(a.birth) < pubertyOf(a.type);
+        const rc = countRuleFor(a.type);
+        const youngAge = (rc.mode === 'age' && rc.age > 0) ? rc.age : pubertyOf(a.type);
+        const stillYoung = a.source === 'born' && a.birth && youngAge && ageMonths(a.birth) < youngAge;
         if (a.purpose === 'sire' && !stillYoung) return 'sire';
         if (!countIncludeMales()) return 'male';
       }
