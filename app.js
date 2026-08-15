@@ -800,7 +800,9 @@ function screenHome() {
     ${can('treatments', 'view') ? `<div class="card"><h3>العلاجات الحالية (تحت التحريم)</h3>${treats.length ? treats.map(t => row(display(animalById(t.animal_id)), `${esc(t.med_name)} • ينتهي ${fmtDate(t.withdrawal_end)}`)).join('') : noItem()}</div>` : ''}`;
   view().querySelectorAll('[data-go]').forEach(c => c.addEventListener('click', () => setHash(c.dataset.go)));
   // بطاقات الحالة: تفتح قائمة الحلال مُرشَّحة (في الحظيرة/مباعة/نافقة)
-  view().querySelectorAll('[data-sfilter]').forEach(c => c.addEventListener('click', () => { animalFilter = ''; animalSourceSel = ALL_SOURCES.slice(); animalSexSel = ALL_SEXES.slice(); animalStatusSel = [c.dataset.sfilter]; saveAnimalFilters(); setHash('#/animals'); }));
+  // بطاقة «في الحظيرة» تحديداً تعني «محتسَبة» (inHerdCount) لا مجرّد status=present — فتُطلب القائمة بنفس العدد الظاهر بالضبط
+  // (وإلا يظهر للمستخدم رقم مختلف عمّا وعدته البطاقة، مثل مولود غير محتسَب لسّه يتبع أمّه — التباس مُربِك رغم صحّة الرقمين كلٍّ لتعريفه)
+  view().querySelectorAll('[data-sfilter]').forEach(c => c.addEventListener('click', () => { animalFilter = ''; animalSourceSel = ALL_SOURCES.slice(); animalSexSel = ALL_SEXES.slice(); animalStatusSel = [c.dataset.sfilter]; saveAnimalFilters(); if (c.dataset.sfilter === 'present') pendingCountedOnly = true; setHash('#/animals'); }));
   // بطاقات المواليد: تفتح المواليد الحقيقيين فقط (لسّه يتبعون أمّهم) مُرشَّحة بالجنس — نفس عدد البطاقة بالضبط
   view().querySelectorAll('[data-born]').forEach(c => c.addEventListener('click', () => { pendingNewbornFilter = c.dataset.born; setHash('#/animals'); }));
   const q = document.getElementById('q');
@@ -1034,6 +1036,8 @@ function seedAnimalFiltersOnce() {
 }
 // طلب لمرة واحدة من بطاقات «المواليد» بالرئيسية: يعرض المواليد الحقيقيين فقط (غير المحتسَبين بعد) — يُستهلَك عند أول عرض ثم يُمسح
 let pendingNewbornFilter = null;   // 'male'|'female'|'all'|null
+// طلب لمرة واحدة من بطاقة «في الحظيرة» بالرئيسية: يعرض المحتسَبين فقط (inHerdCount) فيتطابق العدد مع رقم البطاقة تماماً
+let pendingCountedOnly = false;
 // آخر «رقم حظيرة» مُدخَل — يُثبَّت تلقائياً في إضافة البهيمة التالية حتى يُغيَّر (إدخال أسرع للدفعات)
 let lastPen = (() => { try { return localStorage.getItem('mrahi_last_pen') || ''; } catch (e) { return ''; } })();
 // آخر بهيمة مُدخَلة (لِزر «نسخ من آخر إدخال» — تسريع الإدخال المتكرّر)
@@ -1101,6 +1105,8 @@ function screenAnimals() {
     animalFilter = ''; animalStatusSel = ['present']; animalSourceSel = ['born']; animalSexSel = pendingNewbornFilter === 'all' ? ALL_SEXES.slice() : [pendingNewbornFilter];
     saveAnimalFilters(); onlyRealNewborn = true; pendingNewbornFilter = null;
   }
+  // استهلاك طلب «محتسَبة فقط» لمرة واحدة (من بطاقة «في الحظيرة» بالرئيسية) — يضمن تطابق العدد هنا مع رقم البطاقة بالضبط
+  const onlyCounted = pendingCountedOnly; pendingCountedOnly = false;
   const chips = `<div class="chips"><span class="chip ${!animalFilter ? 'active' : ''}" data-f="">الكل</span>${TYPES.map(t => `<span class="chip ${animalFilter === t.k ? 'active' : ''}" data-f="${t.k}">${t.ar}</span>`).join('')}</div>`;
   // مرشّحات متعدّدة الاختيار: عدم تحديد أي رقاقة في صفّ = لا تُعرض أي بهيمة (فلتر صارم، ليس «الكل»)
   // مربّع اختيار (☐/☑) ليوضّح أنها متعدّدة الاختيار
@@ -1114,7 +1120,7 @@ function screenAnimals() {
   const hideMale = (a) => a.status === 'present' && a.sex === 'male' && !animalSexSel.includes('male') && (a.purpose === 'sire' ? !countIncludeSires() : !countIncludeMales());
   // إخفاء المولود غير المحتسَب (يتبع أمّه) من القائمة كلياً إن أُوقف خيار «إظهار المواليد غير المحتسَبة»
   const hideUncounted = (a) => a.status === 'present' && !showUncountedInList() && !inHerdCount(a);
-  const list = sortAnimals(C.animals.filter(a => (!animalFilter || a.type === animalFilter) && animalStatusSel.includes(a.status) && animalSourceSel.some(s => s === 'sale' ? (a.designation === 'sale' || a.purpose === 'sale') : (a.source || 'purchased') === s) && animalSexSel.includes(a.sex) && !hideMale(a) && !hideUncounted(a) && (!onlyRealNewborn || (a.source === 'born' && !inHerdCount(a))) && (!noPenOnly || a.pen_id == null)));
+  const list = sortAnimals(C.animals.filter(a => (!animalFilter || a.type === animalFilter) && animalStatusSel.includes(a.status) && animalSourceSel.some(s => s === 'sale' ? (a.designation === 'sale' || a.purpose === 'sale') : (a.source || 'purchased') === s) && animalSexSel.includes(a.sex) && !hideMale(a) && !hideUncounted(a) && (!onlyRealNewborn || (a.source === 'born' && !inHerdCount(a))) && (!onlyCounted || inHerdCount(a)) && (!noPenOnly || a.pen_id == null)));
   const canEdit = can('animals', 'edit');
   // عند خلو الحلال كلياً: حالة ترحيبية بزرّ إضافة واضح. وعند خلو التصنيف فقط: رسالة عادية.
   const empty = C.animals.length === 0
@@ -3961,13 +3967,16 @@ function screenCountAge() {
 }
 function screenPens() {
   if (!can('animals', 'edit')) { view().innerHTML = noPerm(); return; }
-  const countFor = (id) => (C.animals || []).filter(a => a.pen_id === id).length;
+  // بهائم موجودة حالياً فقط (لا مباعة/نافقة/إلخ بقي pen_id قديم عليها) — عدّاد الحظيرة يعكس ما هو فيها فعلياً الآن
+  const countFor = (id) => (C.animals || []).filter(a => a.pen_id === id && a.status === 'present').length;
   const totalFor = (id) => countFor(id) + penChildren(id).reduce((s, c) => s + countFor(c.id), 0);
   // حظائر النظام (مثل «💰 معدّ للبيع») تظهر في هذه القائمة فقط أثناء وجود بهائم عليها فعلياً — لا داعي لعرضها فارغة دائماً
   const pens = allPens().filter(p => !p.system || countFor(p.id) > 0);
   const typeAr = (tk) => tk ? arOf(TYPES, tk) : 'أي نوع';
   const groups = {}; pens.forEach(p => { (groups[p.type || ''] = groups[p.type || ''] || []).push(p); });
-  const typeSel = `<select id="np_type">${TYPES.map(t => `<option value="${t.k}">${t.ar}</option>`).join('')}<option value="">أي نوع</option></select>`;
+  // «أي نوع» هو الخيار الافتراضي المُحدَّد صراحةً (لا أوّل نوع في القائمة بالمصادفة) — لتفادي إنشاء حظيرة بنوع خاطئ
+  // بصمت إن نسي المستخدم تغيير القائمة (فتختفي لاحقاً من قوائم اختيار نوعها الفعلي دون أن يظهر أي خطأ).
+  const typeSel = `<select id="np_type"><option value="" selected>أي نوع</option>${TYPES.map(t => `<option value="${t.k}">${t.ar}</option>`).join('')}</select>`;
   const penRow = (p, isChild, total) => `<div ${isChild ? '' : `class="click" data-penroot="${p.id}"`} style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #eee${isChild ? ';padding-inline-start:22px' : ''}">
       <span class="li-title" style="font-weight:600">${isChild ? '↳ ' : '🏠 '}${esc(p.name)} <span class="muted" style="font-weight:400;font-size:.8rem">(${total} بهيمة${total !== countFor(p.id) ? ' — إجمالي مع الفروع' : ''})</span></span>
       <span style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">
@@ -4105,7 +4114,7 @@ function penRenameModal(id) {
 }
 async function penDelete(id) {
   const pen = penById(id); if (!pen) return;
-  const used = (C.animals || []).filter(a => a.pen_id === id).length;
+  const used = (C.animals || []).filter(a => a.pen_id === id && a.status === 'present').length;
   if (used) { await confirm2(`لا يمكن حذف «${pen.name}» — عليها ${used} بهيمة. انقل البهائم لحظيرة أخرى أو أخرِجها أولاً.`, { title: 'تعذّر الحذف', okText: 'حسناً' }); return; }
   const kids = penChildren(id);
   if (kids.length) { await confirm2(`لا يمكن حذف «${pen.name}» — لديها ${kids.length} فرع (${kids.map(k => k.name).join('، ')}). احذف الفروع أولاً أو انقلها لحظيرة رئيسية أخرى.`, { title: 'تعذّر الحذف', okText: 'حسناً' }); return; }
