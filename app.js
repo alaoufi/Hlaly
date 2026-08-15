@@ -1283,6 +1283,9 @@ function screenAnimalEdit(arg) {
   const a = id ? animalById(id) : null;
   const females = C.animals.filter(x => x.sex === 'female' && x.id !== id);
   document.getElementById('screenTitle').textContent = id ? 'تعديل بهيمة' : 'إضافة بهيمة';
+  // «تفاصيل إضافية» (لون/شكل الوسم، لون البهيمة، الغرض) مطوية افتراضياً عند إضافة بهيمة جديدة (تسريع الإدخال المتكرّر)،
+  // ومفتوحة افتراضياً عند تعديل بهيمة معها بالفعل أيّ من هذه القيم (حتى لا تبدو بياناتها "مفقودة" لمجرّد الطيّ)
+  const extraOpen = !!a && !!(a.tag_color || a.tag_shape || a.color || a.designation);
   view().innerHTML = `
     ${!a && lastAnimal ? '<button class="btn outline" id="cloneLast" style="margin-bottom:8px">📋 نسخ بيانات آخر إدخال</button>' : ''}
     <div class="card"><h3>البيانات الأساسية</h3>
@@ -1291,13 +1294,9 @@ function screenAnimalEdit(arg) {
       ${penField('f_pen', a ? a.pen_id : null, a ? a.type : (animalFilter || 'sheep'))}
       ${fSelect('نوع المعرّف الخارجي', 'f_kind', IDKIND, a ? a.idkind : 'number')}
       ${fInput('المعرّف الخارجي / الوسم (اختياري — قد يتغيّر أو يسقط)', 'f_code', a && a.code)}
-      ${fSelect('لون الوسم', 'f_tagcolor', strOpts(tagColors()), a ? (a.tag_color || '') : '')}
-      ${fSelect('شكل الوسم', 'f_tagshape', strOpts(tagShapes()), a ? (a.tag_shape || '') : '')}
-      ${fInput('الاسم/المسمى (اختياري)', 'f_name', a && a.name)}
       ${fSelect('الجنس', 'f_sex', SEX, a ? a.sex : 'female')}
       <div id="purposeBox">${fSelect('غرض الذكر', 'f_purpose', MALE_PURPOSE, a ? (a.purpose || '') : '', '— غير محدّد —')}</div>
       ${fSelect('المصدر', 'f_source', SOURCE, a ? (a.source || 'purchased') : 'purchased')}
-      ${fSelect('الغرض', 'f_design', DESIGN, a ? (a.designation || '') : '', '— غير محدّد —')}
       ${!a ? `<div id="bcountBox">${fInput('عدد المواليد', 'f_bcount', '1', 'number', 'min="1" inputmode="numeric"')}</div>` : ''}
       <div id="buypriceBox">${fInput('سعر الشراء (اختياري)', 'f_buyprice', a && a.buy_price, 'number', 'min="0" step="any" inputmode="decimal"')}</div>
       ${!a ? `<div id="withOffBox" style="display:none">
@@ -1305,7 +1304,6 @@ function screenAnimalEdit(arg) {
         <div id="offCountsBox" style="display:none">${fInput('عدد المواليد ذكور', 'f_offmale', '0', 'number', 'min="0" inputmode="numeric"')}${fInput('عدد المواليد إناث', 'f_offfemale', '0', 'number', 'min="0" inputmode="numeric"')}</div>
       </div>` : ''}
       ${fInput('تاريخ الميلاد (اختياري للمشترى)', 'f_birth', a && a.birth, 'date')}
-      ${fInput('اللون', 'f_color', a && a.color)}
       ${a && a.status !== 'present' ? `${fSelect('الإجراء', 'f_status', EXIT, a.status)}
       <div id="saleBox">${fInput('تاريخ البيع', 'f_saledate', a.sale_date, 'date')}${fInput('سعر البيع', 'f_saleprice', a.sale_price, 'number', 'min="0" step="any" inputmode="decimal"')}</div>
       <div id="deadBox">${fInput('تاريخ النفوق', 'f_deaddate', a.dead_date, 'date')}</div>
@@ -1313,6 +1311,18 @@ function screenAnimalEdit(arg) {
       <div id="missingBox">${fInput('تاريخ الفقد', 'f_missdate', a.missing_date, 'date')}</div>
       <div id="slaughterBox">${fInput('تاريخ الذبح', 'f_slaughterdate', a.slaughter_date, 'date')}</div>` : ''}</div>
     <div id="bornRows"></div>
+    <div class="acc-head card click" id="extraToggle" style="display:flex;align-items:center;justify-content:space-between">
+      <span class="li-title" style="margin:0">🏷️ تفاصيل إضافية (لون الوسم وشكله، لون البهيمة، الغرض)</span>
+      <span id="extraArrow" style="color:var(--muted);font-size:1.1rem">${extraOpen ? '▾' : '▸'}</span></div>
+    <div id="extraBox" style="display:${extraOpen ? '' : 'none'}">
+      <div class="card">
+        ${fSelect('لون الوسم', 'f_tagcolor', strOpts(tagColors()), a ? (a.tag_color || '') : '')}
+        ${fSelect('شكل الوسم', 'f_tagshape', strOpts(tagShapes()), a ? (a.tag_shape || '') : '')}
+        ${fInput('الاسم/المسمى (اختياري)', 'f_name', a && a.name)}
+        ${fSelect('الغرض', 'f_design', DESIGN, a ? (a.designation || '') : '', '— غير محدّد —')}
+        ${fInput('اللون', 'f_color', a && a.color)}
+      </div>
+    </div>
     <div class="card"><h3>النسب</h3>
       <div id="motherSelectBox">${fAnimalSelect('الأم', 'f_mother', a && a.mother_id, females, '— بدون —')}</div>
       <div id="motherTextBox" style="display:none">${fInput('الأم (اسم/وصف — اختياري، من خارج الحظيرة)', 'f_mother_name', a && a.mother_name)}</div>
@@ -1320,6 +1330,12 @@ function screenAnimalEdit(arg) {
     <div class="card"><h3>ملاحظات</h3>${fTextarea('ملاحظات', 'f_notes', a && a.notes)}</div>
     <button class="btn" id="saveBtn">حفظ</button>
     ${id ? '<button class="btn danger" id="delBtn">حذف البهيمة</button>' : ''}`;
+  { const et = document.getElementById('extraToggle'); if (et) et.addEventListener('click', () => {
+    const box = document.getElementById('extraBox'), arrow = document.getElementById('extraArrow');
+    const willOpen = box.style.display === 'none';
+    box.style.display = willOpen ? '' : 'none';
+    if (arrow) arrow.textContent = willOpen ? '▾' : '▸';
+  }); }
   const syncExit = () => {
     const s = val('f_status');
     const sb = document.getElementById('saleBox'); if (sb) sb.style.display = s === 'sold' ? '' : 'none';
@@ -1342,8 +1358,11 @@ function screenAnimalEdit(arg) {
     const setW = (fid, show) => { const w = fieldWrap(fid); if (w) w.style.display = show ? '' : 'none'; };
     const showCode = ['number', 'tag', 'chip', 'name'].includes(k);
     setW('f_code', showCode);
-    setW('f_tagcolor', ['tag', 'color'].includes(k));
+    const needsTagColor = ['tag', 'color'].includes(k);
+    setW('f_tagcolor', needsTagColor);
     setW('f_tagshape', k === 'tag');
+    // لون/شكل الوسم داخل «تفاصيل إضافية» المطويّة — افتحها تلقائياً إن أصبحت ذات صلة حتى لا تختفي عن المستخدم بلا تنبيه
+    if (needsTagColor) { const box = document.getElementById('extraBox'), arrow = document.getElementById('extraArrow'); if (box && box.style.display === 'none') { box.style.display = ''; if (arrow) arrow.textContent = '▾'; } }
     if (showCode && KIND_LABEL[k]) { const el = document.getElementById('f_code'); const L = el && el.closest('.field').querySelector('label'); if (L) L.textContent = KIND_LABEL[k] + ' (اختياري — قد يتغيّر أو يسقط)'; }
   };
   const renderBornRows = () => {
