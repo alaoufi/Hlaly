@@ -96,6 +96,14 @@ function matureAgeFor(type) {
   const c = countRuleFor(type);
   return (c.mode === 'age' && c.age > 0) ? c.age : pubertyOf(type);
 }
+// تذكيرات الرعاية (لكل نوع): موعد الفطام (أيام بعد الولادة)، التحقق من الحمل (أيام بعد التلقيح)، التجفيف قبل الولادة (أيام قبلها)
+function loadCareReminders() { try { const v = JSON.parse(localStorage.getItem('mrahi_care_reminders')); return (v && typeof v === 'object') ? v : {}; } catch (e) { return {}; } }
+function saveCareReminders(o) { try { localStorage.setItem('mrahi_care_reminders', JSON.stringify(o || {})); } catch (e) {} refreshNotifications().catch(() => { /* أفضل جهد */ }); }
+function careReminderFor(type) {
+  const v = loadCareReminders()[type] || {};
+  const n = (x) => { const p = parseInt(x, 10); return p > 0 ? p : 0; };
+  return { weaningDays: n(v.weaningDays), pregCheckDays: n(v.pregCheckDays), dryOffDays: n(v.dryOffDays) };
+}
 // خيار عام: احتساب الذكور والفحول ضمن عدد الحظيرة (الافتراضي: نعم)
 function countIncludeMales() { try { return localStorage.getItem('mrahi_count_males') !== '0'; } catch (e) { return true; } }
 function countIncludeSires() { try { return localStorage.getItem('mrahi_count_sires') !== '0'; } catch (e) { return true; } }
@@ -730,6 +738,7 @@ const ROUTES = {
   reminders: { t: 'تنبيهات مخصّصة', back: true, fn: screenReminders },
   pens: { t: 'الحظائر', back: true, fn: screenPens },
   countage: { t: 'عمر حدّ البلوغ', back: true, fn: screenCountAge },
+  carereminders: { t: 'تذكيرات الرعاية', back: true, fn: screenCareReminders },
   herdsettings: { t: 'إعدادات الحظيرة', back: true, fn: screenHerdSettings },
   contacts: { t: 'دليل التواصل', back: true, fn: screenContacts },
   trash: { t: 'سلة المحذوفات', back: true, fn: screenTrash },
@@ -872,11 +881,42 @@ function penTransferCandidates() {
   });
   return out;
 }
+// تذكيرات الرعاية المستحقّة خلال ٧ أيام القادمة (لكل نوع بإعداده الخاص) — فطام/تحقّق حمل/تجفيف قبل الولادة
+function weaningDue() {
+  return (C.animals || []).filter(a => a.status === 'present' && a.birth).map(a => {
+    const days = careReminderFor(a.type).weaningDays; if (!days) return null;
+    const d = daysUntil(addDays(a.birth, days));
+    return (d != null && d >= 0 && d <= 7) ? { a, due: addDays(a.birth, days), d } : null;
+  }).filter(Boolean).sort((x, y) => x.d - y.d);
+}
+function pregCheckDue() {
+  // آخر تلقيح لكل بهيمة لم تبدأ متابعة حمل بعده بعد (لا سجل حمل بتاريخ تلقيح مساوٍ أو لاحق لهذا التلقيح)
+  const lastMating = {};
+  (C.matings || []).forEach(m => { const cur = lastMating[m.animal_id]; if (!cur || (m.date || '') > (cur.date || '')) lastMating[m.animal_id] = m; });
+  return Object.values(lastMating).map(m => {
+    const a = animalById(m.animal_id); if (!a || a.status !== 'present') return null;
+    const days = careReminderFor(a.type).pregCheckDays; if (!days) return null;
+    const already = (C.pregnancies || []).some(p => p.animal_id === m.animal_id && (!p.mating_date || p.mating_date >= m.date));
+    if (already) return null;
+    const d = daysUntil(addDays(m.date, days));
+    return (d != null && d >= 0 && d <= 7) ? { a, m, due: addDays(m.date, days), d } : null;
+  }).filter(Boolean).sort((x, y) => x.d - y.d);
+}
+function dryOffDue() {
+  return (C.pregnancies || []).filter(p => p.status === 'monitoring' && p.expected).map(p => {
+    const a = animalById(p.animal_id); if (!a || a.status !== 'present') return null;
+    const days = careReminderFor(a.type).dryOffDays; if (!days) return null;
+    const target = addDays(p.expected, -days);
+    const d = daysUntil(target);
+    return (d != null && d >= 0 && d <= 7) ? { a, p, due: target, d } : null;
+  }).filter(Boolean).sort((x, y) => x.d - y.d);
+}
 /* ===== التنبيهات ===== */
 function screenAlerts() {
   const births = upcomingBirths(), vaccs = upcomingVacc(), treats = activeTreatments(), doses = upcomingTreatDoses();
   const lowMeds = lowStockMeds(), expMeds = expiringMeds();
   const transfers = can('animals', 'edit') ? penTransferCandidates() : [];
+  const weans = weaningDue(), pregChecks = pregCheckDue(), dryOffs = dryOffDue();
   const vtName = (id) => { const t = C.vaccineTypes.find(x => x.id === id); return t ? t.name : 'تطعيم'; };
   const medLine = (m) => { const dl = m.expiry ? daysUntil(m.expiry) : null; const ex = dl !== null && dl < 0; return row('💊 ' + esc(m.name), `${m.qty == null ? '' : esc(String(m.qty)) + ' ' + esc(m.unit || '')}${m.expiry ? ` • ${ex ? '⛔ منتهٍ' : 'ينتهي'} ${fmtDate(m.expiry)}` : ''}`); };
   const showMeds = can('treatments', 'view') && (lowMeds.length || expMeds.length);
@@ -894,6 +934,9 @@ function screenAlerts() {
     <div class="card" style="background:#ffebee"><h3>🚫 انتهاء مدة التحريم (علاجات جارية)</h3>${treats.length ? treats.map(t => row(display(animalById(t.animal_id)), `${esc(t.med_name || '')} • ينتهي ${fmtDate(t.withdrawal_end)} (بعد ${daysUntil(t.withdrawal_end)} يوم)`)).join('') : noItem()}</div>
     <div class="card" style="background:#e8f5e9"><h3>💊 جرعات علاج قادمة (١٤ يوماً)</h3>${doses.length ? doses.map(t => row(display(animalById(t.animal_id)), `${esc(t.med_name || '')} • ${fmtDate(t.next_due)} (بعد ${daysUntil(t.next_due)} يوم)`)).join('') : noItem()}</div>
     <div class="card" style="background:#e3f2fd"><h3>💉 مواعيد تطعيم قادمة (٣٠ يوماً)</h3>${vaccs.length ? vaccs.map(v => row(display(animalById(v.animal_id)), `${esc(vtName(v.type_id))} • ${fmtDate(v.next_due)} (بعد ${daysUntil(v.next_due)} يوم)`)).join('') : noItem()}</div>
+    ${weans.length ? `<div class="card" style="background:#fff8e1"><h3>🍼 موعد الفطام (٧ أيام)</h3>${weans.map(x => row(display(x.a), `${fmtDate(x.due)} (بعد ${x.d} يوم)`)).join('')}</div>` : ''}
+    ${pregChecks.length ? `<div class="card" style="background:#f3e5f5"><h3>🔬 وقت التحقق من الحمل (٧ أيام)</h3>${pregChecks.map(x => row(display(x.a), `${fmtDate(x.due)} (بعد ${x.d} يوم)`)).join('')}</div>` : ''}
+    ${dryOffs.length ? `<div class="card" style="background:#e0f2f1"><h3>🥛 وقت التجفيف قبل الولادة (٧ أيام)</h3>${dryOffs.map(x => row(display(x.a), `${fmtDate(x.due)} (بعد ${x.d} يوم)`)).join('')}</div>` : ''}
     ${showMeds ? `<div class="card click" style="background:#fff3e0" data-go="#/medstock"><h3>📦 مخزون الأدوية واللقاحات (تنبيه)</h3>${lowMeds.length ? `<div class="li-title" style="color:#c62828">نفد/قارب النفاد (${lowMeds.length})</div>${lowMeds.map(medLine).join('')}` : ''}${expMeds.length ? `<div class="li-title" style="color:#e65100;margin-top:6px">قارب/منتهي الصلاحية (${expMeds.length})</div>${expMeds.map(medLine).join('')}` : ''}</div>` : ''}`;
   view().querySelectorAll('[data-go]').forEach(c => c.addEventListener('click', () => setHash(c.dataset.go)));
   view().querySelectorAll('[data-goa]').forEach(c => c.addEventListener('click', () => setHash('#/animal/' + c.dataset.goa)));
@@ -999,6 +1042,29 @@ async function refreshNotifications() {
         if (at) notifs.push({ id: 5000000 + (r.id % 9000) * 100000 + (a.id % 100000), title, body: `${title} — ${display(a)}`, schedule: { at } });
       });
     }
+  });
+
+  // تذكيرات الرعاية (لكل نوع بإعداده الخاص): فطام، تحقّق من حمل، تجفيف قبل الولادة
+  (C.animals || []).filter(a => a.status === 'present' && a.birth).forEach(a => {
+    const days = careReminderFor(a.type).weaningDays; if (!days) return;
+    const at = notifAt(addDays(a.birth, days)); if (!at) return;
+    notifs.push({ id: 6000000 + a.id, title: '🍼 موعد الفطام اليوم', body: display(a), schedule: { at } });
+  });
+  { const lastMating = {}; (C.matings || []).forEach(m => { const cur = lastMating[m.animal_id]; if (!cur || (m.date || '') > (cur.date || '')) lastMating[m.animal_id] = m; });
+    Object.values(lastMating).forEach(m => {
+      const a = animalById(m.animal_id); if (!a || a.status !== 'present') return;
+      const days = careReminderFor(a.type).pregCheckDays; if (!days) return;
+      const already = (C.pregnancies || []).some(p => p.animal_id === m.animal_id && (!p.mating_date || p.mating_date >= m.date));
+      if (already) return;
+      const at = notifAt(addDays(m.date, days)); if (!at) return;
+      notifs.push({ id: 6500000 + m.id, title: '🔬 وقت التحقق من الحمل اليوم', body: display(a), schedule: { at } });
+    });
+  }
+  (C.pregnancies || []).filter(p => p.status === 'monitoring' && p.expected).forEach(p => {
+    const a = animalById(p.animal_id); if (!a || a.status !== 'present') return;
+    const days = careReminderFor(a.type).dryOffDays; if (!days) return;
+    const at = notifAt(addDays(p.expected, -days)); if (!at) return;
+    notifs.push({ id: 7000000 + p.id, title: '🥛 وقت التجفيف اليوم', body: display(a), schedule: { at } });
   });
 
   if (!notifs.length) return;
@@ -1424,7 +1490,7 @@ function screenAnimalEdit(arg) {
     if (!['tag', 'color'].includes(obj.idkind)) obj.tag_color = '';
     if (obj.idkind !== 'tag') obj.tag_shape = '';
     if (status === 'sold') { const wd = withdrawalActiveOn(id, obj.sale_date || todayStr()); if (wd && !await confirm2(`⚠️ هذه البهيمة تحت تحريم دواء حتى ${fmtDate(wd)} — لا يُنصح ببيعها/ذبحها قبله. متابعة الحفظ كمباعة؟`, { danger: true })) return; }
-    if (a && !await confirm2('حفظ التعديل على هذه البهيمة؟ النسخة السابقة ستبقى في سلة المحذوفات.')) return;
+    if (a && !await confirm2('حفظ التعديل؟ تُحدَّث بيانات هذه البهيمة نفسها في مكانها (لا تتكرّر ولا تُنقل إلى أي مكان) — وتُحفظ نسخة احتياطية من بياناتها القديمة في 🗑️ سلة المحذوفات لمدة ٣٠ يوماً، للاسترجاع فقط إن احتجت التراجع.')) return;
     const ok = await guard(async () => {
       if (a) { await dbUpdate('animals', id, obj); return; }
       let n = obj.source === 'born' ? (parseInt(val('f_bcount'), 10) || 1) : 1;   // عدد المواليد
@@ -3934,6 +4000,7 @@ function screenHerdSettings() {
     ] },
     { h: '🔔 التنبيهات', items: [
       ['🔔', 'تنبيهات مخصّصة (للبيع/التطعيم…)', '#/reminders'],
+      ['🍼', 'تذكيرات الرعاية (الفطام، التحقق من الحمل، التجفيف قبل الولادة)', '#/carereminders'],
     ] },
   ];
   const sec = (title, bodyHtml) => `<div class="muted" style="font-weight:700;margin:14px 2px 6px;font-size:.9rem">${title}</div>${bodyHtml}`;
@@ -3997,6 +4064,29 @@ function screenCountAge() {
       localStorage.setItem('mrahi_count_sires', document.getElementById('cnt_sires').checked ? '1' : '0');
       localStorage.setItem('mrahi_show_uncounted', document.getElementById('cnt_showunc').checked ? '1' : '0');
     } catch (e) {}
+    toast('تم الحفظ'); goBack();
+  });
+}
+// تذكيرات الرعاية لكل نوع: موعد الفطام، التحقق من الحمل بالسونار، والتجفيف قبل الولادة — تظهر في 🔔 التنبيهات
+// وكإشعار جهاز فعلي (إن مُنح الإذن)، بحساب مبنيّ على أيام محدَّدة يضبطها المستخدم لكل نوع.
+function screenCareReminders() {
+  if (!can('animals', 'edit')) { view().innerHTML = noPerm(); return; }
+  view().innerHTML = `<div class="muted" style="margin-bottom:8px">لكل نوع: اترك الحقل فارغاً أو صفراً لإيقاف ذلك التذكير لهذا النوع. تظهر التذكيرات في 🔔 التنبيهات، وكإشعار فعلي على جهازك إن مُنح الإذن.</div>`
+    + TYPES.map(t => { const r = careReminderFor(t.k); return `<div class="card"><h3>${esc(t.ar)}</h3>
+      ${fInput('🍼 تذكير الفطام — كم يوماً بعد الولادة', 'cr_wean_' + t.k, r.weaningDays || '', 'number', 'min="0" inputmode="numeric"')}
+      ${fInput('🔬 تذكير التحقق من الحمل — كم يوماً بعد التلقيح', 'cr_preg_' + t.k, r.pregCheckDays || '', 'number', 'min="0" inputmode="numeric"')}
+      ${fInput('🥛 تذكير التجفيف — كم يوماً قبل الولادة المتوقّعة', 'cr_dry_' + t.k, r.dryOffDays || '', 'number', 'min="0" inputmode="numeric"')}
+      </div>`; }).join('')
+    + `<button class="btn" id="cr_save">حفظ</button>`;
+  document.getElementById('cr_save').addEventListener('click', () => {
+    const o = {};
+    TYPES.forEach(t => {
+      const weaningDays = parseInt(val('cr_wean_' + t.k), 10) || 0;
+      const pregCheckDays = parseInt(val('cr_preg_' + t.k), 10) || 0;
+      const dryOffDays = parseInt(val('cr_dry_' + t.k), 10) || 0;
+      if (weaningDays || pregCheckDays || dryOffDays) o[t.k] = { weaningDays, pregCheckDays, dryOffDays };
+    });
+    saveCareReminders(o);
     toast('تم الحفظ'); goBack();
   });
 }
@@ -4367,7 +4457,7 @@ async function screenTrash() {
   showLoading(false);
   const actionAr = { delete: 'محذوف', edit: 'نسخة قبل تعديل' };
   const whoOf = (t) => t.actor_name || '—';
-  view().innerHTML = `<div class="muted" style="margin-bottom:8px">العناصر المحذوفة والنُّسخ السابقة قابلة للاستعادة. تُحذف نهائياً تلقائياً بعد ٣٠ يوماً، أو احذفها يدوياً بعد التأكّد.</div>`
+  view().innerHTML = `<div class="muted" style="margin-bottom:8px">العناصر المحذوفة فعلياً، ونسخ احتياطية من البيانات القديمة قبل كل تعديل — كلاهما قابل للاستعادة هنا. علامة «نسخة قبل تعديل» لا تعني أن العنصر الحالي حُذف أو تكرّر؛ هو مجرّد أرشيف لبياناته السابقة. تُحذف نهائياً تلقائياً بعد ٣٠ يوماً، أو احذفها يدوياً بعد التأكّد.</div>`
     + (list.length ? list.map(t => `<div class="card">
         <div class="li-title">${esc(t.label || t.tbl)}</div>
         <div class="li-sub"><span class="badge ${t.action === 'delete' ? 'off' : ''}">${actionAr[t.action] || t.action}</span> ${fmtDateTime(t.created_at)}</div>
