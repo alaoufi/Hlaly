@@ -1691,7 +1691,7 @@ function screenAnimalDetail(arg) {
       ${((a.source || 'purchased') === 'purchased' && a.buy_price != null) ? row('💵 سعر الشراء', esc(String(a.buy_price))) : ''}
       ${row('تاريخ الميلاد', fmtDate(a.birth))}
       ${a.birth ? row('🎂 العمر', ageText(a.birth)) : ''}
-      ${a.birth && pubertyOf(a.type) ? row('🌱 سن البلوغ المتوقّع', fmtDate(addMonths(a.birth, pubertyOf(a.type))) + ' (' + pubertyOf(a.type) + ' شهر)') : ''}
+      ${a.birth && matureAgeFor(a.type) ? row('🌱 سنّ البلوغ (عمر حدّ البلوغ)', fmtDate(addMonths(a.birth, matureAgeFor(a.type))) + ' (' + matureAgeFor(a.type) + ' شهر)') : ''}
       ${row('اللون', esc(a.color) || '—')}
       ${row('الحالة', arOf(STATUS, a.status))}
       ${(a.source || 'purchased') === 'purchased' && (a.sale_date == null) && a.buy_date ? row('تاريخ الشراء', fmtDate(a.buy_date)) : ''}
