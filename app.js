@@ -1284,8 +1284,8 @@ function screenAnimals() {
   } else { listHtml = list.map(animalCard).join(''); }
   // لوحة الفلاتر الإضافية (المصدر/الجنس/الحظيرة) مطوية افتراضياً — تبسيطاً للشاشة، تُفتح عند الحاجة فقط
   const filtersToggle = `<div class="acc-head card click" id="filtToggle" style="display:flex;align-items:center;justify-content:space-between">
-      <span class="li-title" style="margin:0">⚙️ فلاتر إضافية (المصدر/الجنس/الحظيرة)</span>
-      <span style="color:var(--muted);font-size:1.1rem">${animalFiltersOpen ? '▾' : '▸'}</span></div>`;
+      <span class="li-title" style="margin:0">⚙️ فلاتر إضافية (المصدر/الجنس/الحظيرة) — ${animalFiltersOpen ? 'مفتوحة' : 'مغلقة'}</span>
+      <span class="acc-arrow ${animalFiltersOpen ? 'open' : ''}">▸</span></div>`;
   const filtersBody = animalFiltersOpen ? (srcChips + sexChips + penChip) : '';
   view().innerHTML = chips + filtersToggle + filtersBody + countRow + (list.length ? listHtml : empty);
   view().querySelectorAll('[data-f]').forEach(c => c.addEventListener('click', () => { animalFilter = c.dataset.f; screenAnimals(); }));
@@ -1500,8 +1500,8 @@ function screenAnimalEdit(arg) {
       <div id="slaughterBox">${fInput('تاريخ الذبح', 'f_slaughterdate', a.slaughter_date, 'date')}</div>` : ''}</div>
     <div id="bornRows"></div>
     <div class="acc-head card click" id="extraToggle" style="display:flex;align-items:center;justify-content:space-between">
-      <span class="li-title" style="margin:0">🏷️ تفاصيل إضافية (لون الوسم وشكله، لون البهيمة، الغرض)</span>
-      <span id="extraArrow" style="color:var(--muted);font-size:1.1rem">${extraOpen ? '▾' : '▸'}</span></div>
+      <span class="li-title" style="margin:0">🏷️ تفاصيل إضافية (لون الوسم وشكله، لون البهيمة، الغرض) — <span id="extraState">${extraOpen ? 'مفتوحة' : 'مغلقة'}</span></span>
+      <span id="extraArrow" class="acc-arrow ${extraOpen ? 'open' : ''}">▸</span></div>
     <div id="extraBox" style="display:${extraOpen ? '' : 'none'}">
       <div class="card">
         ${fSelect('لون الوسم', 'f_tagcolor', strOpts(tagColors()), a ? (a.tag_color || '') : '')}
@@ -1519,10 +1519,11 @@ function screenAnimalEdit(arg) {
     <button class="btn" id="saveBtn">حفظ</button>
     ${id ? '<button class="btn danger" id="delBtn">حذف البهيمة</button>' : ''}`;
   { const et = document.getElementById('extraToggle'); if (et) et.addEventListener('click', () => {
-    const box = document.getElementById('extraBox'), arrow = document.getElementById('extraArrow');
+    const box = document.getElementById('extraBox'), arrow = document.getElementById('extraArrow'), state = document.getElementById('extraState');
     const willOpen = box.style.display === 'none';
     box.style.display = willOpen ? '' : 'none';
-    if (arrow) arrow.textContent = willOpen ? '▾' : '▸';
+    if (arrow) arrow.classList.toggle('open', willOpen);
+    if (state) state.textContent = willOpen ? 'مفتوحة' : 'مغلقة';
   }); }
   const syncExit = () => {
     const s = val('f_status');
@@ -1550,7 +1551,7 @@ function screenAnimalEdit(arg) {
     setW('f_tagcolor', needsTagColor);
     setW('f_tagshape', k === 'tag');
     // لون/شكل الوسم داخل «تفاصيل إضافية» المطويّة — افتحها تلقائياً إن أصبحت ذات صلة حتى لا تختفي عن المستخدم بلا تنبيه
-    if (needsTagColor) { const box = document.getElementById('extraBox'), arrow = document.getElementById('extraArrow'); if (box && box.style.display === 'none') { box.style.display = ''; if (arrow) arrow.textContent = '▾'; } }
+    if (needsTagColor) { const box = document.getElementById('extraBox'), arrow = document.getElementById('extraArrow'), state = document.getElementById('extraState'); if (box && box.style.display === 'none') { box.style.display = ''; if (arrow) arrow.classList.add('open'); if (state) state.textContent = 'مفتوحة'; } }
     if (showCode && KIND_LABEL[k]) { const el = document.getElementById('f_code'); const L = el && el.closest('.field').querySelector('label'); if (L) L.textContent = KIND_LABEL[k] + ' (اختياري — قد يتغيّر أو يسقط)'; }
   };
   const renderBornRows = () => {
@@ -3323,7 +3324,7 @@ function renderMenuScreen(menuKey, cats, extraHtml) {
         const isOpen = open.has(c.key);
         const bg = MENU_BG[c.key] || 'var(--card)';
         return `<div class="acc-head card click" data-cat="${c.key}" style="display:flex;align-items:center;justify-content:space-between;background:${bg}">
-            <span class="li-title" style="margin:0">${c.title}</span><span style="color:var(--muted);font-size:1.1rem">${isOpen ? '▾' : '▸'}</span></div>`
+            <span class="li-title" style="margin:0">${c.title} <span class="muted" style="font-size:.78rem;font-weight:400">(${isOpen ? 'مفتوحة' : 'مغلقة'})</span></span><span class="acc-arrow ${isOpen ? 'open' : ''}">▸</span></div>`
           + (isOpen ? `<div style="margin:0 8px 6px">${c.items.map(([l, h]) => `<div class="card click menu-row" data-go="${h}" style="margin:4px 0;background:${bg}"><div class="li-title">${l}</div></div>`).join('')}</div>` : '');
       }).join('');
     }
