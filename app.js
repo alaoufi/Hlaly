@@ -663,16 +663,59 @@ async function trashSnap(key, id, action) {
   if (!rec) return;
   try { await sb.from('mrahi_trash').insert({ tbl: key, rec_id: id, action, label: trashLabel(key, rec), data: rec, actor_name: (me && me.full_name) || '' }); } catch (e) { /* أفضل جهد */ }
 }
+// سجل التعديلات: بدل نسخ السجل كاملاً عند كل تعديل، نسجّل فقط الحقول التي تغيّرت فعلياً (قيمة قديمة/جديدة)، مع إمكان التراجع عن حقل واحد بعينه
+async function logFieldChanges(key, id, obj) {
+  const rec = (C[key] || []).find(x => x.id === id);
+  if (!rec) return;
+  const actor_name = (me && me.full_name) || '';
+  for (const field of Object.keys(obj)) {
+    const oldV = rec[field] === undefined ? null : rec[field];
+    const newV = obj[field] === undefined ? null : obj[field];
+    if (JSON.stringify(oldV) === JSON.stringify(newV)) continue;
+    try { await sb.from('mrahi_edit_log').insert({ tbl: key, rec_id: id, field, old_value: oldV, new_value: newV, actor_name }); } catch (e) { /* أفضل جهد */ }
+  }
+}
 async function dbInsert(key, obj) { const { data, error } = await sb.from(TABLES[key]).insert(obj).select().single(); if (error) throw error; return data; }
 function lockedError(msg) { const e = new Error(msg); e.locked = true; return e; }
 // bypassLock: تستخدمها فقط تحديثات «إضافة» ضمنية (تسجيل ولادة/سونار/إجهاض/مكتبة تلقائية) — كل تعديل/حذف حقيقي يُقفل افتراضياً
 async function dbUpdate(key, id, obj, bypassLock) {
   if (!bypassLock && isEditLocked()) throw lockedError('🔒 التعديل مقفول مؤقّتاً — افتحه من أيقونة ⋮ أعلى الشاشة');
-  await trashSnap(key, id, 'edit'); const { error } = await sb.from(TABLES[key]).update(obj).eq('id', id); if (error) throw error;
+  await logFieldChanges(key, id, obj); const { error } = await sb.from(TABLES[key]).update(obj).eq('id', id); if (error) throw error;
 }
 async function dbDelete(key, id) {
   if (isEditLocked()) throw lockedError('🔒 الحذف مقفول مؤقّتاً — افتحه من أيقونة ⋮ أعلى الشاشة');
   await trashSnap(key, id, 'delete'); const { error } = await sb.from(TABLES[key]).delete().eq('id', id); if (error) throw error;
+}
+// تسميات وقيم الحقول للعرض داخل سجل التعديلات (عربي مفهوم بدل أسماء الأعمدة التقنية)
+const EDIT_LOG_FIELD_LABELS = {
+  animals: { type: 'نوع الحلال', pen_id: 'الحظيرة', idkind: 'نوع المعرّف الخارجي', code: 'المعرّف الخارجي/الوسم', name: 'الاسم/المسمى', tag_color: 'لون الوسم', tag_shape: 'شكل الوسم', sex: 'الجنس', purpose: 'غرض الذكر', source: 'المصدر', designation: 'الغرض', buy_price: 'سعر الشراء', birth: 'تاريخ الميلاد', color: 'اللون', status: 'الحالة', mother_id: 'الأم', mother_name: 'الأم (نصّ)', father_name: 'الأب/الفحل', notes: 'ملاحظات', sale_date: 'تاريخ البيع', sale_price: 'سعر البيع', dead_date: 'تاريخ النفوق', gift_date: 'تاريخ الإهداء', gift_to: 'أُهديت إلى', missing_date: 'تاريخ الفقد', slaughter_date: 'تاريخ الذبح' },
+};
+function editLogFieldLabel(tbl, field) { return (EDIT_LOG_FIELD_LABELS[tbl] && EDIT_LOG_FIELD_LABELS[tbl][field]) || field; }
+function editLogValueDisplay(tbl, field, v) {
+  if (v == null || v === '') return '—';
+  if (tbl === 'animals') {
+    if (field === 'pen_id') { const p = penById(v); return p ? p.name : '—'; }
+    if (field === 'type') { const t = TYPES.find(x => x.k === v); return t ? t.ar : v; }
+    if (field === 'sex') { const s = SEX.find(x => x.k === v); return s ? s.ar : v; }
+    if (field === 'source') { const s = SOURCE.find(x => x.k === v); return s ? s.ar : v; }
+    if (field === 'status') { const s = STATUS.find(x => x.k === v); return s ? s.ar : v; }
+    if (field === 'designation') { const s = DESIGN.find(x => x.k === v); return s ? s.ar : v; }
+    if (field === 'purpose') { const s = MALE_PURPOSE.find(x => x.k === v); return s ? s.ar : v; }
+    if (field === 'idkind') { const s = IDKIND.find(x => x.k === v); return s ? s.ar : v; }
+    if (field === 'mother_id') { const m = animalById(v); return m ? display(m) : ('#' + v); }
+    if (/_date$/.test(field) || field === 'birth') return fmtDate(v);
+    if (/_price$/.test(field)) return String(v);
+  }
+  return String(v);
+}
+async function fetchEditLog(tbl, recId) {
+  try { const { data } = await sb.from('mrahi_edit_log').select('*').eq('tbl', tbl).eq('rec_id', recId).order('created_at', { ascending: false }); return data || []; } catch (e) { return []; }
+}
+async function revertEditLogEntry(logId) {
+  const { data } = await sb.from('mrahi_edit_log').select('*').eq('id', logId);
+  const entry = (data && data[0]) || null;
+  if (!entry) throw new Error('سجل غير موجود');
+  await dbUpdate(entry.tbl, entry.rec_id, { [entry.field]: entry.old_value });
 }
 async function guard(fn) { try { await fn(); } catch (e) { const msg = (e.message || '' + e); toast(e.locked ? msg : (/Could not find the table|schema cache/i.test(msg) ? 'هذه الميزة تحتاج تنفيذ سكربت قاعدة البيانات أولاً (راجع التعليمات).' : 'تعذّر الحفظ: ' + msg)); return false; } return true; }
 // حوار تأكيد احترافي داخل التطبيق (بدل نافذة المتصفح)
@@ -742,6 +785,7 @@ const ROUTES = {
   herdsettings: { t: 'إعدادات الحظيرة', back: true, fn: screenHerdSettings },
   contacts: { t: 'دليل التواصل', back: true, fn: screenContacts },
   trash: { t: 'سلة المحذوفات', back: true, fn: screenTrash },
+  notes: { t: 'دفتر الملاحظات', back: true, fn: screenNotes },
   tips: { t: 'النصائح والمعلومات', back: true, fn: screenTips },
   guide: { t: 'دليل الاستخدام', back: true, fn: screenGuide },
   sitemap: { t: 'خريطة التطبيق', back: true, fn: screenSiteMap },
@@ -1232,12 +1276,12 @@ const strOpts = (arr) => [{ k: '', ar: '— بدون —' }].concat(arr.map(s =>
 const colorDot = (name) => COLOR_HEX[name] ? `<span style="display:inline-block;width:11px;height:11px;border-radius:50%;background:${COLOR_HEX[name]};border:1px solid #bbb;vertical-align:middle;margin-inline-start:4px"></span>` : '';
 
 /* ===== الحظائر: مرتبطة بنوع الحلال، قائمة منسدلة قابلة للإدارة ===== */
-// كل حظيرة: { id, name, type, parentId } — id رقم داخلي ثابت لا يتغيّر أبداً، type مفتاح نوع الحلال ('' = لأي نوع)،
+// كل حظيرة: { id, name, type, parentId, notes } — id رقم داخلي ثابت لا يتغيّر أبداً، type مفتاح نوع الحلال ('' = لأي نوع)،
 // parentId رقم حظيرة رئيسية إن كانت هذه فرعاً منها (null = رئيسية). تُخزَّن في mrahi_pens.
 // البهائم تربط بالحظيرة عبر pen_id (رقم) لا بالاسم — لذا أي تعديل على اسم الحظيرة يظهر فوراً في كل مكان دون أي عملية تحديث جماعي.
 // التقسيم الهرمي بمستوى واحد فقط (رئيسية ← فروع) — يكفي لتقسيم حظيرة واحدة حسب الرعاية (ذكور/إناث صغار/حمل...) مع بقائها حظيرة واحدة منطقياً.
 function loadPens() {
-  return loadList('mrahi_pens').filter(p => p && p.id != null).map(p => ({ id: p.id, name: String(p.name == null ? '' : p.name).trim(), type: p.type || '', parentId: p.parentId != null ? p.parentId : null, system: p.system || '' })).filter(p => p.name);
+  return loadList('mrahi_pens').filter(p => p && p.id != null).map(p => ({ id: p.id, name: String(p.name == null ? '' : p.name).trim(), type: p.type || '', parentId: p.parentId != null ? p.parentId : null, system: p.system || '', notes: p.notes || '' })).filter(p => p.name);
 }
 function savePens(arr) { saveList('mrahi_pens', arr); }
 function allPens() { return loadPens(); }
@@ -1490,7 +1534,7 @@ function screenAnimalEdit(arg) {
     if (!['tag', 'color'].includes(obj.idkind)) obj.tag_color = '';
     if (obj.idkind !== 'tag') obj.tag_shape = '';
     if (status === 'sold') { const wd = withdrawalActiveOn(id, obj.sale_date || todayStr()); if (wd && !await confirm2(`⚠️ هذه البهيمة تحت تحريم دواء حتى ${fmtDate(wd)} — لا يُنصح ببيعها/ذبحها قبله. متابعة الحفظ كمباعة؟`, { danger: true })) return; }
-    if (a && !await confirm2('حفظ التعديل؟ تُحدَّث بيانات هذه البهيمة نفسها في مكانها (لا تتكرّر ولا تُنقل إلى أي مكان) — وتُحفظ نسخة احتياطية من بياناتها القديمة في 🗑️ سلة المحذوفات لمدة ٣٠ يوماً، للاسترجاع فقط إن احتجت التراجع.')) return;
+    if (a && !await confirm2('حفظ التعديل؟ تُحدَّث بيانات هذه البهيمة نفسها في مكانها (لا تتكرّر ولا تُنقل إلى أي مكان) — وتُسجَّل كل قيمة قديمة/جديدة في تبويب «📜 سجل التعديلات» داخل صفحتها، يمكنك التراجع عن أي حقل منها بمفرده لاحقاً.')) return;
     const ok = await guard(async () => {
       if (a) { await dbUpdate('animals', id, obj); return; }
       let n = obj.source === 'born' ? (parseInt(val('f_bcount'), 10) || 1) : 1;   // عدد المواليد
@@ -1636,6 +1680,23 @@ async function refreshMediaList(animalId) {
     if (ok) { toast('تم الحذف'); refreshMediaList(animalId); }
   }));
   box.querySelectorAll('[data-medview]').forEach(el => el.addEventListener('click', () => mediaViewModal(items.find(m => m.id === parseInt(el.dataset.medview, 10)))));
+}
+// سجل التعديلات: قائمة الحقول التي تغيّرت لهذه البهيمة مع إمكان التراجع عن أيّ حقل بمفرده (رجوع للقيمة القديمة فقط)
+async function refreshEditLogList(tbl, recId) {
+  const box = document.getElementById('editLogList'); if (!box) return;
+  const items = await fetchEditLog(tbl, recId);
+  box.innerHTML = items.length ? items.map(l => `<div class="card" data-editlogid="${l.id}">
+      <div class="li-title">${esc(editLogFieldLabel(l.tbl, l.field))}</div>
+      <div class="li-sub">${esc(editLogValueDisplay(l.tbl, l.field, l.old_value))} ← ${esc(editLogValueDisplay(l.tbl, l.field, l.new_value))}</div>
+      <div class="li-sub">${fmtDateTime(l.created_at)}${l.actor_name ? ' • ' + esc(l.actor_name) : ''}</div>
+      ${can('animals', 'edit') ? `<button class="btn sm outline" data-editrevert="${l.id}" style="margin-top:6px">↩ تراجع عن هذا التغيير</button>` : ''}
+    </div>`).join('') : '<div class="center-empty">لا توجد تعديلات مسجّلة بعد.</div>';
+  box.querySelectorAll('[data-editrevert]').forEach(b => b.addEventListener('click', async () => {
+    if (isEditLocked()) { toast('🔒 التعديل مقفول مؤقّتاً — افتحه من أيقونة ⋮ أعلى الشاشة'); return; }
+    if (!await confirm2('التراجع عن هذا التغيير يعيد الحقل إلى قيمته السابقة فقط (لا يمسّ أي حقل آخر). متابعة؟')) return;
+    const ok = await guard(async () => { await revertEditLogEntry(parseInt(b.dataset.editrevert, 10)); });
+    if (ok) { toast('تم التراجع'); await loadAll(); render(); }
+  }));
 }
 
 /* ===== سجل البهيمة ===== */
@@ -1786,6 +1847,10 @@ function screenAnimalDetail(arg) {
       </div>` : ''}
       <div id="mediaList" class="muted" style="margin-top:10px">جارٍ التحميل…</div></div>`;
 
+  REC.history = `<div class="card"><h3>📜 سجل التعديلات</h3>
+      <div class="muted" style="font-size:.82rem;margin-bottom:8px">كل حقل عُدِّل في بيانات هذه البهيمة، بقيمته القديمة والجديدة، مع إمكان التراجع عن أي تعديل بمفرده.</div>
+      <div id="editLogList" class="muted">جارٍ التحميل…</div></div>`;
+
   // ===== تبويبات مستقلّة: يختار المستخدم التبويب فيظهر وحده =====
   const recTabs = [{ k: 'basic', ar: '📋 البيانات' }];
   if (can('animals', 'view')) recTabs.push({ k: 'lineage', ar: '🌳 النسب' });
@@ -1794,6 +1859,7 @@ function screenAnimalDetail(arg) {
   if (can('treatments', 'view')) recTabs.push({ k: 'treat', ar: '💊 العلاجات' });
   if (can('vaccines', 'view')) recTabs.push({ k: 'vacc', ar: '💉 التطعيمات' });
   recTabs.push({ k: 'media', ar: '📷 الوسائط' });
+  recTabs.push({ k: 'history', ar: '📜 سجل التعديلات' });
   if (!recTabs.find(t => t.k === animalRecTab)) animalRecTab = 'basic';
   const recChips = `<div class="chips animal-tabs" style="margin:8px 0">${recTabs.map(t => `<span class="chip ${animalRecTab === t.k ? 'active' : ''}" data-rec="${t.k}">${t.ar}</span>`).join('')}</div>`;
 
@@ -1817,6 +1883,7 @@ function screenAnimalDetail(arg) {
       toast('تم حفظ التسجيل'); refreshMediaList(id);
     });
   }
+  if (animalRecTab === 'history') refreshEditLogList('animals', id);
   const qs = document.getElementById('qSell'); if (qs) qs.addEventListener('click', () => quickSell(a));
   const qd = document.getElementById('qDead'); if (qd) qd.addEventListener('click', () => quickDead(a));
   const qg = document.getElementById('qGift'); if (qg) qg.addEventListener('click', () => quickGift(a));
@@ -3181,6 +3248,7 @@ function quickMenuCats() {
     ].filter(Boolean) },
     { key: 'tools', title: '🗂️ أدوات أخرى', items: [
       I(can('animals', 'view'), '📇 دليل التواصل (زبائن/بيطري…)', '#/contacts'),
+      I(can('animals', 'view'), '📓 دفتر الملاحظات', '#/notes'),
       I(can('backup', 'view'), '💾 النسخ الاحتياطي', '#/backup'),
     ].filter(Boolean) },
   ];
@@ -4102,12 +4170,14 @@ function screenPens() {
   // «أي نوع» هو الخيار الافتراضي المُحدَّد صراحةً (لا أوّل نوع في القائمة بالمصادفة) — لتفادي إنشاء حظيرة بنوع خاطئ
   // بصمت إن نسي المستخدم تغيير القائمة (فتختفي لاحقاً من قوائم اختيار نوعها الفعلي دون أن يظهر أي خطأ).
   const typeSel = `<select id="np_type"><option value="" selected>أي نوع</option>${TYPES.map(t => `<option value="${t.k}">${t.ar}</option>`).join('')}</select>`;
-  const penRow = (p, isChild, total) => `<div ${isChild ? '' : `class="click" data-penroot="${p.id}"`} style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #eee${isChild ? ';padding-inline-start:22px' : ''}">
-      <span class="li-title" style="font-weight:600">${isChild ? '↳ ' : '🏠 '}${esc(p.name)} <span class="muted" style="font-weight:400;font-size:.8rem">(${total} بهيمة${total !== countFor(p.id) ? ' — إجمالي مع الفروع' : ''})</span></span>
-      <span style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">
-        <button class="btn sm" data-penadd="${p.id}">➕ إضافة بهائم</button>
-        ${countFor(p.id) ? `<button class="btn sm outline" data-penmove="${p.id}">🔀 نقل</button>` : ''}
-        <button class="btn sm outline" data-penedit="${p.id}">تعديل</button><button class="btn sm danger" data-pendel="${p.id}">حذف</button></span></div>`;
+  const penRow = (p, isChild, total) => `<div ${isChild ? '' : `class="click" data-penroot="${p.id}"`} style="padding:8px 0;border-bottom:1px solid #eee${isChild ? ';padding-inline-start:22px' : ''}">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+        <span class="li-title" style="font-weight:600">${isChild ? '↳ ' : '🏠 '}${esc(p.name)} <span class="muted" style="font-weight:400;font-size:.8rem">(${total} بهيمة${total !== countFor(p.id) ? ' — إجمالي مع الفروع' : ''})</span></span>
+        <span style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">
+          <button class="btn sm" data-penadd="${p.id}">➕ إضافة بهائم</button>
+          ${countFor(p.id) ? `<button class="btn sm outline" data-penmove="${p.id}">🔀 نقل</button>` : ''}
+          <button class="btn sm outline" data-penedit="${p.id}">تعديل</button><button class="btn sm danger" data-pendel="${p.id}">حذف</button></span></div>
+      ${p.notes ? `<div class="li-sub" style="margin-top:2px">📝 ${esc(p.notes)}</div>` : ''}</div>`;
   let body = '';
   TYPES.map(t => t.k).concat(['']).forEach(tk => {
     const arr = groups[tk]; if (!arr || !arr.length) return;
@@ -4218,10 +4288,11 @@ function penMoveModal(fromId) {
 // تعديل حظيرة — لا حاجة لأي تحديث للبهائم عند تغيير الاسم: كلّها مرتبطة برقم الحظيرة الثابت (pen_id) لا باسمها،
 // فالاسم الجديد يظهر فوراً في كل مكان (بطاقات البهائم، الإحصائيات، البحث...) بمجرّد قراءته من تعريف الحظيرة.
 function penRenameModal(id) {
-  const cur = penById(id) || { id, name: '', type: '', parentId: null };
+  const cur = penById(id) || { id, name: '', type: '', parentId: null, notes: '' };
   const parentOptsHtml = (typeKey) => '<option value="">— حظيرة رئيسية (بلا أب) —</option>' + rootPensForType(typeKey).filter(r => r.id !== id).map(r => `<option value="${r.id}" ${r.id === cur.parentId ? 'selected' : ''}>فرع من: ${esc(r.name)}</option>`).join('');
   openModal('تعديل الحظيرة', `${fInput('الاسم', 'pe_name', cur.name)}${fSelect('نوع الحلال', 'pe_type', TYPES, cur.type, 'أي نوع')}
     <div class="field"><label>تنتمي إلى (اختياري)</label><select id="pe_parent">${parentOptsHtml(cur.type)}</select></div>
+    ${fTextarea('ملاحظات', 'pe_notes', cur.notes)}
     <button class="btn" id="pe_save">حفظ</button>`, () => {
     { const pt = document.getElementById('pe_type'); if (pt) pt.addEventListener('change', () => { const ps = document.getElementById('pe_parent'); if (ps) ps.innerHTML = parentOptsHtml(val('pe_type')); }); }
     document.getElementById('pe_save').addEventListener('click', async () => {
@@ -4229,9 +4300,10 @@ function penRenameModal(id) {
       const nt = val('pe_type');
       const npRaw = val('pe_parent');
       const np = npRaw ? parseInt(npRaw, 10) : null;
+      const notes = val('pe_notes').trim();
       if (np === id) { toast('لا يمكن أن تكون الحظيرة فرعاً من نفسها'); return; }
       if (np != null && penChildren(id).length) { toast('لا يمكن جعلها فرعاً وهي نفسها تحوي فروعاً — أزل فروعها أولاً'); return; }
-      const l = loadPens().map(p => p.id === id ? { id, name: nn, type: nt, parentId: np } : p);
+      const l = loadPens().map(p => p.id === id ? { id, name: nn, type: nt, parentId: np, notes, system: cur.system || '' } : p);
       savePens(l);
       closeModal(); toast('تم الحفظ'); screenPens();
     });
@@ -4352,6 +4424,7 @@ function screenTypes() {
     + (list.length ? list.map(t => `<div class="card">
         <div class="li-title">${esc(t.ar)}</div>
         <div class="li-sub">🤰 مدة الحمل: ${t.gest} يوم${t.puberty ? ` • 🌱 سن البلوغ: ${t.puberty} شهر` : ''}${t.weaning ? ` • 🍼 سن الفطام: ${t.weaning} شهر` : ''}</div>
+        ${t.notes ? `<div class="li-sub">📝 ${esc(t.notes)}</div>` : ''}
         <div class="btn-row" style="margin-top:6px">
           <button class="btn sm outline" data-edit="${t.id}">تعديل</button>
           <button class="btn sm danger" data-del="${t.id}">حذف</button>
@@ -4376,17 +4449,19 @@ function typeModal(t) {
     ${fInput('مدة الحمل (يوم)', 'ty_gest', t ? t.gest : 150, 'number', 'min="0" inputmode="numeric"')}
     ${fInput('سن البلوغ (شهر) — اختياري', 'ty_puberty', t ? t.puberty : '', 'number', 'min="0" inputmode="numeric"')}
     ${fInput('سن الفطام (شهر) — اختياري', 'ty_weaning', t ? t.weaning : '', 'number', 'min="0" inputmode="numeric"')}
+    ${fTextarea('ملاحظات', 'ty_notes', t && t.notes)}
     <button class="btn" id="ty_save" style="margin-top:6px">حفظ</button>`, () => {
     document.getElementById('ty_save').addEventListener('click', async () => {
       const ar = val('ty_ar').trim(); const gest = num('ty_gest') || 150;
       const puberty = optNum('ty_puberty'), weaning = optNum('ty_weaning');
+      const notes = val('ty_notes').trim();
       if (!ar) { toast('أدخل الاسم'); return; }
       const ok = await guard(async () => {
-        if (t) { const { error } = await sb.from('mrahi_types').update({ ar, gest, puberty, weaning }).eq('id', t.id); if (error) throw error; }
+        if (t) { const { error } = await sb.from('mrahi_types').update({ ar, gest, puberty, weaning, notes }).eq('id', t.id); if (error) throw error; }
         else {
           const key = 't_' + Date.now().toString(36);
           const sort = (C.types || []).reduce((m, x) => Math.max(m, x.sort || 0), 0) + 10;
-          const { error } = await sb.from('mrahi_types').insert({ key, ar, gest, puberty, weaning, sort }); if (error) throw error;
+          const { error } = await sb.from('mrahi_types').insert({ key, ar, gest, puberty, weaning, notes, sort }); if (error) throw error;
         }
       });
       if (ok) { closeModal(); toast('تم الحفظ'); await loadAll(); screenTypes(); }
@@ -4448,6 +4523,54 @@ function tipModal(t) {
   });
 }
 
+/* ===== دفتر الملاحظات العامة (عنوان وتفاصيل، غير مرتبطة ببهيمة أو حظيرة معيّنة) ===== */
+async function screenNotes() {
+  if (!can('animals', 'view')) { view().innerHTML = noPerm(); return; }
+  showLoading(true);
+  let list = [];
+  try { const { data } = await sb.from('mrahi_notes').select('*').order('created_at', { ascending: false }); list = data || []; } catch (e) { toast('خطأ تحميل الملاحظات'); }
+  showLoading(false);
+  const canEdit = can('animals', 'edit');
+  const card = (n) => `<div class="card">
+      <div class="li-title">📝 ${esc(n.title)}</div>
+      ${n.detail ? `<div class="li-sub">${esc(n.detail)}</div>` : ''}
+      <div class="li-sub">${fmtDateTime(n.created_at)}</div>
+      ${canEdit ? `<div class="btn-row" style="margin-top:6px">
+        <button class="btn sm outline" data-nedit="${n.id}">تعديل</button>
+        <button class="btn sm danger" data-ndel="${n.id}">حذف</button>
+      </div>` : ''}
+    </div>`;
+  view().innerHTML = `<div class="muted" style="margin-bottom:8px">ملاحظات عامة حرّة — عنوان وتفاصيل، لأي شيء تريد تذكّره ولا يتبع بهيمة أو حظيرة أو سجلّاً محدَّداً بعينه.</div>`
+    + (canEdit ? `<button class="btn" id="n_add">➕ إضافة ملاحظة</button>` : '')
+    + (list.length ? list.map(card).join('') : '<div class="center-empty">لا توجد ملاحظات بعد.</div>');
+  const na = document.getElementById('n_add'); if (na) na.addEventListener('click', () => noteModal(null));
+  view().querySelectorAll('[data-nedit]').forEach(b => b.addEventListener('click', () => noteModal(list.find(x => String(x.id) === b.dataset.nedit))));
+  view().querySelectorAll('[data-ndel]').forEach(b => b.addEventListener('click', async () => {
+    if (!await confirm2('حذف هذه الملاحظة نهائياً؟')) return;
+    const ok = await guard(async () => { const { error } = await sb.from('mrahi_notes').delete().eq('id', parseInt(b.dataset.ndel, 10)); if (error) throw error; });
+    if (ok) { toast('تم الحذف'); screenNotes(); }
+  }));
+}
+function noteModal(n) {
+  openModal(n ? 'تعديل ملاحظة' : 'إضافة ملاحظة', `
+    ${fInput('العنوان', 'nt_title', n && n.title)}
+    ${fTextarea('التفاصيل', 'nt_detail', n && n.detail)}
+    <button class="btn" id="nt_save" style="margin-top:6px">حفظ</button>`, () => {
+    attachMic('nt_title'); attachMic('nt_detail', { append: true });
+    document.getElementById('nt_save').addEventListener('click', async () => {
+      const title = val('nt_title').trim();
+      const detail = val('nt_detail').trim();
+      if (!title) { toast('أدخل العنوان'); return; }
+      if (n && !await confirm2('حفظ التعديل على هذه الملاحظة؟')) return;
+      const ok = await guard(async () => {
+        if (n) { const { error } = await sb.from('mrahi_notes').update({ title, detail }).eq('id', n.id); if (error) throw error; }
+        else { const { error } = await sb.from('mrahi_notes').insert({ title, detail }); if (error) throw error; }
+      });
+      if (ok) { closeModal(); toast('تم الحفظ'); screenNotes(); }
+    });
+  });
+}
+
 /* ===== سلة المحذوفات / الأرشيف (للمدير) ===== */
 async function screenTrash() {
   if (!isAdmin()) { view().innerHTML = noPerm(); return; }
@@ -4457,7 +4580,7 @@ async function screenTrash() {
   showLoading(false);
   const actionAr = { delete: 'محذوف', edit: 'نسخة قبل تعديل' };
   const whoOf = (t) => t.actor_name || '—';
-  view().innerHTML = `<div class="muted" style="margin-bottom:8px">العناصر المحذوفة فعلياً، ونسخ احتياطية من البيانات القديمة قبل كل تعديل — كلاهما قابل للاستعادة هنا. علامة «نسخة قبل تعديل» لا تعني أن العنصر الحالي حُذف أو تكرّر؛ هو مجرّد أرشيف لبياناته السابقة. تُحذف نهائياً تلقائياً بعد ٣٠ يوماً، أو احذفها يدوياً بعد التأكّد.</div>`
+  view().innerHTML = `<div class="muted" style="margin-bottom:8px">العناصر المحذوفة فعلياً فقط — قابلة للاستعادة هنا، وتُحذف نهائياً تلقائياً بعد ٣٠ يوماً أو احذفها يدوياً بعد التأكّد. أمّا تعديلات الحقول (مثل بهيمة) فسجلّها الآن في تبويب «📜 سجل التعديلات» داخل صفحة العنصر نفسه، وليس هنا.</div>`
     + (list.length ? list.map(t => `<div class="card">
         <div class="li-title">${esc(t.label || t.tbl)}</div>
         <div class="li-sub"><span class="badge ${t.action === 'delete' ? 'off' : ''}">${actionAr[t.action] || t.action}</span> ${fmtDateTime(t.created_at)}</div>
