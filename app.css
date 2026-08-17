@@ -61,6 +61,9 @@ code { word-break: break-all; overflow-wrap: anywhere; white-space: normal; dire
 /* قوائم ⋮/☰ الجانبية (عناوين الأقسام وبنودها) — أسطر مضغوطة وخط أصغر، فهي قوائم نصّية كثيفة البنود لا بطاقات محتوى */
 .acc-head { padding: 9px 12px !important; margin-bottom: 3px !important; }
 .acc-head .li-title { font-size: .92rem; }
+/* سهم الطيّ: دائماً نفس الشكل، لكن يدور ٩٠° ويتلوّن عند الفتح — إشارة مزدوجة (دوران + لون) لا تلتبس بين مفتوح/مغلق */
+.acc-arrow { display: inline-block; font-size: 1.35rem; font-weight: 700; color: var(--muted); line-height: 1; transition: transform .18s ease, color .18s ease; }
+.acc-arrow.open { color: var(--green); transform: rotate(90deg); }
 .menu-row { padding: 8px 12px !important; margin: 3px 0 !important; }
 .menu-row .li-title { font-size: .88rem; font-weight: 600; line-height: 1.35; }
 .menu-row .li-sub { font-size: .78rem; }
