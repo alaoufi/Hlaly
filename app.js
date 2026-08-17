@@ -663,14 +663,17 @@ async function trashSnap(key, id, action) {
   if (!rec) return;
   try { await sb.from('mrahi_trash').insert({ tbl: key, rec_id: id, action, label: trashLabel(key, rec), data: rec, actor_name: (me && me.full_name) || '' }); } catch (e) { /* أفضل جهد */ }
 }
+// «بلا قيمة» بكل صورها (undefined/null/'') تُعامَل معاملة واحدة — سجلّات قديمة قد ينقصها حقل بالكامل (undefined)
+// بينما النموذج الحالي يرسله دائماً فارغاً ('') أو null؛ من دون هذا التوحيد يُسجَّل ذلك «تغييراً» زائفاً في كل حفظ.
+function editLogEmpty(v) { return (v === undefined || v === null || v === '') ? null : v; }
 // سجل التعديلات: بدل نسخ السجل كاملاً عند كل تعديل، نسجّل فقط الحقول التي تغيّرت فعلياً (قيمة قديمة/جديدة)، مع إمكان التراجع عن حقل واحد بعينه
 async function logFieldChanges(key, id, obj) {
   const rec = (C[key] || []).find(x => x.id === id);
   if (!rec) return;
   const actor_name = (me && me.full_name) || '';
   for (const field of Object.keys(obj)) {
-    const oldV = rec[field] === undefined ? null : rec[field];
-    const newV = obj[field] === undefined ? null : obj[field];
+    const oldV = editLogEmpty(rec[field]);
+    const newV = editLogEmpty(obj[field]);
     if (JSON.stringify(oldV) === JSON.stringify(newV)) continue;
     try { await sb.from('mrahi_edit_log').insert({ tbl: key, rec_id: id, field, old_value: oldV, new_value: newV, actor_name }); } catch (e) { /* أفضل جهد */ }
   }
