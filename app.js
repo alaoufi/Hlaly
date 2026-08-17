@@ -793,6 +793,7 @@ const ROUTES = {
   herdsettings: { t: 'إعدادات الحظيرة', back: true, fn: screenHerdSettings },
   contacts: { t: 'دليل التواصل', back: true, fn: screenContacts },
   trash: { t: 'سلة المحذوفات', back: true, fn: screenTrash },
+  archive: { t: 'الأرشيف', back: true, fn: screenArchive },
   notes: { t: 'دفتر الملاحظات', back: true, fn: screenNotes },
   tips: { t: 'النصائح والمعلومات', back: true, fn: screenTips },
   guide: { t: 'دليل الاستخدام', back: true, fn: screenGuide },
@@ -870,14 +871,19 @@ function screenHome() {
   // بطاقات الحالة: تفتح قائمة الحلال مُرشَّحة (في الحظيرة/مباعة/نافقة)
   // بطاقة «في الحظيرة» تحديداً تعني «محتسَبة» (inHerdCount) لا مجرّد status=present — فتُطلب القائمة بنفس العدد الظاهر بالضبط
   // (وإلا يظهر للمستخدم رقم مختلف عمّا وعدته البطاقة، مثل مولود غير محتسَب لسّه يتبع أمّه — التباس مُربِك رغم صحّة الرقمين كلٍّ لتعريفه)
-  view().querySelectorAll('[data-sfilter]').forEach(c => c.addEventListener('click', () => { animalFilter = ''; animalSourceSel = ALL_SOURCES.slice(); animalSexSel = ALL_SEXES.slice(); animalStatusSel = [c.dataset.sfilter]; saveAnimalFilters(); if (c.dataset.sfilter === 'present') pendingCountedOnly = true; setHash('#/animals'); }));
+  view().querySelectorAll('[data-sfilter]').forEach(c => c.addEventListener('click', () => {
+    const s = c.dataset.sfilter;
+    if (s === 'present') { animalFilter = ''; animalSourceSel = ALL_SOURCES.slice(); animalSexSel = ALL_SEXES.slice(); saveAnimalFilters(); pendingCountedOnly = true; setHash('#/animals'); return; }
+    // مباعة/نافقة انتقلتا إلى الأرشيف — لم تعودا تظهران في «🐑 الحلال» إطلاقاً
+    pendingArchiveStatus = s; setHash('#/archive');
+  }));
   // بطاقات المواليد: تفتح المواليد الحقيقيين فقط (لسّه يتبعون أمّهم) مُرشَّحة بالجنس — نفس عدد البطاقة بالضبط
   view().querySelectorAll('[data-born]').forEach(c => c.addEventListener('click', () => { pendingNewbornFilter = c.dataset.born; setHash('#/animals'); }));
   const q = document.getElementById('q');
   if (q) q.addEventListener('input', () => {
     const term = q.value.trim().toLowerCase(); const box = document.getElementById('qr');
     if (!term) { box.innerHTML = ''; return; }
-    const res = C.animals.filter(a => (a.code || '').toLowerCase().includes(term) || (a.name || '').toLowerCase().includes(term) || animalPenName(a).toLowerCase().includes(term)).slice(0, 8);
+    const res = C.animals.filter(a => a.status === 'present' && ((a.code || '').toLowerCase().includes(term) || (a.name || '').toLowerCase().includes(term) || animalPenName(a).toLowerCase().includes(term))).slice(0, 8);
     box.innerHTML = res.length ? res.map(animalCard).join('') : '<div class="muted" style="padding:8px">لا نتائج</div>';
     bindCards(box);
   });
@@ -1136,7 +1142,7 @@ async function ensureNotifPermissionOnce() {
 /* ===== الحلال ===== */
 let animalFilter = '';
 function loadFilterArr(k, def) { try { const v = JSON.parse(localStorage.getItem(k)); return Array.isArray(v) ? v : def; } catch (e) { return def; } }
-function saveAnimalFilters() { try { localStorage.setItem('mrahi_f_status', JSON.stringify(animalStatusSel)); localStorage.setItem('mrahi_f_source', JSON.stringify(animalSourceSel)); localStorage.setItem('mrahi_f_sex', JSON.stringify(animalSexSel)); localStorage.setItem('mrahi_f_nopen', noPenOnly ? '1' : '0'); } catch (e) {} }
+function saveAnimalFilters() { try { localStorage.setItem('mrahi_f_source', JSON.stringify(animalSourceSel)); localStorage.setItem('mrahi_f_sex', JSON.stringify(animalSexSel)); localStorage.setItem('mrahi_f_nopen', noPenOnly ? '1' : '0'); } catch (e) {} }
 function toggleSel(arr, v) { const i = arr.indexOf(v); if (i >= 0) arr.splice(i, 1); else arr.push(v); }
 // التبويب المختار في شاشة سجل البهيمة (البيانات/النسب/الإنجاب/المرضي/العلاجات/التطعيمات)
 let animalRecTab = 'basic';
@@ -1145,7 +1151,6 @@ let animalRecTab = 'basic';
 let animalFiltersOpen = false;
 const ALL_SOURCES = ['born', 'purchased', 'gift', 'sale'];
 const ALL_SEXES = ['male', 'female'];
-let animalStatusSel = loadFilterArr('mrahi_f_status', ['present']);   // 'present'|'sold'|'dead'|...
 let animalSourceSel = loadFilterArr('mrahi_f_source', ALL_SOURCES.slice());
 let animalSexSel = loadFilterArr('mrahi_f_sex', ALL_SEXES.slice());
 let noPenOnly = (() => { try { return localStorage.getItem('mrahi_f_nopen') === '1'; } catch (e) { return false; } })();
@@ -1216,7 +1221,7 @@ function screenAnimals() {
   // استهلاك طلب «مواليد حقيقيون فقط» لمرة واحدة (من بطاقات الرئيسية) — يزول عند أي تفاعل لاحق مع المرشّحات
   let onlyRealNewborn = false;
   if (pendingNewbornFilter !== null) {
-    animalFilter = ''; animalStatusSel = ['present']; animalSourceSel = ['born']; animalSexSel = pendingNewbornFilter === 'all' ? ALL_SEXES.slice() : [pendingNewbornFilter];
+    animalFilter = ''; animalSourceSel = ['born']; animalSexSel = pendingNewbornFilter === 'all' ? ALL_SEXES.slice() : [pendingNewbornFilter];
     saveAnimalFilters(); onlyRealNewborn = true; pendingNewbornFilter = null;
   }
   // استهلاك طلب «محتسَبة فقط» لمرة واحدة (من بطاقة «في الحظيرة» بالرئيسية) — يضمن تطابق العدد هنا مع رقم البطاقة بالضبط
@@ -1225,15 +1230,15 @@ function screenAnimals() {
   // مرشّحات متعدّدة الاختيار: عدم تحديد أي رقاقة في صفّ = لا قيد على هذا الصفّ (يطابق الكل) — نفس معنى «الكل» في صفّ النوع أعلاه، لا فلتراً صارماً يُخفي كل شيء
   // مربّع اختيار (☐/☑) ليوضّح أنها متعدّدة الاختيار
   const cb = (on) => (on ? '☑' : '☐') + ' ';
-  const stChips = `<div class="chips"><span class="chip ${!animalStatusSel.length ? 'active' : ''}" data-s="">${cb(!animalStatusSel.length)}الكل</span><span class="chip ${animalStatusSel.includes('present') ? 'active' : ''}" data-s="present">${cb(animalStatusSel.includes('present'))}في الحظيرة</span><span class="chip ${animalStatusSel.includes('sold') ? 'active' : ''}" data-s="sold">${cb(animalStatusSel.includes('sold'))}مباعة</span><span class="chip ${animalStatusSel.includes('dead') ? 'active' : ''}" data-s="dead">${cb(animalStatusSel.includes('dead'))}نافقة</span><span class="chip ${animalStatusSel.includes('given') ? 'active' : ''}" data-s="given">${cb(animalStatusSel.includes('given'))}🎁 اهداء</span><span class="chip ${animalStatusSel.includes('missing') ? 'active' : ''}" data-s="missing">${cb(animalStatusSel.includes('missing'))}🔎 مفقودة</span><span class="chip ${animalStatusSel.includes('slaughtered') ? 'active' : ''}" data-s="slaughtered">${cb(animalStatusSel.includes('slaughtered'))}🔪 ذُبحت</span></div>`;
+  // لا مرشّح حالة هنا إطلاقاً — هذه الشاشة تعرض حلال الحظيرة الحالي فقط (present)؛ ما خرج (بيع/نفوق/اهداء/فقد/ذبح) ينتقل إلى 🗄️ الأرشيف ولا يظهر هنا أبداً
   const srcChips = `<div class="chips"><span class="chip ${!animalSourceSel.length ? 'active' : ''}" data-src="">${cb(!animalSourceSel.length)}الكل</span><span class="chip ${animalSourceSel.includes('born') ? 'active' : ''}" data-src="born">${cb(animalSourceSel.includes('born'))}👶 مواليد</span><span class="chip ${animalSourceSel.includes('purchased') ? 'active' : ''}" data-src="purchased">${cb(animalSourceSel.includes('purchased'))}🛒 شراء</span><span class="chip ${animalSourceSel.includes('gift') ? 'active' : ''}" data-src="gift">${cb(animalSourceSel.includes('gift'))}🎁 اهداء</span><span class="chip ${animalSourceSel.includes('sale') ? 'active' : ''}" data-src="sale">${cb(animalSourceSel.includes('sale'))}💰 للبيع (المعدّ للبيع)</span></div>`;
   const sexChips = `<div class="chips"><span class="chip ${!animalSexSel.length ? 'active' : ''}" data-sex="">${cb(!animalSexSel.length)}الكل</span>${SEX.map(s => `<span class="chip ${animalSexSel.includes(s.k) ? 'active' : ''}" data-sex="${s.k}">${cb(animalSexSel.includes(s.k))}${s.k === 'male' ? '♂ ' : '♀ '}${s.ar}</span>`).join('')}</div>`;
   const penChip = `<div class="chips"><span class="chip ${noPenOnly ? 'active' : ''}" data-nopen="1">${cb(noPenOnly)}🏠 بدون حظيرة فقط</span></div>`;
   // إخفاء الذكور/الفحول من صفحة الحلال إن أُوقف احتسابهم (يبقون في صفحة الفحول ويظهرون عند تحديد مرشّح «ذكر»)
-  const hideMale = (a) => a.status === 'present' && a.sex === 'male' && !animalSexSel.includes('male') && (a.purpose === 'sire' ? !countIncludeSires() : !countIncludeMales());
+  const hideMale = (a) => a.sex === 'male' && !animalSexSel.includes('male') && (a.purpose === 'sire' ? !countIncludeSires() : !countIncludeMales());
   // إخفاء المولود غير المحتسَب (يتبع أمّه) من القائمة كلياً إن أُوقف خيار «إظهار المواليد غير المحتسَبة»
-  const hideUncounted = (a) => a.status === 'present' && !showUncountedInList() && !inHerdCount(a);
-  const list = sortAnimals(C.animals.filter(a => (!animalFilter || a.type === animalFilter) && (!animalStatusSel.length || animalStatusSel.includes(a.status)) && (!animalSourceSel.length || animalSourceSel.some(s => s === 'sale' ? (a.designation === 'sale' || a.purpose === 'sale') : (a.source || 'purchased') === s)) && (!animalSexSel.length || animalSexSel.includes(a.sex)) && !hideMale(a) && !hideUncounted(a) && (!onlyRealNewborn || (a.source === 'born' && !inHerdCount(a))) && (!onlyCounted || inHerdCount(a)) && (!noPenOnly || a.pen_id == null)));
+  const hideUncounted = (a) => !showUncountedInList() && !inHerdCount(a);
+  const list = sortAnimals(C.animals.filter(a => a.status === 'present' && (!animalFilter || a.type === animalFilter) && (!animalSourceSel.length || animalSourceSel.some(s => s === 'sale' ? (a.designation === 'sale' || a.purpose === 'sale') : (a.source || 'purchased') === s)) && (!animalSexSel.length || animalSexSel.includes(a.sex)) && !hideMale(a) && !hideUncounted(a) && (!onlyRealNewborn || (a.source === 'born' && !inHerdCount(a))) && (!onlyCounted || inHerdCount(a)) && (!noPenOnly || a.pen_id == null)));
   const canEdit = can('animals', 'edit');
   // عند خلو الحلال كلياً: حالة ترحيبية بزرّ إضافة واضح. وعند خلو التصنيف فقط: رسالة عادية.
   const empty = C.animals.length === 0
@@ -1254,14 +1259,13 @@ function screenAnimals() {
     const other = list.filter(a => !known.has(a.type));
     if (other.length) listHtml += `<div class="li-title" style="margin:12px 2px 6px">أخرى (${other.length})</div>` + other.map(animalCard).join('');
   } else { listHtml = list.map(animalCard).join(''); }
-  // لوحة الفلاتر الإضافية (الحالة/المصدر/الجنس/الحظيرة) مطوية افتراضياً — تبسيطاً للشاشة، تُفتح عند الحاجة فقط
+  // لوحة الفلاتر الإضافية (المصدر/الجنس/الحظيرة) مطوية افتراضياً — تبسيطاً للشاشة، تُفتح عند الحاجة فقط
   const filtersToggle = `<div class="acc-head card click" id="filtToggle" style="display:flex;align-items:center;justify-content:space-between">
-      <span class="li-title" style="margin:0">⚙️ فلاتر إضافية (الحالة/المصدر/الجنس/الحظيرة)</span>
+      <span class="li-title" style="margin:0">⚙️ فلاتر إضافية (المصدر/الجنس/الحظيرة)</span>
       <span style="color:var(--muted);font-size:1.1rem">${animalFiltersOpen ? '▾' : '▸'}</span></div>`;
-  const filtersBody = animalFiltersOpen ? (stChips + srcChips + sexChips + penChip) : '';
+  const filtersBody = animalFiltersOpen ? (srcChips + sexChips + penChip) : '';
   view().innerHTML = chips + filtersToggle + filtersBody + countRow + (list.length ? listHtml : empty);
   view().querySelectorAll('[data-f]').forEach(c => c.addEventListener('click', () => { animalFilter = c.dataset.f; screenAnimals(); }));
-  view().querySelectorAll('[data-s]').forEach(c => c.addEventListener('click', () => { const v = c.dataset.s; if (v === '') animalStatusSel = []; else toggleSel(animalStatusSel, v); saveAnimalFilters(); screenAnimals(); }));
   view().querySelectorAll('[data-src]').forEach(c => c.addEventListener('click', () => { const v = c.dataset.src; if (v === '') animalSourceSel = []; else toggleSel(animalSourceSel, v); saveAnimalFilters(); screenAnimals(); }));
   view().querySelectorAll('[data-sex]').forEach(c => c.addEventListener('click', () => { const v = c.dataset.sex; if (v === '') animalSexSel = []; else toggleSel(animalSexSel, v); saveAnimalFilters(); screenAnimals(); }));
   view().querySelectorAll('[data-nopen]').forEach(c => c.addEventListener('click', () => { noPenOnly = !noPenOnly; saveAnimalFilters(); screenAnimals(); }));
@@ -1270,6 +1274,51 @@ function screenAnimals() {
   { const af = document.getElementById('add_first'); if (af) af.addEventListener('click', () => setHash('#/animal-edit/0')); }
   { const gs = document.getElementById('goSmart'); if (gs) gs.addEventListener('click', () => { inspectTab = 'smart'; setHash('#/inspect'); }); }
   if (canEdit) addFab('+ إضافة بهيمة', () => setHash('#/animal-edit/0'));
+}
+
+/* ===== الأرشيف: الحلال الذي خرج من الحظيرة (بيع/نفوق/اهداء/فقد/ذبح) ===== */
+// خمس حالات الخروج تنتقل هنا مباشرة (تلقائياً بمجرّد تسجيل الخروج) ولا تظهر إطلاقاً في 🐑 الحلال ولا 🐏 الفحول ولا 👶 المواليد
+// ولا في بحث الرئيسية — مكانها الوحيد هذه الشاشة، بانتظار «↩ إعادة للحظيرة» إن كان الخروج بالخطأ، أو «🗑️ حذف نهائي».
+const ARCHIVE_STATUSES = ['sold', 'dead', 'given', 'missing', 'slaughtered'];
+let archiveStatusFilter = '';   // '' = الكل، أو إحدى ARCHIVE_STATUSES
+let pendingArchiveStatus = null;   // طلب لمرة واحدة من بطاقات الرئيسية (مباعة/نافقة)
+function screenArchive() {
+  if (!can('animals', 'view')) { view().innerHTML = noPerm(); return; }
+  if (pendingArchiveStatus !== null) { archiveStatusFilter = pendingArchiveStatus; pendingArchiveStatus = null; }
+  const canEdit = can('animals', 'edit');
+  const all = C.animals.filter(a => ARCHIVE_STATUSES.includes(a.status) && (!animalFilter || a.type === animalFilter));
+  const list = sortAnimals(archiveStatusFilter ? all.filter(a => a.status === archiveStatusFilter) : all);
+  const statChip = (k, label) => `<span class="chip ${archiveStatusFilter === k ? 'active' : ''}" data-af="${k}">${label} (${all.filter(a => !k || a.status === k).length})</span>`;
+  const exitDateOf = (a) => a.sale_date || a.dead_date || a.gift_date || a.missing_date || a.slaughter_date;
+  const card = (a) => {
+    const ic = STATUS_ICON[a.status] || '';
+    const d = exitDateOf(a);
+    return `<div class="card" style="margin:6px 0">
+      <div class="li-title click" data-aid="${a.id}">${display(a)}</div>
+      <div class="li-sub">${arOf(TYPES, a.type)} • ${esc(sexTerm(a))} • <span class="badge">${ic} ${arOf(STATUS, a.status)}</span>${d ? ' • ' + fmtDate(d) : ''}</div>
+      ${canEdit ? `<div class="btn-row" style="margin-top:6px">
+        <button class="btn sm outline" data-arback="${a.id}">↩ إعادة للحظيرة</button>
+        <button class="btn sm danger" data-ardel="${a.id}">🗑️ حذف نهائي</button>
+      </div>` : ''}</div>`;
+  };
+  view().innerHTML = typeChipsHtml() + `<div class="muted" style="margin:8px 0">الحلال الذي خرج من الحظيرة — لا يظهر في 🐑 الحلال ولا 🐏 الفحول ولا 👶 المواليد ولا الرئيسية. أعِده للحظيرة إن كان الخروج بالخطأ، أو احذفه نهائياً (يُنقل إلى 🗑️ سلة المحذوفات، يمكن استعادته خلال ٣٠ يوماً).</div>
+    <div class="chips">${statChip('', 'الكل')}${statChip('sold', '💰 مباعة')}${statChip('dead', '📉 نافقة')}${statChip('given', '🎁 اهداء')}${statChip('missing', '🔎 مفقودة')}${statChip('slaughtered', '🔪 مذبوحة')}</div>
+    <div class="muted" style="margin:8px 0">العدد: ${list.length}</div>
+    ${list.length ? list.map(card).join('') : '<div class="center-empty">الأرشيف فارغ.</div>'}`;
+  bindTypeChips(screenArchive);
+  view().querySelectorAll('[data-af]').forEach(c => c.addEventListener('click', () => { archiveStatusFilter = c.dataset.af; screenArchive(); }));
+  view().querySelectorAll('[data-aid]').forEach(el => el.addEventListener('click', () => setHash('#/animal/' + el.dataset.aid)));
+  view().querySelectorAll('[data-arback]').forEach(b => b.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    const a = animalById(parseInt(b.dataset.arback, 10)); if (a) await quickRevert(a, screenArchive);
+  }));
+  view().querySelectorAll('[data-ardel]').forEach(b => b.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    const id = parseInt(b.dataset.ardel, 10);
+    if (!await confirm2('حذف نهائي لهذه البهيمة؟ تُنقل إلى 🗑️ سلة المحذوفات (يمكن استعادتها خلال ٣٠ يوماً).', { danger: true })) return;
+    const ok = await guard(async () => { await dbDelete('animals', id); });
+    if (ok) { toast('تم الحذف'); await loadAll(); screenArchive(); }
+  }));
 }
 
 /* ===== قوائم شكل/لون الوسم (قابلة للتعديل من الإعدادات) ===== */
@@ -2769,10 +2818,10 @@ function quickSlaughter(a) {
     });
   });
 }
-async function quickRevert(a) {
+async function quickRevert(a, after) {
   if (!await confirm2('إعادة هذه البهيمة إلى الحظيرة؟ ستُلغى بيانات البيع/النفوق/الإهداء/الفقد/الذبح.')) return;
   const ok = await guard(async () => { await dbUpdate('animals', a.id, { status: 'present', sale_date: null, sale_price: null, dead_date: null, gift_date: null, gift_to: null, missing_date: null, slaughter_date: null }); });
-  if (ok) { toast('أُعيدت للحظيرة'); await loadAll(); screenAnimalDetail(String(a.id)); }
+  if (ok) { toast('أُعيدت للحظيرة'); await loadAll(); (after || (() => screenAnimalDetail(String(a.id))))(); }
 }
 // مشاركة بطاقة البهيمة كنص جاهز (واتساب/رسائل…)
 async function shareAnimalCard(a) {
@@ -2865,27 +2914,24 @@ function contactModal(c) {
 /* ===== فحول المراح — كل ذكر غرضه «فحل للقطيع» (شراءً أو مولوداً أو تحويلاً) ===== */
 function screenSires() {
   if (!can('animals', 'view')) { view().innerHTML = noPerm(); return; }
-  const sires = C.animals.filter(a => a.sex === 'male' && a.purpose === 'sire' && (!animalFilter || a.type === animalFilter));
-  const present = sortAnimals(sires.filter(s => s.status === 'present'));
-  const others = sortAnimals(sires.filter(s => s.status !== 'present'));
+  // فحل خرج من الحظيرة (بيع/نفوق/اهداء/فقد/ذبح) ينتقل إلى 🗄️ الأرشيف ولا يظهر هنا إطلاقاً
+  const present = sortAnimals(C.animals.filter(a => a.sex === 'male' && a.purpose === 'sire' && a.status === 'present' && (!animalFilter || a.type === animalFilter)));
   const card = (s) => {
     const kids = sireOffspring(s);
     const sons = kids.filter(k => k.sex === 'male').length, daughters = kids.filter(k => k.sex === 'female').length;
     const dams = sireMatedFemales(s);
-    const ic = STATUS_ICON[s.status] || '';
     return `<div class="card click" data-aid="${s.id}" style="margin:6px 0">
       <div class="li-title">🐏 ${display(s)}</div>
-      <div class="li-sub">${arOf(TYPES, s.type)}${s.birth ? ' • ' + (ageText(s.birth) || '') : ''}${animalPenName(s) ? ' • 🏠 ' + esc(animalPenName(s)) : ''}${s.status !== 'present' ? ' • ' + ic + ' ' + arOf(STATUS, s.status) : ''}</div>
+      <div class="li-sub">${arOf(TYPES, s.type)}${s.birth ? ' • ' + (ageText(s.birth) || '') : ''}${animalPenName(s) ? ' • 🏠 ' + esc(animalPenName(s)) : ''}</div>
       ${kids.length ? `<div class="li-sub link" data-kids="${s.id}">👶 نتاجه: ${kids.length} (${sons} ذكور، ${daughters} إناث) — عرض</div>` : ''}
       ${dams.length ? `<div class="li-sub link" data-dams="${s.id}">🐑 لقّح: ${dams.length} أنثى — عرض</div>` : ''}
       <div class="li-sub muted">المصدر: ${arOf(SOURCE, s.source || 'purchased')}</div></div>`;
   };
   view().innerHTML = typeChipsHtml() + `<div class="muted" style="margin:8px 0">فحول القطيع = الذكور المُعيَّنة «🐏 فحل للقطيع» — تُضاف شراءً أو من المواليد، أو تُحوَّل من أي ذكر لاحقاً من سجله.</div>
-    <div class="stats" style="grid-template-columns:1fr 1fr"><div class="stat green"><div class="n">${present.length}</div><div class="l">فحول في الحظيرة</div></div><div class="stat"><div class="n">${sires.length}</div><div class="l">إجمالي الفحول</div></div></div>
+    <div class="stats" style="grid-template-columns:1fr 1fr"><div class="stat green"><div class="n">${present.length}</div><div class="l">فحول في الحظيرة</div></div></div>
     ${can('animals', 'add') ? `<button class="btn" id="s_addbuy" style="margin:8px 0">➕ إضافة فحل (شراء)</button>` : ''}
     <div class="card"><h3>🟢 فحول في الحظيرة (${present.length})</h3>${present.length ? present.map(card).join('') : noItem()}</div>
-    ${others.length ? `<div class="card"><h3>خارج الحظيرة (${others.length})</h3>${others.map(card).join('')}</div>` : ''}
-    <div class="muted" style="font-size:.82rem;margin-top:8px">لتحويل ذكر إلى فحل: افتح سجله ← تبويب «📋 البيانات» ← «🐏 تعيينه فحلاً».<br>الأبناء/البنات والإناث الملقَّحة تُحسَب بمطابقة اسم/رقم الفحل مع حقل «الأب» — راجِعها لو تشابهت الأسماء بين فحلين.</div>`;
+    <div class="muted" style="font-size:.82rem;margin-top:8px">لتحويل ذكر إلى فحل: افتح سجله ← تبويب «📋 البيانات» ← «🐏 تعيينه فحلاً». فحل خرج من الحظيرة (بيع/نفوق/اهداء/فقد/ذبح) ينتقل إلى 🗄️ الأرشيف.<br>الأبناء/البنات والإناث الملقَّحة تُحسَب بمطابقة اسم/رقم الفحل مع حقل «الأب» — راجِعها لو تشابهت الأسماء بين فحلين.</div>`;
   bindCards(view());
   bindTypeChips(screenSires);
   view().querySelectorAll('[data-kids]').forEach(el => el.addEventListener('click', (e) => { e.stopPropagation(); const s = animalById(parseInt(el.dataset.kids, 10)); if (s) animalListModal('أبناء وبنات 🐏 ' + display(s), sireOffspring(s)); }));
@@ -3245,6 +3291,7 @@ function quickMenuCats() {
       I(can('animals', 'view'), '🔍 تفقد الحلال وإحصائيات', '#/inspect'),
       I(can('breeding', 'view'), '🤰 الحمل والمتابعة', '#/pregnancies'),
       I(can('animals', 'add') || can('animals', 'edit') || can('vaccines', 'edit') || can('treatments', 'edit') || can('breeding', 'edit'), '⚙️ عمليات جماعية (تطعيم/علاج/بيع…)', '#/bulk'),
+      I(can('animals', 'view'), '🗄️ الأرشيف (مباعة/نافقة/مُهداة/مفقودة/مذبوحة)', '#/archive'),
     ].filter(Boolean) },
     { key: 'health', title: '💉 الصحة (تطعيم وعلاج)', items: [
       I(can('vaccines', 'edit'), '💉 إعطاء تطعيم', '#/vaccinate/0'),
@@ -3318,7 +3365,7 @@ function screenSiteMap() {
     <div class="card"><h3>📱 الشريط السفلي</h3>
       <div class="muted" style="font-size:.82rem;margin-bottom:6px">من اليمين لليسار:</div>
       ${navStep('🏠', 'الرئيسية', 'لوحة الحالة — ملخّص، بحث سريع، إحصاءات قابلة للنقر', '#/home')}
-      ${navStep('🐑', 'الحلال', 'كل الحلال، بكل المرشّحات (نوع/حالة/مصدر/جنس)', '#/animals')}
+      ${navStep('🐑', 'الحلال', 'الحلال الموجود حالياً في الحظيرة فقط، بمرشّحات (نوع/مصدر/جنس) — الخارج (بيع/نفوق/اهداء/فقد/ذبح) في 🗄️ الأرشيف', '#/animals')}
       ${navStep('♀️', 'الإناث', 'البالغات سنّ النضج فقط — إحصائيات وفلتر (ملقّحة/معها مواليد/لم تُلقّح)', '#/females')}
       ${navStep('🐏', 'الفحول', 'فحول القطيع باسمها — أبناؤهم وبناتهم والإناث الملقَّحة', '#/sires')}
       ${navStep('👶', 'المواليد', 'الصغار غير المحتسَبين بعد — إحصائيات وفلتر جنس/عمر', '#/newborns')}
