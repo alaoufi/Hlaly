@@ -714,11 +714,16 @@ function editLogValueDisplay(tbl, field, v) {
 async function fetchEditLog(tbl, recId) {
   try { const { data } = await sb.from('mrahi_edit_log').select('*').eq('tbl', tbl).eq('rec_id', recId).order('created_at', { ascending: false }); return data || []; } catch (e) { return []; }
 }
+// التراجع يعيد الحقل مباشرةً لقيمته القديمة ثم يحذف سطر السجل نفسه (لا يمرّ عبر dbUpdate/logFieldChanges) —
+// فلا يُضاف سطر جديد يوثّق التراجع، بل يختفي السطر المُتراجَع عنه كأن التعديل لم يكن.
 async function revertEditLogEntry(logId) {
+  if (isEditLocked()) throw lockedError('🔒 التعديل مقفول مؤقّتاً — افتحه من أيقونة ⋮ أعلى الشاشة');
   const { data } = await sb.from('mrahi_edit_log').select('*').eq('id', logId);
   const entry = (data && data[0]) || null;
   if (!entry) throw new Error('سجل غير موجود');
-  await dbUpdate(entry.tbl, entry.rec_id, { [entry.field]: entry.old_value });
+  const { error } = await sb.from(TABLES[entry.tbl]).update({ [entry.field]: entry.old_value }).eq('id', entry.rec_id);
+  if (error) throw error;
+  await sb.from('mrahi_edit_log').delete().eq('id', logId);
 }
 async function guard(fn) { try { await fn(); } catch (e) { const msg = (e.message || '' + e); toast(e.locked ? msg : (/Could not find the table|schema cache/i.test(msg) ? 'هذه الميزة تحتاج تنفيذ سكربت قاعدة البيانات أولاً (راجع التعليمات).' : 'تعذّر الحفظ: ' + msg)); return false; } return true; }
 // حوار تأكيد احترافي داخل التطبيق (بدل نافذة المتصفح)
@@ -1696,7 +1701,7 @@ async function refreshEditLogList(tbl, recId) {
     </div>`).join('') : '<div class="center-empty">لا توجد تعديلات مسجّلة بعد.</div>';
   box.querySelectorAll('[data-editrevert]').forEach(b => b.addEventListener('click', async () => {
     if (isEditLocked()) { toast('🔒 التعديل مقفول مؤقّتاً — افتحه من أيقونة ⋮ أعلى الشاشة'); return; }
-    if (!await confirm2('التراجع عن هذا التغيير يعيد الحقل إلى قيمته السابقة فقط (لا يمسّ أي حقل آخر). متابعة؟')) return;
+    if (!await confirm2('التراجع عن هذا التغيير يعيد الحقل إلى قيمته السابقة فقط (لا يمسّ أي حقل آخر)، ويُحذف هذا السطر من السجل. متابعة؟')) return;
     const ok = await guard(async () => { await revertEditLogEntry(parseInt(b.dataset.editrevert, 10)); });
     if (ok) { toast('تم التراجع'); await loadAll(); render(); }
   }));
