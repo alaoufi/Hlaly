@@ -8,8 +8,8 @@
    يعمل داخل تطبيق الجوال وعند توفّر الإنترنت. */
 (function () {
   'use strict';
-  var VERSION_JSON = 'https://github.com/alaoufi/marahi/releases/download/apk-latest/version.json';
-  var APK_URL = 'https://github.com/alaoufi/marahi/releases/download/apk-latest/hlaly.apk';   // ثابت (احتياطي)
+  var VERSION_JSON = 'https://github.com/alaoufi/Hlaly/releases/download/apk-latest/version.json';
+  var APK_URL = 'https://github.com/alaoufi/Hlaly/releases/download/apk-latest/hlaly.apk';   // ثابت (احتياطي)
   var latestUrl = null;   // رابط النسخة المرقّمة من version.json (يحمل رقم النسخة)
 
   function buildNum(v) { var m = String(v || '').match(/(\d+)\s*$/); return m ? parseInt(m[1], 10) : 0; }
@@ -35,6 +35,8 @@
   // فتح صفحة تنزيل APK في متصفّح النظام (يُثبَّت فوق الحالي ويحفظ البيانات)
   // ملاحظة: window.open('_system') غير موثوق داخل WebView كابسيتور (لا يوجد إضافة تتولّاه) وقد يتوقّف التنزيل أو لا يبدأ أصلاً.
   // نقر رابط <a target="_blank"> حقيقي هو ما يعترضه WebViewClient الافتراضي بثقة ويسلّمه لمتصفّح النظام (بمدير تنزيل قادر على الاستئناف).
+  // لكن هذا التسليم قد يفشل صامتاً على بعض الأجهزة (تنزيل يتوقف/لا يكتمل) بلا أي رسالة خطأ — لذا نعرض دائماً رابطاً
+  // مباشراً بديلاً يستطيع المستخدم فتحه يدوياً في المتصفّح إن لم يكتمل التنزيل التلقائي.
   function openDownload() {
     var u = latestUrl || APK_URL;   // النسخة المرقّمة إن توفّرت، وإلا الرابط الثابت
     try {
@@ -44,8 +46,20 @@
     } catch (e) {
       try { window.open(u, '_blank'); } catch (_) {}
     }
+    showDownloadFallback(u);
   }
   window.mrahiOpenDownload = openDownload;
+
+  // نافذة برابط تنزيل مباشر مرئي — احتياط إن لم يكتمل التنزيل التلقائي عبر المتصفّح
+  function showDownloadFallback(u) {
+    try {
+      if (typeof openModal !== 'function') return;
+      openModal('تنزيل التحديث', ''
+        + '<div class="muted" style="margin-bottom:10px">فُتح رابط التنزيل في متصفّح جهازك. إن لم يبدأ التنزيل تلقائياً، أو توقّف قبل اكتماله، اضغط الرابط أدناه لفتحه مباشرة في المتصفّح وأعِد المحاولة:</div>'
+        + '<a class="btn" href="' + u + '" target="_blank" rel="noopener" style="display:block;text-align:center;text-decoration:none">⬇️ تنزيل حلالي (APK) مباشرة</a>'
+        + '<div class="muted" style="margin-top:10px;font-size:.85rem">بعد اكتمال التنزيل، افتح الملف من إشعارات النظام أو مجلد التنزيلات لتثبيته. إن ظهر تحذير «Play Protect» (أثناء التنزيل أو التثبيت)، اضغط «مزيد من التفاصيل» ثم «التثبيت على أي حال» — التطبيق آمن وموقّع بمفتاح ثابت.</div>');
+    } catch (e) {}
+  }
 
   // زر «تحقق من وجود تحديث»
   async function manualCheck() {
