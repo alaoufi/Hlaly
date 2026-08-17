@@ -3,8 +3,8 @@
    إعادة تحميل مفاجئة ولا «قفز» بين النسخ إطلاقاً.
    • فحص خلفيّ خفيف يقرأ رقم أحدث نسخة فقط، فإن وُجد أحدث أطلق إشارة
      (نقطة على «المزيد» وإبراز الزر) — دون تنزيل أو تغيير شيء.
-   • زر «🔄 تحقق من وجود تحديث» يفتح صفحة تنزيل APK الجديد في المتصفّح.
-     وبما أن APK موقّع بمفتاح ثابت، يُثبَّت فوق القديم دون حذف ومع حفظ البيانات.
+   • زر «🔄 تحقق من وجود تحديث» يعرض رابط تنزيل APK الجديد (نسخ يدوي — الأضمن على كل الأجهزة —
+     أو محاولة فتح تلقائي في المتصفّح). وبما أن APK موقّع بمفتاح ثابت، يُثبَّت فوق القديم دون حذف ومع حفظ البيانات.
    يعمل داخل تطبيق الجوال وعند توفّر الإنترنت. */
 (function () {
   'use strict';
@@ -32,13 +32,38 @@
     return (j && j.version) ? j : null;
   }
 
-  // فتح صفحة تنزيل APK في متصفّح النظام (يُثبَّت فوق الحالي ويحفظ البيانات)
-  // ملاحظة: window.open('_system') غير موثوق داخل WebView كابسيتور (لا يوجد إضافة تتولّاه) وقد يتوقّف التنزيل أو لا يبدأ أصلاً.
-  // نقر رابط <a target="_blank"> حقيقي هو ما يعترضه WebViewClient الافتراضي بثقة ويسلّمه لمتصفّح النظام (بمدير تنزيل قادر على الاستئناف).
-  // لكن هذا التسليم قد يفشل صامتاً على بعض الأجهزة (تنزيل يتوقف/لا يكتمل) بلا أي رسالة خطأ — لذا نعرض دائماً رابطاً
-  // مباشراً بديلاً يستطيع المستخدم فتحه يدوياً في المتصفّح إن لم يكتمل التنزيل التلقائي.
+  // ثبت أن التسليم التلقائي لتنزيل APK من داخل تطبيق مُغلَّف (نقر <a target="_blank"> يعترضه WebViewClient ويسلّمه
+  // لمتصفّح النظام) قد يُنتج تنزيلاً «عالقاً» على بعض الأجهزة: يصل ١٠٠٪ من الحجم ولا يكتمل/يُفتح أبداً — بينما نسخ
+  // نفس الرابط ولصقه يدوياً في شريط عنوان المتصفّح (تنزيل متصفّح عادي، لا عبر تسليم/Intent من تطبيق آخر) يعمل بلا مشاكل.
+  // لذا الطريقة الأضمن دائماً هي عرض الرابط للنسخ اليدوي أولاً، مع إبقاء الفتح التلقائي كخيار سريع إضافي (يعمل على أغلب الأجهزة).
   function openDownload() {
     var u = latestUrl || APK_URL;   // النسخة المرقّمة إن توفّرت، وإلا الرابط الثابت
+    showDownloadModal(u);
+  }
+  window.mrahiOpenDownload = openDownload;
+
+  function showDownloadModal(u) {
+    try {
+      if (typeof openModal !== 'function') { attemptAutoOpen(u); return; }
+      openModal('تنزيل التحديث', ''
+        + '<div class="muted" style="margin-bottom:10px"><b>الطريقة الأضمن:</b> انسخ رابط التنزيل، افتح متصفّح جهازك (كروم مثلاً)، وألصقه في شريط العنوان.</div>'
+        + '<button class="btn" id="upd_copy" style="width:100%;margin-bottom:8px">📋 نسخ رابط التنزيل</button>'
+        + '<div class="muted" style="font-size:.82rem;word-break:break-all;background:#f5f5f5;padding:8px;border-radius:8px;margin-bottom:10px">' + u + '</div>'
+        + '<button class="btn outline" id="upd_open" style="width:100%">⬇️ محاولة فتح التنزيل تلقائياً</button>'
+        + '<div class="muted" style="margin-top:10px;font-size:.85rem">بعد اكتمال التنزيل، افتح الملف من إشعارات النظام أو مجلد التنزيلات لتثبيته. إن ظهر تحذير «Play Protect» (أثناء التنزيل أو التثبيت)، اضغط «مزيد من التفاصيل» ثم «التثبيت على أي حال» — التطبيق آمن وموقّع بمفتاح ثابت. إن علق التنزيل التلقائي عند ١٠٠٪ بلا اكتمال، احذفه من قائمة التنزيلات واستخدم النسخ واللصق اليدوي أعلاه بدلاً منه.</div>', function () {
+        var cp = document.getElementById('upd_copy');
+        if (cp) cp.addEventListener('click', async function () {
+          var ok = false;
+          try { if (typeof copyText === 'function') ok = await copyText(u); } catch (e) {}
+          say(ok ? 'نُسخ الرابط ✅ — الصقه في متصفّحك' : 'تعذّر النسخ — انسخ الرابط الظاهر أعلاه يدوياً');
+        });
+        var op = document.getElementById('upd_open');
+        if (op) op.addEventListener('click', function () { attemptAutoOpen(u); });
+      });
+    } catch (e) { attemptAutoOpen(u); }
+  }
+
+  function attemptAutoOpen(u) {
     try {
       var a = document.createElement('a');
       a.href = u; a.target = '_blank'; a.rel = 'noopener';
@@ -46,19 +71,6 @@
     } catch (e) {
       try { window.open(u, '_blank'); } catch (_) {}
     }
-    showDownloadFallback(u);
-  }
-  window.mrahiOpenDownload = openDownload;
-
-  // نافذة برابط تنزيل مباشر مرئي — احتياط إن لم يكتمل التنزيل التلقائي عبر المتصفّح
-  function showDownloadFallback(u) {
-    try {
-      if (typeof openModal !== 'function') return;
-      openModal('تنزيل التحديث', ''
-        + '<div class="muted" style="margin-bottom:10px">فُتح رابط التنزيل في متصفّح جهازك. إن لم يبدأ التنزيل تلقائياً، أو توقّف قبل اكتماله، اضغط الرابط أدناه لفتحه مباشرة في المتصفّح وأعِد المحاولة:</div>'
-        + '<a class="btn" href="' + u + '" target="_blank" rel="noopener" style="display:block;text-align:center;text-decoration:none">⬇️ تنزيل حلالي (APK) مباشرة</a>'
-        + '<div class="muted" style="margin-top:10px;font-size:.85rem">بعد اكتمال التنزيل، افتح الملف من إشعارات النظام أو مجلد التنزيلات لتثبيته. إن ظهر تحذير «Play Protect» (أثناء التنزيل أو التثبيت)، اضغط «مزيد من التفاصيل» ثم «التثبيت على أي حال» — التطبيق آمن وموقّع بمفتاح ثابت.</div>');
-    } catch (e) {}
   }
 
   // زر «تحقق من وجود تحديث»
