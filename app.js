@@ -714,6 +714,28 @@ function editLogValueDisplay(tbl, field, v) {
 async function fetchEditLog(tbl, recId) {
   try { const { data } = await sb.from('mrahi_edit_log').select('*').eq('tbl', tbl).eq('rec_id', recId).order('created_at', { ascending: false }); return data || []; } catch (e) { return []; }
 }
+async function fetchAllEditLog() {
+  try { const { data } = await sb.from('mrahi_edit_log').select('*').order('created_at', { ascending: false }); return data || []; } catch (e) { return []; }
+}
+// اسم عربي مفهوم للجدول (يُستخدم في سجل التعديلات الكامل عبر كل الأنواع)
+const EDIT_LOG_TBL_LABELS = { animals: '🐑 بهيمة', matings: '🤰 تلقيح', pregnancies: '🤰 حمل', births: '👶 ولادة', vaccineTypes: '💉 نوع تطعيم', vaccinations: '💉 تطعيم', treatments: '💊 علاج', treatmentTypes: '💊 نوع علاج', expenses: '💰 مصروف/إيراد', medstock: '📦 صنف مخزون', types: '🐑 نوع حلال' };
+// اسم يوصف السجلّ المُعدَّل نفسه (بهيمته إن كان مرتبطاً، أو اسمه/رمزه) — يتحمّل أن يكون السجل محذوفاً لاحقاً
+function editLogEntityLabel(tbl, recId) {
+  const base = EDIT_LOG_TBL_LABELS[tbl] || tbl;
+  const rec = (C[tbl] || []).find(x => x.id === recId);
+  if (!rec) return base + ' #' + recId + ' (محذوف)';
+  let extra = '';
+  if (tbl === 'animals') extra = rec.code || rec.name || '';
+  else if (rec.animal_id) { const a = animalById(rec.animal_id); extra = a ? (a.code || a.name || '') : ''; }
+  else extra = rec.name || rec.ar || rec.med_name || '';
+  return base + (extra ? ' • ' + extra : '');
+}
+// رابط فتح السجل المُعدَّل نفسه (بهيمته إن وُجد ربط) — أو null إن لم يوجد مكان مباشر لفتحه
+function editLogEntityLink(tbl, recId) {
+  if (tbl === 'animals') return animalById(recId) ? recId : null;
+  const rec = (C[tbl] || []).find(x => x.id === recId);
+  return (rec && rec.animal_id && animalById(rec.animal_id)) ? rec.animal_id : null;
+}
 // التراجع يعيد الحقل مباشرةً لقيمته القديمة ثم يحذف سطر السجل نفسه (لا يمرّ عبر dbUpdate/logFieldChanges) —
 // فلا يُضاف سطر جديد يوثّق التراجع، بل يختفي السطر المُتراجَع عنه كأن التعديل لم يكن.
 async function revertEditLogEntry(logId) {
@@ -794,6 +816,7 @@ const ROUTES = {
   contacts: { t: 'دليل التواصل', back: true, fn: screenContacts },
   trash: { t: 'سلة المحذوفات', back: true, fn: screenTrash },
   archive: { t: 'الأرشيف', back: true, fn: screenArchive },
+  editlog: { t: 'سجل التعديلات', back: true, fn: screenEditLog },
   notes: { t: 'دفتر الملاحظات', back: true, fn: screenNotes },
   tips: { t: 'النصائح والمعلومات', back: true, fn: screenTips },
   guide: { t: 'دليل الاستخدام', back: true, fn: screenGuide },
@@ -1738,22 +1761,52 @@ async function refreshMediaList(animalId) {
   }));
   box.querySelectorAll('[data-medview]').forEach(el => el.addEventListener('click', () => mediaViewModal(items.find(m => m.id === parseInt(el.dataset.medview, 10)))));
 }
+// بطاقة سطر واحد في سجل التعديلات — showEntity=true يُظهر اسم السجل المُعدَّل نفسه (للسجل الكامل عبر كل الأنواع)
+function editLogCardHtml(l, showEntity) {
+  return `<div class="card" data-editlogid="${l.id}">
+      ${showEntity ? `<div class="li-title${editLogEntityLink(l.tbl, l.rec_id) != null ? ' click' : ''}" ${editLogEntityLink(l.tbl, l.rec_id) != null ? `data-editlogopen="${editLogEntityLink(l.tbl, l.rec_id)}"` : ''}>${esc(editLogEntityLabel(l.tbl, l.rec_id))}</div>
+      <div class="li-sub" style="font-weight:600">${esc(editLogFieldLabel(l.tbl, l.field))}</div>` : `<div class="li-title">${esc(editLogFieldLabel(l.tbl, l.field))}</div>`}
+      <div class="li-sub">${esc(editLogValueDisplay(l.tbl, l.field, l.old_value))} ← ${esc(editLogValueDisplay(l.tbl, l.field, l.new_value))}</div>
+      <div class="li-sub">${fmtDateTime(l.created_at)}${l.actor_name ? ' • ' + esc(l.actor_name) : ''}</div>
+      ${can('animals', 'edit') ? `<button class="btn sm outline" data-editrevert="${l.id}" style="margin-top:6px">↩ تراجع عن هذا التغيير</button>` : ''}
+    </div>`;
+}
+// ربط أزرار التراجع لأي حاوية بطاقات سجل تعديلات (يُستخدم من ملف البهيمة والسجل الكامل معاً)
+function bindEditLogRevertButtons(box, afterRevert) {
+  box.querySelectorAll('[data-editlogopen]').forEach(el => el.addEventListener('click', () => setHash('#/animal/' + el.dataset.editlogopen)));
+  box.querySelectorAll('[data-editrevert]').forEach(b => b.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    if (isEditLocked()) { toast('🔒 التعديل مقفول مؤقّتاً — افتحه من أيقونة ⋮ أعلى الشاشة'); return; }
+    if (!await confirm2('التراجع عن هذا التغيير يعيد الحقل إلى قيمته السابقة فقط (لا يمسّ أي حقل آخر)، ويُحذف هذا السطر من السجل. متابعة؟')) return;
+    const ok = await guard(async () => { await revertEditLogEntry(parseInt(b.dataset.editrevert, 10)); });
+    if (ok) { toast('تم التراجع'); await loadAll(); afterRevert(); }
+  }));
+}
 // سجل التعديلات: قائمة الحقول التي تغيّرت لهذه البهيمة مع إمكان التراجع عن أيّ حقل بمفرده (رجوع للقيمة القديمة فقط)
 async function refreshEditLogList(tbl, recId) {
   const box = document.getElementById('editLogList'); if (!box) return;
   const items = await fetchEditLog(tbl, recId);
-  box.innerHTML = items.length ? items.map(l => `<div class="card" data-editlogid="${l.id}">
-      <div class="li-title">${esc(editLogFieldLabel(l.tbl, l.field))}</div>
-      <div class="li-sub">${esc(editLogValueDisplay(l.tbl, l.field, l.old_value))} ← ${esc(editLogValueDisplay(l.tbl, l.field, l.new_value))}</div>
-      <div class="li-sub">${fmtDateTime(l.created_at)}${l.actor_name ? ' • ' + esc(l.actor_name) : ''}</div>
-      ${can('animals', 'edit') ? `<button class="btn sm outline" data-editrevert="${l.id}" style="margin-top:6px">↩ تراجع عن هذا التغيير</button>` : ''}
-    </div>`).join('') : '<div class="center-empty">لا توجد تعديلات مسجّلة بعد.</div>';
-  box.querySelectorAll('[data-editrevert]').forEach(b => b.addEventListener('click', async () => {
-    if (isEditLocked()) { toast('🔒 التعديل مقفول مؤقّتاً — افتحه من أيقونة ⋮ أعلى الشاشة'); return; }
-    if (!await confirm2('التراجع عن هذا التغيير يعيد الحقل إلى قيمته السابقة فقط (لا يمسّ أي حقل آخر)، ويُحذف هذا السطر من السجل. متابعة؟')) return;
-    const ok = await guard(async () => { await revertEditLogEntry(parseInt(b.dataset.editrevert, 10)); });
-    if (ok) { toast('تم التراجع'); await loadAll(); render(); }
-  }));
+  box.innerHTML = items.length ? items.map(l => editLogCardHtml(l, false)).join('') : '<div class="center-empty">لا توجد تعديلات مسجّلة بعد.</div>';
+  bindEditLogRevertButtons(box, render);
+}
+
+/* ===== سجل التعديلات الكامل (كل الأنواع) — «⋮ الأدوات والعمليات ← 🗂️ أدوات أخرى» ===== */
+let editLogTblFilter = '';   // '' = كل الأنواع، أو اسم جدول محدَّد
+async function screenEditLog() {
+  if (!can('animals', 'view')) { view().innerHTML = noPerm(); return; }
+  showLoading(true);
+  const items = await fetchAllEditLog();
+  showLoading(false);
+  const tbls = Array.from(new Set(items.map(l => l.tbl)));
+  if (editLogTblFilter && !tbls.includes(editLogTblFilter)) editLogTblFilter = '';
+  const chip = (k, label) => `<span class="chip ${editLogTblFilter === k ? 'active' : ''}" data-elt="${k}">${label}</span>`;
+  const list = editLogTblFilter ? items.filter(l => l.tbl === editLogTblFilter) : items;
+  view().innerHTML = `<div class="muted" style="margin-bottom:8px">كل تعديل حقل — في أي بهيمة أو تلقيح أو حمل أو تطعيم أو علاج أو مصروف أو غيره — بقيمته القديمة والجديدة، مع إمكان التراجع عن أي تعديل بمفرده. الحذف الفعلي في 🗑️ سلة المحذوفات، وليس هنا.</div>`
+    + (tbls.length > 1 ? `<div class="chips">${chip('', 'الكل')}${tbls.map(t => chip(t, EDIT_LOG_TBL_LABELS[t] || t)).join('')}</div>` : '')
+    + `<div class="muted" style="margin:8px 0">العدد: ${list.length}</div>`
+    + (list.length ? list.map(l => editLogCardHtml(l, true)).join('') : '<div class="center-empty">لا توجد تعديلات مسجّلة بعد.</div>');
+  view().querySelectorAll('[data-elt]').forEach(c => c.addEventListener('click', () => { editLogTblFilter = c.dataset.elt; screenEditLog(); }));
+  bindEditLogRevertButtons(view(), screenEditLog);
 }
 
 /* ===== سجل البهيمة ===== */
@@ -3304,6 +3357,7 @@ function quickMenuCats() {
     { key: 'tools', title: '🗂️ أدوات أخرى', items: [
       I(can('animals', 'view'), '📇 دليل التواصل (زبائن/بيطري…)', '#/contacts'),
       I(can('animals', 'view'), '📓 دفتر الملاحظات', '#/notes'),
+      I(can('animals', 'view'), '📜 سجل التعديلات (كل الأنواع)', '#/editlog'),
       I(can('backup', 'view'), '💾 النسخ الاحتياطي', '#/backup'),
     ].filter(Boolean) },
   ];
