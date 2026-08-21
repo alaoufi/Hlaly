@@ -46,12 +46,16 @@
 ### أهم الحقول
 
 **`mrahi_animals`** (البهيمة):
-`id` · `type` (نوع الحلال) · `pen` (الحظيرة) · `idkind` (نوع المعرّف:
+`id` · `type` (نوع الحلال) · `pen_id` (رقم الحظيرة الداخلي الثابت — انظر
+`mrahi_pens` أدناه، وليس الاسم) · `idkind` (نوع المعرّف الخارجي:
 number/tag/chip/name/color/none) · `code` (المعرّف/الوسم) · `name` · `tag_color`
 · `tag_shape` · `sex` (male/female) · `purpose` (للذكور: sire=فحل / sale) ·
 `source` (born/purchased/gift) · `designation` (raise/sale) · `buy_price` ·
 `birth` (تاريخ الميلاد) · `color` · `status` (present/sold/dead/given/missing/
-slaughtered) · `mother_id` · `father_name` · `notes` · `counted` (احتساب يدوي في
+slaughtered — أي حالة غير present تُخرجها فوراً من كل شاشات الحلال/الفحول/
+المواليد إلى شاشة 🗄️ الأرشيف وحدها) · `mother_id` (رابط لبهيمة أخرى) ·
+`mother_name` (نصّ حرّ — للمشترى فقط، أمّها من خارج الحظيرة) · `father_name`
+(نصّ حرّ دائماً — لا رابط مباشر) · `notes` · `counted` (احتساب يدوي في
 الحظيرة) · تواريخ الخروج: `sale_date`/`sale_price`/`dead_date`/`gift_date`/
 `gift_to`/`missing_date`/`slaughter_date`.
 
@@ -70,6 +74,16 @@ slaughtered) · `mother_id` · `father_name` · `notes` · `counted` (احتسا
 «السجل المرضي») · `med_name` · `withdrawal_days` · `date` · `withdrawal_end` ·
 `next_due` · `action` · `notes`.
 
+**`mrahi_edit_log`** (سجل التعديلات — يُنشأ تلقائياً من `dbUpdate`، لا يُنشئه أي
+شاشة مباشرة): `tbl` (اسم المفتاح المختصر مثل `animals`/`matings`، لا اسم متجر
+IndexedDB) · `rec_id` · `field` · `old_value` · `new_value` · `actor_name` ·
+`created_at`. سطر واحد لكل حقل تغيّر فعلياً فقط (لا نسخة كاملة من السجل)؛
+التراجع (`revertEditLogEntry`) يعيد الحقل لقيمته القديمة ويحذف السطر نفسه —
+لا يُنشئ سطراً جديداً يوثّق التراجع.
+
+**`mrahi_notes`** (دفتر الملاحظات العام، مستقل عن أي بهيمة/حظيرة): `title` ·
+`detail` · `created_at`.
+
 ---
 
 ## 2) localStorage — إعدادات وقوائم خفيفة
@@ -77,19 +91,24 @@ slaughtered) · `mother_id` · `father_name` · `notes` · `counted` (احتسا
 | المفتاح | المحتوى |
 |---------|---------|
 | `mrahi_contacts` | دليل التواصل (زبائن/بيطري/موردون…) |
-| `mrahi_pens` | قائمة الحظائر `[{name,type}]` |
+| `mrahi_pens` | الحظائر `[{id,name,type,parentId,notes,system}]` — `id` رقم داخلي ثابت لا يتغيّر أبداً (البهائم تربط به عبر `pen_id` لا بالاسم)، `parentId` لتفرّع الحظيرة (مستوى واحد فقط) |
+| `mrahi_pen_id_seq` / `mrahi_pens_id_migrated` | عدّاد `id` التالي للحظائر، وعلم ترحيل لمرّة واحدة من الصيغة القديمة (حظائر بالاسم) |
 | `mrahi_reminders` | التنبيهات المخصّصة |
+| `mrahi_care_reminders` | تذكيرات الرعاية لكل نوع: أيام الفطام/التحقّق من الحمل/التجفيف |
 | `mrahi_tag_colors` / `mrahi_tag_shapes` | ألوان وأشكال الوسم المخصّصة |
-| `mrahi_terms` | مصطلحات الذكر/الأنثى لكل نوع |
-| `mrahi_count_age` | عمر احتساب المولود لكل نوع |
+| `mrahi_terms` | مصطلحات الذكر/الأنثى لكل نوع وعمر |
+| `mrahi_count_age` | قاعدة احتساب المولود لكل نوع (عند عمر معيّن أو يدوي) + حظيرة الوجهة |
+| `mrahi_count_males` / `mrahi_count_sires` / `mrahi_show_uncounted` | احتساب الذكور/الفحول ضمن عدد الحظيرة، وإظهار المواليد غير المحتسَبة في القائمة (`0`/`1`) |
 | `mrahi_fin_cats` | بنود مالية مخصّصة |
-| `mrahi_last_pen` / `mrahi_last_animal` | آخر إدخال (لتسريع الإضافة) |
-| `mrahi_f_status` / `mrahi_f_source` / `mrahi_f_sex` | آخر مرشّحات القائمة |
-| `mrahi_sort` | ترتيب عرض القوائم: `entry`/`code`/`age` |
-| `mrahi_count_males` / `mrahi_count_sires` | احتساب الذكور/الفحول ضمن عدد الحظيرة (`0`=لا) |
-| `mrahi_*_seeded` | أعلام التعبئة الأولية للكتالوجات (مرة واحدة) |
+| `mrahi_last_pen` / `mrahi_last_animal` | آخر إدخال (لتسريع الإضافة المتكرّرة) |
+| `mrahi_f_source` / `mrahi_f_sex` / `mrahi_f_nopen` | آخر مرشّحات شاشة «🐑 الحلال» (لا يوجد مرشّح حالة — هذه الشاشة تعرض الحلال الحاضر present فقط دائماً) |
+| `mrahi_sort` / `mrahi_sort_dir` | ترتيب عرض القوائم (`entry`/`code`/`age`) واتجاهه |
+| `mrahi_edit_unlock_until` | وقت انتهاء فتح قفل التعديل المؤقّت (مفتاح `EDIT_UNLOCK_KEY`) — غيابه أو انقضاؤه = مقفول |
+| `mrahi_lib_version` / `mrahi_lib_online_ver` | رقم نسخة مكتبة الأدوية/التطعيمات المضمَّنة، وآخر نسخة أُنزلت من الإنترنت |
+| `mrahi_notif_asked` | علم طلب صلاحية الإشعارات لمرّة واحدة |
+| `mrahi_*_seeded` | أعلام التعبئة الأولية للكتالوجات (أنواع/تطعيمات/علاجات — مرة واحدة) |
 
-الترخيص (تفعيل الجهاز) يُخزَّن أيضاً محلياً — انظر `license.js`.
+الترخيص (تفعيل الجهاز، مفتاح `mrahi_lic`) يُخزَّن أيضاً محلياً — انظر `license.js`.
 
 ---
 
