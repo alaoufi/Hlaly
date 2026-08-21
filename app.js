@@ -3294,7 +3294,6 @@ async function bulkApply() {
 }
 
 /* ===== قائمتا الهيدر: ⋮ الأدوات والعمليات · ☰ الإعدادات والإدارة ===== */
-const menuOpen = { quick: new Set(['breeding']), settings: new Set(['herd']) };   // التصنيفات المفتوحة لكل قائمة
 const menuSearch = { quick: '', settings: '' };   // نص البحث الحالي لكل قائمة (يُمسح عند مغادرة الشاشة)
 const MENU_BG = { breeding: '#e8f5e9', health: '#e3f2fd', tools: '#fff8e1', herd: '#e8f5e9', security: '#ffebee', data: '#f3e5f5', app: '#eceff1' };
 // وجهات القوائم الخاصة (__checkupdate/__feedback) — مصدر وحيد يستخدمه ⋮/☰ وشاشة خريطة التطبيق معاً
@@ -3303,7 +3302,7 @@ function menuGoHandler(h) {
   if (h === '__feedback') { const v = window.MRAH_VERSION || ''; const subj = encodeURIComponent('ملاحظات حلالي' + (v ? ' — نسخة ' + v : '')); const body = encodeURIComponent('اكتب ملاحظتك أو اقتراحك هنا:\n\n\n——————\nنسخة التطبيق: ' + v); location.href = 'mailto:alaoufi@gmail.com?subject=' + subj + '&body=' + body; return; }
   setHash(h);
 }
-// عارض عام لقائمة أقسام قابلة للطيّ مع بحث نصّي فوري (يشترك بينه ⋮ و☰)
+// عارض عام لقائمة مسطّحة مفتوحة دائماً (بلا طيّ ولا تداخل) مع بحث نصّي فوري — يشترك بينه ⋮ و☰
 function renderMenuScreen(menuKey, cats, extraHtml) {
   extraHtml = extraHtml || '';
   view().innerHTML = extraHtml
@@ -3311,26 +3310,23 @@ function renderMenuScreen(menuKey, cats, extraHtml) {
     + `<div id="menuBody"></div>`;
   const renderBody = () => {
     const body = document.getElementById('menuBody'); if (!body) return;
-    const open = menuOpen[menuKey];
     const q = (menuSearch[menuKey] || '').trim().toLowerCase();
     if (q) {
-      // نتيجة بحث مسطّحة عبر كل الأقسام (بلا حاجة لفتحها يدوياً)
+      // نتيجة بحث مسطّحة عبر كل الأقسام (اسم القسم يظهر كسياق للبند)
       const matches = [];
       cats.forEach(c => c.items.forEach(([l, h]) => { if (String(l).toLowerCase().includes(q)) matches.push([l, h, c.title]); }));
       body.innerHTML = matches.length
-        ? matches.map(([l, h, ct]) => `<div class="card click menu-row" data-go="${h}"><div class="li-title">${l}</div><div class="li-sub muted">${ct}</div></div>`).join('')
+        ? matches.map(([l, h, ct]) => `<div class="card click menu-row" data-go="${h}"><div class="li-title">${l}</div><div class="li-sub muted">${ct}</div><span class="menu-arrow">‹</span></div>`).join('')
         : '<div class="muted" style="padding:12px 4px">لا توجد نتائج مطابقة.</div>';
     } else {
+      // كل الأقسام ظاهرة، كل بند ظاهر بلا حاجة لفتح قسم — مرنة وسريعة
       const visible = cats.filter(c => c.items.length);
       body.innerHTML = visible.map(c => {
-        const isOpen = open.has(c.key);
         const bg = MENU_BG[c.key] || 'var(--card)';
-        return `<div class="acc-head card click" data-cat="${c.key}" style="display:flex;align-items:center;justify-content:space-between;background:${bg}">
-            <span class="li-title" style="margin:0">${c.title} <span class="muted" style="font-size:.78rem;font-weight:400">(${isOpen ? 'مفتوحة' : 'مغلقة'})</span></span><span class="acc-arrow ${isOpen ? 'open' : ''}">▸</span></div>`
-          + (isOpen ? `<div style="margin:0 8px 6px">${c.items.map(([l, h]) => `<div class="card click menu-row" data-go="${h}" style="margin:4px 0;background:${bg}"><div class="li-title">${l}</div></div>`).join('')}</div>` : '');
+        return `<div class="menu-section" style="background:${bg}"><span>${c.title}</span><span class="menu-count">${c.items.length} بند</span></div>`
+          + c.items.map(([l, h]) => `<div class="card click menu-row" data-go="${h}"><div class="li-title">${l}</div><span class="menu-arrow">‹</span></div>`).join('');
       }).join('');
     }
-    body.querySelectorAll('[data-cat]').forEach(h => h.addEventListener('click', () => { const k = h.dataset.cat; open.has(k) ? open.delete(k) : open.add(k); renderBody(); }));
     body.querySelectorAll('[data-go]').forEach(c => c.addEventListener('click', () => menuGoHandler(c.dataset.go)));
   };
   { const si = document.getElementById('menuSearchInput'); if (si) si.addEventListener('input', () => { menuSearch[menuKey] = si.value; renderBody(); }); }
@@ -3361,7 +3357,6 @@ function quickMenuCats() {
       I(can('animals', 'view'), '📇 دليل التواصل (زبائن/بيطري…)', '#/contacts'),
       I(can('animals', 'view'), '📓 دفتر الملاحظات', '#/notes'),
       I(can('animals', 'view'), '📜 سجل التعديلات (كل الأنواع)', '#/editlog'),
-      I(can('backup', 'view'), '💾 النسخ الاحتياطي', '#/backup'),
     ].filter(Boolean) },
   ];
 }
@@ -3379,6 +3374,7 @@ function settingsMenuCats() {
     { key: 'data', title: '🗂️ البيانات والمحتوى', items: [
       I(can('animals', 'view'), '💰 الميزانية', '#/finance'),
       I(can('animals', 'view') || can('breeding', 'view') || can('vaccines', 'view') || can('treatments', 'view'), '🔔 التنبيهات', '#/alerts'),
+      I(can('backup', 'view'), '💾 النسخ الاحتياطي', '#/backup'),
       I(isAdmin(), '🗑️ سلة المحذوفات', '#/trash'),
       I(isSys(), '💡 النصائح والمعلومات', '#/tips'),
     ].filter(Boolean) },

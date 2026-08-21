@@ -58,15 +58,25 @@ code { word-break: break-all; overflow-wrap: anywhere; white-space: normal; dire
 .row .k { color: var(--muted); } .row .v { font-weight: 600; text-align: left; }
 .title-lg { font-size: 1.5rem; font-weight: 800; color: var(--green); margin: 4px 0 2px; }
 
-/* قوائم ⋮/☰ الجانبية (عناوين الأقسام وبنودها) — أسطر مضغوطة وخط أصغر، فهي قوائم نصّية كثيفة البنود لا بطاقات محتوى */
+/* قوائم ⋮/☰ — تصميم مسطّح: كل البنود ظاهرة دائماً بلا طيّ ولا تداخل، والعناوين شريط تلوين ملخّص */
+.menu-section {
+  display: flex; align-items: center; gap: 8px;
+  font-weight: 800; font-size: .95rem; color: var(--green-d);
+  padding: 9px 13px; border-radius: var(--radius-sm);
+  margin: 16px 0 4px; box-shadow: var(--shadow);
+}
+.menu-section .menu-count { font-weight: 700; font-size: .74rem; color: var(--muted); margin-inline-start: auto; }
+.menu-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 14px !important; margin: 5px 0 !important; }
+.menu-row .li-title { font-size: .95rem; font-weight: 600; line-height: 1.4; }
+.menu-row .li-sub { font-size: .8rem; }
+/* سهم تنقّل: يشير بجهة الحركة (بدل سهم الطيّ السابق) */
+.menu-arrow { color: #b9c2bb; font-size: 1.5rem; font-weight: 700; line-height: 1; flex: none; }
+
+/* عناصر الطيّ العامّة (مستخدَمة في فلاتر الحلال ونموذج البهيمة، غير قوائم ⋮/☰) */
 .acc-head { padding: 9px 12px !important; margin-bottom: 3px !important; }
 .acc-head .li-title { font-size: .92rem; }
-/* سهم الطيّ: دائماً نفس الشكل، لكن يدور ٩٠° ويتلوّن عند الفتح — إشارة مزدوجة (دوران + لون) لا تلتبس بين مفتوح/مغلق */
 .acc-arrow { display: inline-block; font-size: 1.35rem; font-weight: 700; color: var(--muted); line-height: 1; transition: transform .18s ease, color .18s ease; }
 .acc-arrow.open { color: var(--green); transform: rotate(90deg); }
-.menu-row { padding: 8px 12px !important; margin: 3px 0 !important; }
-.menu-row .li-title { font-size: .88rem; font-weight: 600; line-height: 1.35; }
-.menu-row .li-sub { font-size: .78rem; }
 
 /* Stats */
 .stats { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-3); margin: var(--sp-3) 0; }
