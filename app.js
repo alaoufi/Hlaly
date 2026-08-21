@@ -2239,7 +2239,9 @@ function screenPregnancies() {
   if (!can('breeding', 'view')) { view().innerHTML = noPerm(); return; }
   const list = C.pregnancies.slice().sort((a, b) => (a.expected || '').localeCompare(b.expected || ''));
   const monitoring = list.filter(p => p.status === 'monitoring');
-  const cards = list.map(p => {
+  // الحمل المُنتهي بولادة أو إجهاض حالة مُغلقة نهائياً — لا داعي بقاؤه في شاشة المتابعة (سجلّه يبقى في تبويب «🤰 الإنجاب» بملف البهيمة نفسها)
+  const active = list.filter(p => p.status !== 'born' && p.status !== 'aborted');
+  const cards = active.map(p => {
     const a = animalById(p.animal_id);
     const sonarRow = p.confirmed ? row('🔊 فحص السونار', '✅ حامل — ' + fmtDate(p.sonar_date))
       : (p.sonar_date && p.status === 'not_confirmed' ? row('🔊 فحص السونار', 'فارغة — ' + fmtDate(p.sonar_date)) : '');
@@ -2256,7 +2258,7 @@ function screenPregnancies() {
   }).join('');
   const startBtn = can('breeding', 'edit') ? '<button class="btn" id="startPreg" style="margin:0 0 8px">🔊 متابعة الحمل بالسونار (إدخال/تعديل)</button>' : '';
   const bulkBtn = (monitoring.length && can('breeding', 'edit')) ? '<button class="btn outline" id="bulkSonar" style="margin:0 0 10px">🔊 فحص جماعي بالسونار</button>' : '';
-  const bodyHtml = list.length ? (pregTable(monitoring) + cards) : '<div class="center-empty">لا توجد حالات حمل مسجّلة بعد — ابدأ متابعة حمل بالزر أعلاه.</div>';
+  const bodyHtml = active.length ? (pregTable(monitoring) + cards) : '<div class="center-empty">لا توجد حالات حمل جارية — ابدأ متابعة حمل بالزر أعلاه.</div>';
   view().innerHTML = startBtn + bulkBtn + bodyHtml;
   { const sp = document.getElementById('startPreg'); if (sp) sp.addEventListener('click', startPregBulkModal); }
   { const bs = document.getElementById('bulkSonar'); if (bs) bs.addEventListener('click', bulkSonarModal); }
