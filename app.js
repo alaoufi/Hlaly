@@ -850,6 +850,7 @@ const ROUTES = {
   herdsettings: { t: 'إعدادات الحظيرة', back: true, fn: screenHerdSettings },
   contacts: { t: 'دليل التواصل', back: true, fn: screenContacts },
   festivals: { t: 'دليل المهرجانات', back: true, fn: screenFestivals },
+  exchange: { t: 'تبادل المعلومات', back: true, fn: screenExchange },
   trash: { t: 'سلة المحذوفات', back: true, fn: screenTrash },
   archive: { t: 'الأرشيف', back: true, fn: screenArchive },
   editlog: { t: 'سجل التعديلات', back: true, fn: screenEditLog },
@@ -3532,6 +3533,7 @@ function quickMenuCats() {
       I(can('animals', 'view'), '🎪 دليل المهرجانات (سباقات/مزايدات/معارض)', '#/festivals'),
       I(can('animals', 'view'), '📓 دفتر الملاحظات', '#/notes'),
       I(can('animals', 'view'), '📜 سجل التعديلات (كل الأنواع)', '#/editlog'),
+      I(can('animals', 'view'), '🔄 تبادل المعلومات (تصدير/استيراد مع مربّين آخرين)', '#/exchange'),
     ].filter(Boolean) },
   ];
 }
@@ -3893,6 +3895,91 @@ function exportCsv() {
   const head = ['النوع', 'الحظيرة', 'المعرف', 'نوع المعرف', 'الاسم', 'الجنس', 'المصدر', 'تاريخ الميلاد', 'اللون', 'الحالة', 'تاريخ البيع', 'سعر البيع', 'تاريخ النفوق', 'رقم الأم', 'اسم الأب', 'ملاحظات'];
   const rows = C.animals.map(a => [arOf(TYPES, a.type), animalPenName(a), a.code, arOf(IDKIND, a.idkind), a.name, arOf(SEX, a.sex), arOf(SOURCE, a.source || 'purchased'), a.birth, a.color, arOf(STATUS, a.status), a.sale_date || '', a.sale_price != null ? a.sale_price : '', a.dead_date || '', a.mother_id ? (animalById(a.mother_id) || {}).code || '' : (a.mother_name || ''), a.father_name, a.notes].map(cell).join(','));
   shareOrDownload('mrahi_animals_' + stamp() + '.csv', '﻿' + head.join(',') + '\n' + rows.join('\n'), 'text/csv');
+}
+
+/* ===== تبادل المعلومات — تصدير/استيراد دليل التواصل والمهرجانات والملاحظات وفحول خارج المراح بين مستخدمي التطبيق =====
+   عمداً مقتصر على معلومات لا تخصّ حلالك الخاص (لا بهائم ولا سجلات صحية) — قابلة للمشاركة بأمان مع مربٍّ آخر.
+   الاستيراد يُضيف لبياناتك الحالية ولا يستبدلها، ويتجاهل أي عنصر مطابق (نفس الاسم/الرقم) لعنصر لديك أصلاً. */
+function screenExchange() {
+  if (!can('animals', 'view')) { view().innerHTML = noPerm(); return; }
+  const contacts = loadContacts(), festivals = loadFestivals(), extSires = loadExternalSires();
+  view().innerHTML = `<div class="muted" style="margin-bottom:8px">صدّر بعض معلوماتك العامة (لا تخصّ حلالك الخاص) وشاركها مع مربٍّ آخر يستخدم حلالي — عبر واتساب أو أي وسيلة أخرى — ليستوردها في تطبيقه، أو استورد ملفاً وصلك منه.</div>
+    <div class="card"><h3>📤 تصدير</h3>
+      <label class="check" style="display:flex;align-items:center;gap:8px;margin:6px 0"><input type="checkbox" id="ex_contacts" checked> 📇 دليل التواصل (${contacts.length})</label>
+      <label class="check" style="display:flex;align-items:center;gap:8px;margin:6px 0"><input type="checkbox" id="ex_festivals" checked> 🎪 دليل المهرجانات (${festivals.length})</label>
+      <label class="check" style="display:flex;align-items:center;gap:8px;margin:6px 0"><input type="checkbox" id="ex_notes" checked> 📓 دفتر الملاحظات (<span id="ex_notes_count">…</span>)</label>
+      <label class="check" style="display:flex;align-items:center;gap:8px;margin:6px 0"><input type="checkbox" id="ex_sires" checked> 🐏 فحول خارج المراح (${extSires.length})</label>
+      <button class="btn" id="ex_go" style="margin-top:8px">📤 مشاركة/تصدير المحدَّد</button>
+    </div>
+    <div class="card"><h3>📥 استيراد</h3>
+      <div class="muted" style="font-size:.82rem;margin-bottom:8px">اختر ملف «تبادل معلومات» وصلك من مربٍّ آخر (نفس نوع الملف الذي يصدّره هذا القسم) — يُضاف لبياناتك الحالية، لا يستبدلها.</div>
+      <label class="btn outline" style="cursor:pointer">📂 اختيار ملف واستيراد<input type="file" id="ex_file" accept="application/json,.json" style="display:none"></label>
+    </div>`;
+  (async () => { try { const { data } = await sb.from('mrahi_notes').select('*'); const el = document.getElementById('ex_notes_count'); if (el) el.textContent = String((data || []).length); } catch (e) {} })();
+
+  document.getElementById('ex_go').addEventListener('click', async () => {
+    const pkg = { exportedAt: new Date().toISOString(), app: 'حلالي' };
+    let any = false;
+    if (document.getElementById('ex_contacts').checked) { pkg.contacts = loadContacts(); any = true; }
+    if (document.getElementById('ex_festivals').checked) { pkg.festivals = loadFestivals(); any = true; }
+    if (document.getElementById('ex_sires').checked) { pkg.externalSires = loadExternalSires(); any = true; }
+    if (document.getElementById('ex_notes').checked) { try { const { data } = await sb.from('mrahi_notes').select('*'); pkg.notes = data || []; any = true; } catch (e) {} }
+    if (!any) { toast('اختر عنصراً واحداً على الأقل'); return; }
+    shareOrDownload('حلالي-تبادل-معلومات-' + stamp() + '.json', JSON.stringify(pkg, null, 2), 'application/json');
+  });
+
+  document.getElementById('ex_file').addEventListener('change', async (e) => {
+    const file = e.target.files[0]; e.target.value = '';
+    if (!file) return;
+    let pkg;
+    try { pkg = JSON.parse(await file.text()); } catch (err) { toast('الملف غير صالح — تأكّد أنه ملف تبادل معلومات من حلالي'); return; }
+    const counts = { contacts: (pkg.contacts || []).length, festivals: (pkg.festivals || []).length, notes: (pkg.notes || []).length, externalSires: (pkg.externalSires || []).length };
+    if (!counts.contacts && !counts.festivals && !counts.notes && !counts.externalSires) { toast('لا توجد بيانات قابلة للاستيراد في هذا الملف'); return; }
+    const summary = [
+      counts.contacts ? `📇 ${counts.contacts} جهة تواصل` : '',
+      counts.festivals ? `🎪 ${counts.festivals} مهرجان/فعالية` : '',
+      counts.notes ? `📓 ${counts.notes} ملاحظة` : '',
+      counts.externalSires ? `🐏 ${counts.externalSires} فحل خارجي` : '',
+    ].filter(Boolean).join(' • ');
+    if (!await confirm2(`استيراد: ${summary}؟ تُضاف إلى بياناتك الحالية (لا تستبدلها)، وتُتجاهَل أي عناصر مطابقة لعناصر لديك أصلاً.`)) return;
+    const ok = await guard(async () => { await importExchangePackage(pkg); });
+    if (ok) { toast('تم الاستيراد'); await loadAll(); screenExchange(); }
+  });
+}
+// يولّد معرّفاً محلياً فريداً جديداً للعنصر المستورَد (بنفس تقليد id النصّي لهذه القوائم) — لا يُعاد استخدام معرّف المُصدِّر أبداً
+const newLocalId = (prefix) => prefix + Date.now() + Math.random().toString(36).slice(2, 7);
+async function importExchangePackage(pkg) {
+  if (Array.isArray(pkg.contacts)) {
+    const cur = loadContacts();
+    const key = (c) => (c.name || '') + '|' + (c.phone || '');
+    const existing = new Set(cur.map(key));
+    const toAdd = pkg.contacts.filter(c => c && c.name && !existing.has(key(c))).map(c => Object.assign({}, c, { id: newLocalId('c') }));
+    if (toAdd.length) saveContacts(cur.concat(toAdd));
+  }
+  if (Array.isArray(pkg.festivals)) {
+    const cur = loadFestivals();
+    const key = (f) => (f.name || '') + '|' + (f.date || '');
+    const existing = new Set(cur.map(key));
+    const toAdd = pkg.festivals.filter(f => f && f.name && !existing.has(key(f))).map(f => Object.assign({}, f, { id: newLocalId('fx') }));
+    if (toAdd.length) saveFestivals(cur.concat(toAdd));
+  }
+  if (Array.isArray(pkg.externalSires)) {
+    const cur = loadExternalSires();
+    const key = (s) => (s.code || '') + '|' + (s.name || '');
+    const existing = new Set(cur.map(key));
+    const toAdd = pkg.externalSires.filter(s => s && (s.code || s.name) && !existing.has(key(s))).map(s => Object.assign({}, s, { id: newLocalId('exs') }));
+    if (toAdd.length) saveExternalSires(cur.concat(toAdd));
+  }
+  if (Array.isArray(pkg.notes)) {
+    let curNotes = [];
+    try { const { data } = await sb.from('mrahi_notes').select('*'); curNotes = data || []; } catch (e) {}
+    const key = (n) => (n.title || '') + '|' + (n.detail || '');
+    const existing = new Set(curNotes.map(key));
+    for (const n of pkg.notes) {
+      if (!n || !n.title || existing.has(key(n))) continue;
+      try { await sb.from('mrahi_notes').insert({ title: n.title, detail: n.detail || '' }); } catch (e) { /* أفضل جهد */ }
+    }
+  }
 }
 
 /* ===== تفقد الحلال وإحصائيات ===== */
