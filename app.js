@@ -1641,9 +1641,11 @@ function screenAnimalEdit(arg) {
           if (o.idkind !== 'tag') o.tag_shape = '';
           await dbInsert('animals', o);
         }
+        await closeMotherMonitoringPregnancy(obj.mother_id);
         return;
       }
       const inserted = await dbInsert('animals', obj);
+      if (obj.source === 'born') await closeMotherMonitoringPregnancy(obj.mother_id);
       // مشترى مصحوبة بمواليد: تُنشأ لها بهائم مواليد مستقلّة مربوطة بها كأمّ (لا تُحتسب ضمن كفاءة إنجاجها داخل الحلال)
       if (obj.source === 'purchased') {
         const ho = document.getElementById('f_hasoff');
@@ -2036,6 +2038,14 @@ function screenAnimalDetail(arg) {
   if (can('animals', 'edit')) addFab('✎ تعديل', () => setHash('#/animal-edit/' + id));
 }
 
+// أي مولود يُسجَّل مربوطاً بأمّه يعني أن حملها انتهى فعلياً بولادة — يُغلق تلقائياً أي حمل «تحت المتابعة» متبقٍّ
+// لها (بصرف النظر عن طريقة إضافة المولود: نموذج الإضافة العام، أو «➕ إضافة مواليد»، أو «تسجيل ولادة» من شاشة الحمل)
+// حتى لا يبقى تناقضاً — حمل لا يزال «تحت المتابعة» وولادة الأم مسجَّلة فعلاً في الوقت نفسه.
+async function closeMotherMonitoringPregnancy(motherId) {
+  if (!motherId) return;
+  const active = (C.pregnancies || []).filter(p => p.animal_id === motherId && p.status === 'monitoring');
+  for (const p of active) { try { await dbUpdate('pregnancies', p.id, { status: 'born' }, true); } catch (e) { /* أفضل جهد */ } }
+}
 /* ===== إضافة نتاج (مواليد) للأم — عند العدد > 1 تُفتح حقول كاملة مستقلّة لكل مولود، وربط بالأم ===== */
 function addOffspringModal(mother) {
   openModal('مواليد ' + display(mother), `
@@ -2113,6 +2123,7 @@ function addOffspringModal(mother) {
             if (o.idkind !== 'tag') o.tag_shape = '';
             await dbInsert('animals', o);
           }
+          await closeMotherMonitoringPregnancy(mother.id);
         });
         if (ok) { closeModal(); lastPen = pen; try { localStorage.setItem('mrahi_last_pen', pen == null ? '' : String(pen)); } catch (e) {} toast(`أُضيف ${n} مولوداً`); await loadAll(); screenAnimalDetail(String(mother.id)); }
         return;
@@ -2132,7 +2143,7 @@ function addOffspringModal(mother) {
       if (!await confirm2(`إضافة ${codes.length} مولوداً وربطها بـ${display(mother)}؟`)) return;
       const sex = val('of_sex');
       const single = Object.assign({}, base, { sex, purpose: sex === 'male' ? val('of_purpose') : '', designation: val('of_des'), color: '', birth: val('of_birth') || null });
-      const ok = await guard(async () => { for (const code of codes) await dbInsert('animals', { ...single, idkind: idkindFor(code), code, name: '' }); });
+      const ok = await guard(async () => { for (const code of codes) await dbInsert('animals', { ...single, idkind: idkindFor(code), code, name: '' }); await closeMotherMonitoringPregnancy(mother.id); });
       if (ok) { closeModal(); lastPen = pen; try { localStorage.setItem('mrahi_last_pen', pen == null ? '' : String(pen)); } catch (e) {} toast(`أُضيف ${codes.length} مولوداً`); await loadAll(); screenAnimalDetail(String(mother.id)); }
     });
   });
