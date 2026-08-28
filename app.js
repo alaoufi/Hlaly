@@ -1827,10 +1827,27 @@ function screenAnimalDetail(arg) {
   const offCount = C.animals.filter(x => x.mother_id === id || x.father_id === id).length;
   const monPreg = pregs.filter(p => p.status === 'monitoring').sort((x, y) => y.id - x.id)[0];   // الأحدث دائماً (لا يبقى معلَّقاً على تلقيح قديم)
   // سطر حالة إنجابية ثابت لا يختفي أبداً: يعكس آخر نشاط (حمل حالي، أو نتيجة آخر تلقيح مهما كانت)
+  // بمجرّد الولادة أو الإجهاض ينتهي دور «تاريخ التلقيح» — لا يُعرض بعدها؛ الولادة تُستبدَل بتاريخها هي (+ الفطام
+  // والانضمام للحظيرة إن كانت مُعدَّتين لهذا النوع)، والإجهاض بتاريخ الإجهاض. يُحتسب حسابياً من بيانات موجودة أصلاً،
+  // فينطبق تلقائياً على كل الحالات القديمة أيضاً دون أي هجرة بيانات.
   const reproStatusLine = (() => {
     if (monPreg) return row('🤰 الحالة الحالية', 'حامل — تلقيح ' + fmtDate(monPreg.mating_date) + ' • ولادة متوقّعة ' + fmtDate(monPreg.expected));
     const latestPreg = pregs.slice().sort((x, y) => y.id - x.id)[0];
-    if (latestPreg) return row('الحالة الحالية', (latestPreg.status === 'aborted' ? '🩸 آخر حمل انتهى بإجهاض' : latestPreg.status === 'born' ? '👶 آخر حمل انتهى بولادة' : '⭕ لم يثبت آخر حمل') + ' — تلقيح ' + fmtDate(latestPreg.mating_date));
+    if (latestPreg) {
+      if (latestPreg.status === 'aborted') return row('الحالة الحالية', '🩸 آخر حمل انتهى بإجهاض' + (latestPreg.abort_date ? ' — ' + fmtDate(latestPreg.abort_date) : ''));
+      if (latestPreg.status === 'born') {
+        const bDates = offspring.map(o => o.birth).filter(Boolean).sort();
+        const lastB = bDates.length ? bDates[bDates.length - 1] : null;
+        if (!lastB) return row('الحالة الحالية', '👶 آخر حمل انتهى بولادة');
+        const wd = careReminderFor(a.type).weaningDays;
+        const cr = countRuleFor(a.type);
+        const parts = ['👶 آخر حمل انتهى بولادة ' + fmtDate(lastB)];
+        if (wd) parts.push('🍼 فطام متوقّع ' + fmtDate(addDays(lastB, wd)));
+        if (cr.mode === 'age' && cr.age > 0) parts.push('📅 فصل المولود عن أمّه/انضمامه للحظيرة متوقّع ' + fmtDate(addMonths(lastB, cr.age)));
+        return row('الحالة الحالية', parts.join(' • '));
+      }
+      return row('الحالة الحالية', '⭕ لم يثبت آخر حمل — تلقيح ' + fmtDate(latestPreg.mating_date));
+    }
     const latestMating = matings.slice().sort((x, y) => (y.date || '').localeCompare(x.date || ''))[0];
     if (latestMating) return row('الحالة الحالية', 'آخر تلقيح ' + fmtDate(latestMating.date) + ' — بلا متابعة حمل');
     return row('الحالة الحالية', 'لا يوجد تلقيح مسجّل بعد');
