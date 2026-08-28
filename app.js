@@ -2047,6 +2047,16 @@ async function closeMotherMonitoringPregnancy(motherId) {
   const active = (C.pregnancies || []).filter(p => p.animal_id === motherId && p.status === 'monitoring');
   for (const p of active) { try { await dbUpdate('pregnancies', p.id, { status: 'born' }, true); } catch (e) { /* أفضل جهد */ } }
 }
+// إصلاح ذاتي عند كل إقلاع: حمل «تحت المتابعة» يبقى كذلك للأبد لو سُجِّل مولوده قبل إضافة الإغلاق التلقائي أعلاه
+// (نسخة تطبيق أقدم) — أي حمل تحت المتابعة له مولود بأمّه بتاريخ ميلاد لاحق لتاريخ تلقيح ذلك الحمل يُغلَق تلقائياً
+// كـ«ولدت»، فلا يبقى معروضاً «حامل» و«تحت المتابعة» رغم أن الولادة سُجِّلت فعلاً. يعمل بصمت على كل الحسابات دفعة واحدة.
+async function fixStaleMonitoringPregnancies() {
+  const stale = (C.pregnancies || []).filter(p => p.status === 'monitoring'
+    && (C.animals || []).some(o => o.mother_id === p.animal_id && o.birth && (!p.mating_date || o.birth >= p.mating_date)));
+  if (!stale.length) return;
+  for (const p of stale) { try { await dbUpdate('pregnancies', p.id, { status: 'born' }, true); } catch (e) { /* أفضل جهد */ } }
+  await loadAll();
+}
 /* ===== إضافة نتاج (مواليد) للأم — عند العدد > 1 تُفتح حقول كاملة مستقلّة لكل مولود، وربط بالأم ===== */
 function addOffspringModal(mother) {
   openModal('مواليد ' + display(mother), `
@@ -4861,7 +4871,7 @@ async function startLocalMode() {
   me = { user_id: 'local', full_name: '', role: 'admin', is_active: true, is_sysadmin: true, perms: {}, account_type: 'owner' };
   document.getElementById('app').classList.remove('hidden');
   showLoading(true);
-  try { await loadAll(); } catch (e) { toast('خطأ تحميل: ' + e.message); }
+  try { await loadAll(); await fixStaleMonitoringPregnancies(); } catch (e) { toast('خطأ تحميل: ' + e.message); }
   buildNav();
   showLoading(false);
   if (!location.hash) location.hash = '#/home';
