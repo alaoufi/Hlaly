@@ -1829,6 +1829,15 @@ function screenAnimalDetail(arg) {
   // ملخّص فوري: العمر • المواليد • حالة الحمل • تحت التحريم
   const offCount = C.animals.filter(x => x.mother_id === id || x.father_id === id).length;
   const monPreg = pregs.filter(p => p.status === 'monitoring').sort((x, y) => y.id - x.id)[0];   // الأحدث دائماً (لا يبقى معلَّقاً على تلقيح قديم)
+  // تاريخ الولادة الفعلي المطابق لحمل بعينه (لا التقريبي المحسوب من التلقيح+مدة الحمل) — أقرب مولود بتاريخ لاحق
+  // لتلقيح هذا الحمل تحديداً إلى موعده المتوقّع؛ يُستخدَم بدل «الولادة التقريبية» بمجرّد أن يُصبح الحمل «ولدت» فعلياً.
+  const birthDateForPregnancy = (p) => {
+    const cands = offspring.map(o => o.birth).filter(Boolean).filter(d => !p.mating_date || d >= p.mating_date);
+    if (!cands.length) return null;
+    if (!p.expected) return cands.sort()[0];
+    const expT = new Date(p.expected + 'T00:00:00').getTime();
+    return cands.reduce((best, d) => Math.abs(new Date(d + 'T00:00:00').getTime() - expT) < Math.abs(new Date(best + 'T00:00:00').getTime() - expT) ? d : best);
+  };
   // سطر حالة إنجابية ثابت لا يختفي أبداً: يعكس آخر نشاط (حمل حالي، أو نتيجة آخر تلقيح مهما كانت)
   // بمجرّد الولادة أو الإجهاض ينتهي دور «تاريخ التلقيح» — لا يُعرض بعدها؛ الولادة تُستبدَل بتاريخها هي (+ الفطام
   // والانضمام للحظيرة إن كانت مُعدَّتين لهذا النوع)، والإجهاض بتاريخ الإجهاض. يُحتسب حسابياً من بيانات موجودة أصلاً،
@@ -1839,8 +1848,7 @@ function screenAnimalDetail(arg) {
     if (latestPreg) {
       if (latestPreg.status === 'aborted') return row('الحالة الحالية', '🩸 آخر حمل انتهى بإجهاض' + (latestPreg.abort_date ? ' — ' + fmtDate(latestPreg.abort_date) : ''));
       if (latestPreg.status === 'born') {
-        const bDates = offspring.map(o => o.birth).filter(Boolean).sort();
-        const lastB = bDates.length ? bDates[bDates.length - 1] : null;
+        const lastB = birthDateForPregnancy(latestPreg);
         if (!lastB) return row('الحالة الحالية', '👶 آخر حمل انتهى بولادة');
         const wd = careReminderFor(a.type).weaningDays;
         const cr = countRuleFor(a.type);
@@ -1915,9 +1923,10 @@ function screenAnimalDetail(arg) {
         ? editRow('تلقيح ' + fmtDate(m.date), 'الفحل: ' + (esc(m.sire_name) || esc(m.sire_code) || '—'), 'medit', m.id)
         : row('تلقيح ' + fmtDate(m.date), 'الفحل: ' + (esc(m.sire_name) || esc(m.sire_code) || '—'))).join('')}
       ${pregs.map(p => {
-        const sub = p.status === 'aborted'
-          ? (p.abort_gest_days != null ? 'عمر الحمل عند الإجهاض ' + p.abort_gest_days + ' يوم' : 'مسجّل') + (p.abort_cause ? ' • السبب: ' + esc(p.abort_cause) : '')
-          : 'الولادة التقريبية ' + fmtDate(p.expected) + ' • مدة الحمل ' + p.gest + ' يوم';
+        let sub;
+        if (p.status === 'aborted') sub = (p.abort_gest_days != null ? 'عمر الحمل عند الإجهاض ' + p.abort_gest_days + ' يوم' : 'مسجّل') + (p.abort_cause ? ' • السبب: ' + esc(p.abort_cause) : '');
+        else if (p.status === 'born') { const bd = birthDateForPregnancy(p); sub = bd ? 'تمت الولادة بتاريخ ' + fmtDate(bd) : 'ولدت'; }
+        else sub = 'الولادة التقريبية ' + fmtDate(p.expected) + ' • مدة الحمل ' + p.gest + ' يوم';
         const title = p.status === 'aborted' ? 'حمل (🩸 أجهضت)' : 'حمل (' + arOf(PREG, p.status) + ')' + (p.confirmed ? ' 🔊' : '');
         return can('breeding', 'edit') ? editRow(title, sub, 'pedit', p.id) : row(title, sub);
       }).join('')}
