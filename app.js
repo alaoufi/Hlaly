@@ -814,6 +814,7 @@ const ROUTES = {
   carereminders: { t: 'تذكيرات الرعاية', back: true, fn: screenCareReminders },
   herdsettings: { t: 'إعدادات الحظيرة', back: true, fn: screenHerdSettings },
   contacts: { t: 'دليل التواصل', back: true, fn: screenContacts },
+  festivals: { t: 'دليل المهرجانات', back: true, fn: screenFestivals },
   trash: { t: 'سلة المحذوفات', back: true, fn: screenTrash },
   archive: { t: 'الأرشيف', back: true, fn: screenArchive },
   editlog: { t: 'سجل التعديلات', back: true, fn: screenEditLog },
@@ -2995,6 +2996,53 @@ function contactModal(c) {
   });
 }
 
+/* ===== دليل المهرجانات — مهرجانات وفعاليات الحلال (سباقات/مزايدات/معارض) بتاريخها ومكانها — محلي على الجهاز ===== */
+function loadFestivals() { try { return JSON.parse(localStorage.getItem('mrahi_festivals') || '[]') || []; } catch (e) { return []; } }
+function saveFestivals(a) { try { localStorage.setItem('mrahi_festivals', JSON.stringify(a)); } catch (e) {} }
+function screenFestivals() {
+  if (!can('animals', 'view')) { view().innerHTML = noPerm(); return; }
+  const canEdit = can('animals', 'edit');
+  const list = loadFestivals();
+  const today = todayStr();
+  const upcoming = list.filter(f => !f.date || f.date >= today).sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+  const past = list.filter(f => f.date && f.date < today).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  const card = (f, isPast) => `<div class="card"${isPast ? ' style="opacity:.7"' : ''}>
+      <div class="li-title">🎪 ${esc(f.name)}</div>
+      <div class="li-sub">${f.date ? '📅 ' + fmtDate(f.date) : '📅 بلا تاريخ'}${f.location ? ' • 📍 ' + esc(f.location) : ''}</div>
+      ${f.notes ? `<div class="li-sub">📝 ${esc(f.notes)}</div>` : ''}
+      ${canEdit ? `<div class="btn-row" style="margin-top:6px"><button class="btn sm outline" data-fedit="${f.id}">تعديل</button><button class="btn sm danger" data-fdel="${f.id}">حذف</button></div>` : ''}
+    </div>`;
+  view().innerHTML = `<div class="muted" style="margin-bottom:8px">مهرجانات وفعاليات الحلال (سباقات/مزايدات/معارض) بتاريخها ومكانها — محفوظة على جهازك، منفصلة عن دليل التواصل.</div>`
+    + (canEdit ? `<button class="btn" id="fx_add">➕ إضافة مهرجان/فعالية</button>` : '')
+    + (upcoming.length ? `<div class="li-title" style="margin:12px 2px 6px;color:var(--green)">🟢 قادمة (${upcoming.length})</div>` + upcoming.map(f => card(f, false)).join('') : '')
+    + (past.length ? `<div class="li-title" style="margin:12px 2px 6px">سابقة (${past.length})</div>` + past.map(f => card(f, true)).join('') : '')
+    + (!list.length ? '<div class="center-empty">لا توجد مهرجانات مسجّلة بعد — أضِف أول مهرجان أو فعالية.</div>' : '');
+  const fa = document.getElementById('fx_add'); if (fa) fa.addEventListener('click', () => festivalModal(null));
+  view().querySelectorAll('[data-fedit]').forEach(b => b.addEventListener('click', () => { const f = loadFestivals().find(x => String(x.id) === b.dataset.fedit); if (f) festivalModal(f); }));
+  view().querySelectorAll('[data-fdel]').forEach(b => b.addEventListener('click', async () => {
+    if (!await confirm2('حذف هذا المهرجان/الفعالية؟')) return;
+    saveFestivals(loadFestivals().filter(x => String(x.id) !== b.dataset.fdel));
+    toast('حُذف'); screenFestivals();
+  }));
+}
+function festivalModal(f) {
+  openModal(f ? 'تعديل مهرجان/فعالية' : 'إضافة مهرجان/فعالية', `
+    ${fInput('اسم المهرجان/الفعالية', 'fx_name', f && f.name)}
+    ${fInput('التاريخ', 'fx_date', f && f.date, 'date')}
+    ${fInput('المكان', 'fx_loc', f && f.location)}
+    ${fTextarea('ملاحظات (اختياري)', 'fx_notes', f && f.notes)}
+    <button class="btn" id="fx_save">حفظ</button>`, () => {
+    document.getElementById('fx_save').addEventListener('click', () => {
+      const name = val('fx_name').trim(); if (!name) { toast('اكتب اسم المهرجان/الفعالية'); return; }
+      const list = loadFestivals();
+      const obj = { name, date: val('fx_date') || '', location: val('fx_loc').trim(), notes: val('fx_notes').trim() };
+      if (f) { const i = list.findIndex(x => String(x.id) === String(f.id)); if (i >= 0) list[i] = Object.assign({}, list[i], obj); }
+      else { obj.id = 'fx' + new Date().getTime(); list.push(obj); }
+      saveFestivals(list); closeModal(); toast('تم الحفظ'); screenFestivals();
+    });
+  });
+}
+
 /* ===== فحول المراح — كل ذكر غرضه «فحل للقطيع» (شراءً أو مولوداً أو تحويلاً) ===== */
 function screenSires() {
   if (!can('animals', 'view')) { view().innerHTML = noPerm(); return; }
@@ -3383,6 +3431,7 @@ function quickMenuCats() {
     ].filter(Boolean) },
     { key: 'tools', title: '🗂️ أدوات أخرى', items: [
       I(can('animals', 'view'), '📇 دليل التواصل (زبائن/بيطري…)', '#/contacts'),
+      I(can('animals', 'view'), '🎪 دليل المهرجانات (سباقات/مزايدات/معارض)', '#/festivals'),
       I(can('animals', 'view'), '📓 دفتر الملاحظات', '#/notes'),
       I(can('animals', 'view'), '📜 سجل التعديلات (كل الأنواع)', '#/editlog'),
     ].filter(Boolean) },
