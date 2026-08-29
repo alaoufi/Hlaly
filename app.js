@@ -212,14 +212,28 @@ function sireLineageChain(nameOrCode) {
   }
   return chain;
 }
-function sireSelectHtml(id, placeholder) {
-  const sires = siresList(), ext = loadExternalSires();
+// الفحل لا يمكن أن يكون من نوع حلال غير نوع البهيمة (لا فحل ماعز لأب إبل مثلاً) — type يحصر الخيارات بنوع واحد فقط.
+// الفحول الخارجية القديمة المُضافة قبل وجود حقل النوع (type غائب) تبقى ظاهرة لكل الأنواع احتياطاً حتى تُعدَّل يدوياً.
+function sireOptionsInner(type, placeholder) {
+  const sires = siresList().filter(s => !type || s.type === type);
+  const ext = loadExternalSires().filter(s => !type || !s.type || s.type === type);
   if (!sires.length && !ext.length) return '';
   const ph = placeholder || '— اختر فحلاً (من الحظيرة أو خارجها)، أو اترك فارغاً واكتب يدوياً —';
-  const opts = `<option value="">${ph}</option>`
+  return `<option value="">${ph}</option>`
     + (sires.length ? '<optgroup label="🏠 داخل المراح">' + sires.map(s => `<option value="a:${s.id}">${display(s)}</option>`).join('') + '</optgroup>' : '')
     + (ext.length ? '<optgroup label="🌍 خارج المراح">' + ext.map(s => `<option value="e:${s.id}">${externalSireLabel(s)}</option>`).join('') + '</optgroup>' : '');
-  return `<div class="field"><select id="${id}">${opts}</select></div>`;
+}
+function sireSelectHtml(id, placeholder, type) {
+  const inner = sireOptionsInner(type, placeholder);
+  return `<div class="field${inner ? '' : ' hidden'}" id="${id}_wrap">${inner ? `<select id="${id}">${inner}</select>` : ''}</div>`;
+}
+// يعيد بناء قائمة الفحول عند تغيّر نوع الحلال (مثلاً في نموذج إضافة/تعديل بهيمة) — onRebind تُعاد فيها ربط أحداث التغيير لأن العنصر استُبدل
+function rebuildSireSelect(id, type, placeholder, onRebind) {
+  const wrap = document.getElementById(id + '_wrap'); if (!wrap) return;
+  const inner = sireOptionsInner(type, placeholder);
+  wrap.classList.toggle('hidden', !inner);
+  wrap.innerHTML = inner ? `<select id="${id}">${inner}</select>` : '';
+  if (inner && onRebind) onRebind();
 }
 // يحلّ قيمة اختيار موحّدة (a:<id> داخلي أو e:<id> خارجي) إلى {code, name} جاهزَين لملء الحقول
 function resolveSireOption(value) {
@@ -1555,7 +1569,7 @@ function screenAnimalEdit(arg) {
     <div class="card"><h3>النسب</h3>
       <div id="motherSelectBox">${fAnimalSelect('الأم', 'f_mother', a && a.mother_id, females, '— بدون —')}</div>
       <div id="motherTextBox" style="display:none">${fInput('الأم (اسم/وصف — اختياري، من خارج الحظيرة)', 'f_mother_name', a && a.mother_name)}</div>
-      ${sireSelectHtml('f_fatherSel', '— يختار الأب من داخل أو خارج الحظيرة، أو اترك فارغاً واكتب يدوياً —')}
+      ${sireSelectHtml('f_fatherSel', '— يختار الأب من داخل أو خارج الحظيرة، أو اترك فارغاً واكتب يدوياً —', a ? a.type : (animalFilter || 'sheep'))}
       ${fInput('الأب / الفحل (اسم أو رقم)', 'f_father', a && a.father_name)}</div>
     <div class="card"><h3>ملاحظات</h3>${fTextarea('ملاحظات', 'f_notes', a && a.notes)}</div>
     <button class="btn" id="saveBtn">حفظ</button>
@@ -1631,7 +1645,11 @@ function screenAnimalEdit(arg) {
   syncSource();
   bindPenField('f_pen');
   bindSireSelectSingle('f_fatherSel', 'f_father');
-  document.getElementById('f_type').addEventListener('change', () => rebuildPen('f_pen', val('f_type')));   // حظائر النوع المحدّد فقط
+  document.getElementById('f_type').addEventListener('change', () => {
+    rebuildPen('f_pen', val('f_type'));   // حظائر النوع المحدّد فقط
+    // فحول النوع المحدّد فقط — لا يصحّ أب من نوع حلال آخر (ماعز/إبل/غنم...)
+    rebuildSireSelect('f_fatherSel', val('f_type'), '— يختار الأب من داخل أو خارج الحظيرة، أو اترك فارغاً واكتب يدوياً —', () => bindSireSelectSingle('f_fatherSel', 'f_father'));
+  });
   // إدخال صوتي ومسح بالكاميرا للحقول المناسبة (تظهر الأزرار فقط إن دعمها الجهاز)
   attachMic('f_code', { digits: true }); attachScan('f_code');
   attachMic('f_name'); attachMic('f_color'); attachMic('f_father'); attachMic('f_mother_name'); attachMic('f_notes', { append: true });
@@ -2221,7 +2239,7 @@ function screenMating(arg) {
   view().innerHTML = `<div class="card"><h3>سجل التلقيح</h3>
     ${preset ? row('البهيمة', display(preset)) : fAnimalSelect('البهيمة (الأم)', 'm_animal', 0, females)}
     ${fInput('تاريخ التلقيح', 'm_date', todayStr(), 'date')}
-    ${sireSelectHtml('m_sireSel')}
+    ${sireSelectHtml('m_sireSel', null, preset ? preset.type : null)}
     ${fInput('رقم الفحل', 'm_sireCode', '')}
     ${fInput('اسم الفحل', 'm_sireName', '')}
     ${fTextarea('ملاحظات', 'm_notes', '')}
@@ -2252,9 +2270,10 @@ function screenMating(arg) {
 function matingEditModal(m) {
   const linkedPreg = C.pregnancies.find(p => p.mating_id === m.id && p.status === 'monitoring');
   const allLinkedPregs = C.pregnancies.filter(p => p.mating_id === m.id);
+  const matedAnimal = animalById(m.animal_id);
   openModal('تعديل التلقيح', `
     ${fInput('تاريخ التلقيح', 'me_date', m.date, 'date')}
-    ${sireSelectHtml('me_sireSel')}
+    ${sireSelectHtml('me_sireSel', null, matedAnimal ? matedAnimal.type : null)}
     ${fInput('رقم الفحل', 'me_sireCode', m.sire_code)}
     ${fInput('اسم الفحل', 'me_sireName', m.sire_name)}
     ${fTextarea('ملاحظات', 'me_notes', m.notes)}
@@ -2498,7 +2517,7 @@ function openBirthModal(preg) {
   openModal('تسجيل ولادة — ' + display(mother), `
     ${fInput('عدد المواليد', 'b_count', '1', 'number', 'min="1" inputmode="numeric"')}
     ${fInput('تاريخ الولادة', 'b_date', todayStr(), 'date')}
-    ${sireSelectHtml('b_sireSel')}
+    ${sireSelectHtml('b_sireSel', null, mother ? mother.type : null)}
     ${fInput('الأب / الفحل', 'b_father', '')}
     <div id="bSingle">
       ${fSelect('الجنس', 'b_sex', SEX, 'female')}
@@ -3110,7 +3129,8 @@ function screenSires() {
   if (!can('animals', 'view')) { view().innerHTML = noPerm(); return; }
   // فحل خرج من الحظيرة (بيع/نفوق/اهداء/فقد/ذبح) ينتقل إلى 🗄️ الأرشيف ولا يظهر هنا إطلاقاً
   const present = sortAnimals(C.animals.filter(a => a.sex === 'male' && a.purpose === 'sire' && a.status === 'present' && (!animalFilter || a.type === animalFilter)));
-  const extSires = loadExternalSires();
+  // فحول خارجية أُضيفت قبل وجود حقل النوع (type غائب) تبقى ظاهرة مع كل تصفية احتياطاً حتى تُعدَّل يدوياً
+  const extSires = loadExternalSires().filter(s => !animalFilter || !s.type || s.type === animalFilter);
   const canEdit = can('animals', 'edit');
   const chainRow = (fatherText) => { const chain = fatherText ? sireLineageChain(fatherText) : []; return chain.length ? `<div class="li-sub link" style="color:var(--green)">🔗 النسب: ${chain.map(esc).join(' ← ')}</div>` : ''; };
   const card = (s) => {
@@ -3127,6 +3147,7 @@ function screenSires() {
   };
   const extCard = (s) => `<div class="card" style="margin:6px 0">
       <div class="li-title">🌍 🐏 ${externalSireLabel(s)}</div>
+      <div class="li-sub">${s.type ? arOf(TYPES, s.type) : 'نوع غير محدَّد — عدِّله لحصره بقائمة اختيار الأب الصحيحة'}</div>
       ${s.ownerName || s.ownerPhone ? `<div class="li-sub">👤 صاحبه: ${esc(s.ownerName) || '—'}${s.ownerPhone ? ' • 📞 ' + esc(s.ownerPhone) : ''}</div>` : ''}
       ${chainRow(s.fatherName)}
       ${s.notes ? `<div class="li-sub">📝 ${esc(s.notes)}</div>` : ''}
@@ -3148,7 +3169,7 @@ function screenSires() {
   view().querySelectorAll('[data-kids]').forEach(el => el.addEventListener('click', (e) => { e.stopPropagation(); const s = animalById(parseInt(el.dataset.kids, 10)); if (s) animalListModal('أبناء وبنات 🐏 ' + display(s), sireOffspring(s)); }));
   view().querySelectorAll('[data-dams]').forEach(el => el.addEventListener('click', (e) => { e.stopPropagation(); const s = animalById(parseInt(el.dataset.dams, 10)); if (s) animalListModal('الإناث التي لقّحها 🐏 ' + display(s), sireMatedFemales(s)); }));
   const ab = document.getElementById('s_addbuy'); if (ab) ab.addEventListener('click', () => { setHash('#/animal-edit/sire'); });
-  const ae = document.getElementById('s_addext'); if (ae) ae.addEventListener('click', () => externalSireModal(null));
+  const ae = document.getElementById('s_addext'); if (ae) ae.addEventListener('click', () => externalSireModal(null, animalFilter));
   view().querySelectorAll('[data-exedit]').forEach(b => b.addEventListener('click', () => { const s = loadExternalSires().find(x => String(x.id) === b.dataset.exedit); if (s) externalSireModal(s); }));
   view().querySelectorAll('[data-exdel]').forEach(b => b.addEventListener('click', async () => {
     if (!await confirm2('حذف هذا الفحل الخارجي من السجل؟ (لا يمسّ أي تلقيح مسجَّل باسمه سابقاً)')) return;
@@ -3156,8 +3177,9 @@ function screenSires() {
     toast('حُذف'); screenSires();
   }));
 }
-function externalSireModal(s) {
+function externalSireModal(s, defaultType) {
   openModal(s ? 'تعديل فحل خارج المراح' : 'إضافة فحل خارج المراح', `
+    ${fSelect('نوع الحلال', 'exs_type', TYPES, s ? (s.type || '') : (defaultType || (TYPES[0] && TYPES[0].k) || ''))}
     ${fInput('رقم/معرّف الفحل (اختياري)', 'exs_code', s && s.code)}
     ${fInput('اسم الفحل', 'exs_name', s && s.name)}
     ${fInput('اسم صاحبه (اختياري)', 'exs_owner', s && s.ownerName)}
@@ -3169,7 +3191,7 @@ function externalSireModal(s) {
       const code = val('exs_code').trim(), name = val('exs_name').trim();
       if (!code && !name) { toast('اكتب رقم الفحل أو اسمه على الأقل'); return; }
       const list = loadExternalSires();
-      const obj = { code, name, ownerName: val('exs_owner').trim(), ownerPhone: val('exs_phone').trim(), fatherName: val('exs_father').trim(), notes: val('exs_notes').trim() };
+      const obj = { type: val('exs_type'), code, name, ownerName: val('exs_owner').trim(), ownerPhone: val('exs_phone').trim(), fatherName: val('exs_father').trim(), notes: val('exs_notes').trim() };
       if (s) { const i = list.findIndex(x => String(x.id) === String(s.id)); if (i >= 0) list[i] = Object.assign({}, list[i], obj); }
       else { obj.id = 'exs' + new Date().getTime(); list.push(obj); }
       saveExternalSires(list); closeModal(); toast('تم الحفظ'); screenSires();
