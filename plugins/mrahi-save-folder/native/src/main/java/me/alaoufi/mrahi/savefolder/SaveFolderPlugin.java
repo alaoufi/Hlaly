@@ -5,6 +5,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.net.Uri;
+import android.provider.DocumentsContract;
 import androidx.activity.result.ActivityResult;
 import androidx.documentfile.provider.DocumentFile;
 import com.getcapacitor.JSArray;
@@ -114,6 +115,32 @@ public class SaveFolderPlugin extends Plugin {
         }
         prefs().edit().remove(KEY_URI).apply();
         call.resolve();
+    }
+
+    // فتح المجلد المخصّص المختار في أي تطبيق ملفات يدعم عرض مجلدات SAF — أفضل جهد؛ يفشل بوضوح إن لم يوجد
+    // تطبيق مناسب على الجهاز (لا يمكن فتح المسار الافتراضي داخل مساحة التطبيق بهذه الطريقة، فقط مجلد مخصّص مختار)
+    @PluginMethod
+    public void openFolder(PluginCall call) {
+        String uriStr = prefs().getString(KEY_URI, null);
+        if (uriStr == null) {
+            call.reject("no folder selected");
+            return;
+        }
+        try {
+            Uri treeUri = Uri.parse(uriStr);
+            Uri docUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, DocumentsContract.getTreeDocumentId(treeUri));
+            Intent intent = new Intent(Intent.ACTION_VIEW);
+            intent.setDataAndType(docUri, "vnd.android.document/directory");
+            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
+            if (intent.resolveActivity(getContext().getPackageManager()) == null) {
+                call.reject("no app found to open the folder");
+                return;
+            }
+            getContext().startActivity(intent);
+            call.resolve();
+        } catch (Exception e) {
+            call.reject(e.getMessage() != null ? e.getMessage() : "open failed");
+        }
     }
 
     private DocumentFile getTree() {
