@@ -3913,10 +3913,12 @@ function remap(obj, maps) {
   return o;
 }
 function stamp() { return new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-'); }
-async function shareOrDownload(filename, text, mime) {
+// silent: يمنع توست "تم تنزيل الملف" الافتراضي — يستخدمها استدعاء يعرض توستاً خاصاً به بعد حفظ نسخة حقيقية على الجهاز (تبادل المعلومات)
+async function shareOrDownload(filename, text, mime, silent) {
   const blob = new Blob([text], { type: mime }); const file = new File([blob], filename, { type: mime });
   if (navigator.canShare && navigator.canShare({ files: [file] })) { try { await navigator.share({ files: [file], title: 'نسخة احتياطية — حلالي' }); return; } catch (e) {} }
-  const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = filename; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); toast('تم تنزيل الملف');
+  const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = filename; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+  if (!silent) toast('تم تنزيل الملف');
 }
 function exportJson() { const data = { exportedAt: new Date().toISOString(), animals: C.animals, matings: C.matings, pregnancies: C.pregnancies, births: C.births, vaccineTypes: C.vaccineTypes, vaccinations: C.vaccinations, treatments: C.treatments }; shareOrDownload('mrahi_backup_' + stamp() + '.json', JSON.stringify(data, null, 2), 'application/json'); }
 function exportCsv() {
@@ -3929,9 +3931,27 @@ function exportCsv() {
 /* ===== تبادل المعلومات — تصدير/استيراد دليل التواصل والمهرجانات والملاحظات وفحول خارج المراح بين مستخدمي التطبيق =====
    عمداً مقتصر على معلومات لا تخصّ حلالك الخاص (لا بهائم ولا سجلات صحية) — قابلة للمشاركة بأمان مع مربٍّ آخر.
    الاستيراد يُضيف لبياناتك الحالية ولا يستبدلها، ويتجاهل أي عنصر مطابق (نفس الاسم/الرقم) لعنصر لديك أصلاً. */
+// «أين حُفظ الملف؟» — نفس آلية النسخ الاحتياطية (المجلد المخصّص إن اختاره المستخدم من 💾 النسخ الاحتياطي، وإلا Documents/mrahi-exchange
+// داخل مساحة التطبيق) حتى يبقى ملف التبادل موجوداً وقابلاً للإرسال يدوياً لو فشلت قائمة "مشاركة" النظام بفتح واتساب مباشرة.
+const EXCHANGE_DIR = 'mrahi-exchange';
+async function saveExchangeFileSmart(filename, text) {
+  const sf = await sfGetFolder();
+  if (sf) { try { await sfPlugin().writeFile({ filename, data: text }); return true; } catch (e) { return false; } }
+  const fs = fsPlugin(); if (!fs) return false;
+  try { await fs.writeFile({ path: EXCHANGE_DIR + '/' + filename, directory: 'DOCUMENTS', data: text, encoding: 'utf8', recursive: true }); return true; }
+  catch (e) { return false; }
+}
+async function refreshExchangePathInfo() {
+  const box = document.getElementById('ex_pathInfo'); if (!box) return;
+  const sf = await sfGetFolder();
+  box.innerHTML = sf
+    ? '📂 يُحفظ في مجلدك المخصّص: <b>' + esc(sf.name || 'مجلد مخصّص') + '</b> (نفس مجلد النسخ الاحتياطية — يُغيَّر من «💾 النسخ الاحتياطي»)'
+    : '📂 يُحفظ على الجهاز في: <code>Android/data/' + ANDROID_APP_ID + '/files/Documents/' + EXCHANGE_DIR + '</code>';
+}
 function screenExchange() {
   if (!can('animals', 'view')) { view().innerHTML = noPerm(); return; }
   const contacts = loadContacts(), festivals = loadFestivals(), extSires = loadExternalSires();
+  const hasFs = !!fsPlugin();
   view().innerHTML = `<div class="muted" style="margin-bottom:8px">صدّر بعض معلوماتك العامة (لا تخصّ حلالك الخاص) وشاركها مع مربٍّ آخر يستخدم حلالي — عبر واتساب أو أي وسيلة أخرى — ليستوردها في تطبيقه، أو استورد ملفاً وصلك منه.</div>
     <div class="card"><h3>📤 تصدير</h3>
       <label class="check" style="display:flex;align-items:center;gap:8px;margin:6px 0"><input type="checkbox" id="ex_contacts" checked> 📇 دليل التواصل (${contacts.length})</label>
@@ -3939,12 +3959,15 @@ function screenExchange() {
       <label class="check" style="display:flex;align-items:center;gap:8px;margin:6px 0"><input type="checkbox" id="ex_notes" checked> 📓 دفتر الملاحظات (<span id="ex_notes_count">…</span>)</label>
       <label class="check" style="display:flex;align-items:center;gap:8px;margin:6px 0"><input type="checkbox" id="ex_sires" checked> 🐏 فحول خارج المراح (${extSires.length})</label>
       <button class="btn" id="ex_go" style="margin-top:8px">📤 مشاركة/تصدير المحدَّد</button>
+      ${hasFs ? `<div class="muted" style="font-size:.82rem;margin-top:8px" id="ex_pathInfo">📍 جارٍ التحميل…</div>` : ''}
+      <div class="muted" style="font-size:.82rem;margin-top:4px">عند الضغط يحاول التطبيق فتح قائمة "مشاركة" النظام لإرسال الملف مباشرة عبر واتساب أو أي تطبيق آخر. ${hasFs ? 'وفي كل الأحوال يُحفظ نسخة من الملف في المكان الموضَّح أعلاه — افتحه من تطبيق "الملفات" على جهازك وأرسله يدوياً كمرفق إن لم تظهر قائمة المشاركة.' : 'إن لم تظهر القائمة يُنزَّل الملف مباشرة (غالباً في مجلد التنزيلات بالمتصفح).'}</div>
     </div>
     <div class="card"><h3>📥 استيراد</h3>
       <div class="muted" style="font-size:.82rem;margin-bottom:8px">اختر ملف «تبادل معلومات» وصلك من مربٍّ آخر (نفس نوع الملف الذي يصدّره هذا القسم) — يُضاف لبياناتك الحالية، لا يستبدلها.</div>
       <label class="btn outline" style="cursor:pointer">📂 اختيار ملف واستيراد<input type="file" id="ex_file" accept="application/json,.json" style="display:none"></label>
     </div>`;
   (async () => { try { const { data } = await sb.from('mrahi_notes').select('*'); const el = document.getElementById('ex_notes_count'); if (el) el.textContent = String((data || []).length); } catch (e) {} })();
+  if (hasFs) refreshExchangePathInfo();
 
   document.getElementById('ex_go').addEventListener('click', async () => {
     const pkg = { exportedAt: new Date().toISOString(), app: 'حلالي' };
@@ -3954,7 +3977,11 @@ function screenExchange() {
     if (document.getElementById('ex_sires').checked) { pkg.externalSires = loadExternalSires(); any = true; }
     if (document.getElementById('ex_notes').checked) { try { const { data } = await sb.from('mrahi_notes').select('*'); pkg.notes = data || []; any = true; } catch (e) {} }
     if (!any) { toast('اختر عنصراً واحداً على الأقل'); return; }
-    shareOrDownload('حلالي-تبادل-معلومات-' + stamp() + '.json', JSON.stringify(pkg, null, 2), 'application/json');
+    const filename = 'حلالي-تبادل-معلومات-' + stamp() + '.json';
+    const text = JSON.stringify(pkg, null, 2);
+    const saved = hasFs ? await saveExchangeFileSmart(filename, text) : false;
+    await shareOrDownload(filename, text, 'application/json', saved);
+    if (saved) toast('حُفظت نسخة على جهازك أيضاً — راجع المكان الموضَّح أعلى القسم لإرسالها يدوياً إن لزم');
   });
 
   document.getElementById('ex_file').addEventListener('change', async (e) => {
