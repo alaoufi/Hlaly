@@ -3705,6 +3705,8 @@ async function deleteBackupFile(name) {
 // اختيار مجلد دائم (SAF) لحفظ النسخ فيه — إضافة كابسيتور محلية (mrahi-save-folder)؛ يبقى الاختيار محفوظاً حتى يُغيَّر يدوياً
 function sfPlugin() { try { return (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.SaveFolder) || null; } catch (e) { return null; } }
 async function sfGetFolder() { const p = sfPlugin(); if (!p) return null; try { const r = await p.getFolder(); return (r && r.uri) ? r : null; } catch (e) { return null; } }
+// يفتح المجلد المخصّص المختار في تطبيق ملفات — يعمل فقط إن اختار المستخدم مجلداً مخصّصاً؛ لا يوجد مسار مماثل للمجلد الافتراضي داخل التطبيق
+async function sfOpenFolder() { const p = sfPlugin(); if (!p) return false; try { await p.openFolder(); return true; } catch (e) { return false; } }
 // طبقة موحَّدة فوق مصدرَي الحفظ: المجلد المخصّص إن اختاره المستخدم، وإلا مجلد Documents الافتراضي داخل التطبيق
 async function saveBackupFileSmart(filename, jsonText) {
   const sf = await sfGetFolder();
@@ -3748,6 +3750,7 @@ function screenBackup() {
       ${hasSf ? `<div id="sfPathInfo" class="muted" style="font-size:.82rem;margin-bottom:6px">جارٍ التحميل…</div>
       <div class="btn-row" style="margin-bottom:10px">
         <button class="btn sm outline" id="sf_pick">📂 تغيير مكان الحفظ...</button>
+        <button class="btn sm outline" id="sf_open" style="display:none">📂 فتح المجلد</button>
         <button class="btn sm outline" id="sf_clear" style="display:none">↩️ استخدام المسار الافتراضي</button>
       </div>` : `<div class="muted" style="font-size:.82rem;margin-bottom:6px">ملف JSON مستقل لكل نسخة، بتاريخه، داخل مجلد التطبيق على الجهاز. المسار الفعلي: <code>Android/data/${ANDROID_APP_ID}/files/Documents/${BACKUP_DIR}</code> — يمكن الوصول له أيضاً بتوصيل الجهاز بالحاسوب (USB).</div>`}
       <div id="fsBackupList" class="muted">جارٍ التحميل…</div>
@@ -3802,21 +3805,28 @@ function screenBackup() {
       try { await sfPlugin().clearFolder(); } catch (e) {}
       toast('تم استخدام المسار الافتراضي'); await refreshFsPathInfo(); await refreshFsBackupList();
     });
+    document.getElementById('sf_open').addEventListener('click', async () => {
+      const ok = await sfOpenFolder();
+      if (!ok) toast('تعذّر فتح المجلد — لا يوجد تطبيق ملفات مناسب على جهازك، جرّب تطبيق "الملفات" أو مدير ملفات آخر');
+    });
   }
   document.getElementById('bk_json').addEventListener('click', exportJson);
   document.getElementById('bk_csv').addEventListener('click', exportCsv);
 }
-// يعرض مكان الحفظ الحالي (مخصّص أو الافتراضي) ويُظهر/يُخفي زر «استخدام المسار الافتراضي»
+// يعرض مكان الحفظ الحالي (مخصّص أو الافتراضي) ويُظهر/يُخفي زرَّي «استخدام المسار الافتراضي» و«فتح المجلد» (الأخير متاح فقط لمجلد مخصّص)
 async function refreshFsPathInfo() {
   const box = document.getElementById('sfPathInfo'); if (!box) return;
   const sf = await sfGetFolder();
   const clearBtn = document.getElementById('sf_clear');
+  const openBtn = document.getElementById('sf_open');
   if (sf) {
     box.innerHTML = '📂 مكان الحفظ الحالي: <b>' + esc(sf.name || 'مجلد مخصّص') + '</b>';
     if (clearBtn) clearBtn.style.display = '';
+    if (openBtn) openBtn.style.display = '';
   } else {
     box.innerHTML = 'المسار الافتراضي: <code>Android/data/' + ANDROID_APP_ID + '/files/Documents/' + BACKUP_DIR + '</code> — اضغط «تغيير مكان الحفظ» لاختيار مجلد آخر (مثل مجلد Drive أو التنزيلات) تُحفظ فيه كل النسخ تلقائياً.';
     if (clearBtn) clearBtn.style.display = 'none';
+    if (openBtn) openBtn.style.display = 'none';
   }
 }
 function fmtDateTime(iso) {
@@ -3941,26 +3951,44 @@ async function saveExchangeFileSmart(filename, text) {
   try { await fs.writeFile({ path: EXCHANGE_DIR + '/' + filename, directory: 'DOCUMENTS', data: text, encoding: 'utf8', recursive: true }); return true; }
   catch (e) { return false; }
 }
+// يعرض مكان الحفظ الحالي ويُظهر/يُخفي زرَّي «فتح المجلد» و«المسار الافتراضي» (متاحان فقط لمجلد مخصّص مختار)
 async function refreshExchangePathInfo() {
   const box = document.getElementById('ex_pathInfo'); if (!box) return;
   const sf = await sfGetFolder();
-  box.innerHTML = sf
-    ? '📂 يُحفظ في مجلدك المخصّص: <b>' + esc(sf.name || 'مجلد مخصّص') + '</b> (نفس مجلد النسخ الاحتياطية — يُغيَّر من «💾 النسخ الاحتياطي»)'
-    : '📂 يُحفظ على الجهاز في: <code>Android/data/' + ANDROID_APP_ID + '/files/Documents/' + EXCHANGE_DIR + '</code>';
+  const clearBtn = document.getElementById('ex_clear');
+  const openBtn = document.getElementById('ex_open');
+  if (sf) {
+    box.innerHTML = '📂 يُحفظ في مجلدك المخصّص: <b>' + esc(sf.name || 'مجلد مخصّص') + '</b> (نفس مجلد النسخ الاحتياطية)';
+    if (clearBtn) clearBtn.style.display = '';
+    if (openBtn) openBtn.style.display = '';
+  } else {
+    box.innerHTML = '📂 يُحفظ على الجهاز في: <code>Android/data/' + ANDROID_APP_ID + '/files/Documents/' + EXCHANGE_DIR + '</code>';
+    if (clearBtn) clearBtn.style.display = 'none';
+    if (openBtn) openBtn.style.display = 'none';
+  }
 }
 function screenExchange() {
   if (!can('animals', 'view')) { view().innerHTML = noPerm(); return; }
   const contacts = loadContacts(), festivals = loadFestivals(), extSires = loadExternalSires();
   const hasFs = !!fsPlugin();
+  const hasSf = !!sfPlugin();
   view().innerHTML = `<div class="muted" style="margin-bottom:8px">صدّر بعض معلوماتك العامة (لا تخصّ حلالك الخاص) وشاركها مع مربٍّ آخر يستخدم حلالي — عبر واتساب أو أي وسيلة أخرى — ليستوردها في تطبيقه، أو استورد ملفاً وصلك منه.</div>
     <div class="card"><h3>📤 تصدير</h3>
       <label class="check" style="display:flex;align-items:center;gap:8px;margin:6px 0"><input type="checkbox" id="ex_contacts" checked> 📇 دليل التواصل (${contacts.length})</label>
       <label class="check" style="display:flex;align-items:center;gap:8px;margin:6px 0"><input type="checkbox" id="ex_festivals" checked> 🎪 دليل المهرجانات (${festivals.length})</label>
       <label class="check" style="display:flex;align-items:center;gap:8px;margin:6px 0"><input type="checkbox" id="ex_notes" checked> 📓 دفتر الملاحظات (<span id="ex_notes_count">…</span>)</label>
       <label class="check" style="display:flex;align-items:center;gap:8px;margin:6px 0"><input type="checkbox" id="ex_sires" checked> 🐏 فحول خارج المراح (${extSires.length})</label>
-      <button class="btn" id="ex_go" style="margin-top:8px">📤 مشاركة/تصدير المحدَّد</button>
-      ${hasFs ? `<div class="muted" style="font-size:.82rem;margin-top:8px" id="ex_pathInfo">📍 جارٍ التحميل…</div>` : ''}
-      <div class="muted" style="font-size:.82rem;margin-top:4px">عند الضغط يحاول التطبيق فتح قائمة "مشاركة" النظام لإرسال الملف مباشرة عبر واتساب أو أي تطبيق آخر. ${hasFs ? 'وفي كل الأحوال يُحفظ نسخة من الملف في المكان الموضَّح أعلاه — افتحه من تطبيق "الملفات" على جهازك وأرسله يدوياً كمرفق إن لم تظهر قائمة المشاركة.' : 'إن لم تظهر القائمة يُنزَّل الملف مباشرة (غالباً في مجلد التنزيلات بالمتصفح).'}</div>
+      <div class="btn-row" style="margin-top:8px">
+        ${hasFs ? `<button class="btn" id="ex_save">💾 حفظ الملف على الجهاز</button>` : ''}
+        <button class="btn ${hasFs ? 'outline' : ''}" id="ex_send">📨 إرسال (واتساب أو أي تطبيق)</button>
+      </div>
+      ${hasFs ? `<div class="muted" style="font-size:.82rem;margin-top:8px" id="ex_pathInfo">📍 جارٍ التحميل…</div>
+      ${hasSf ? `<div class="btn-row" style="margin-top:6px">
+        <button class="btn sm outline" id="ex_pick">📂 اختيار/تغيير مجلد الحفظ...</button>
+        <button class="btn sm outline" id="ex_open" style="display:none">📂 فتح المجلد</button>
+        <button class="btn sm outline" id="ex_clear" style="display:none">↩️ المسار الافتراضي</button>
+      </div>` : ''}
+      <div class="muted" style="font-size:.82rem;margin-top:4px">«💾 حفظ» يحفظ الملف على جهازك فقط (المكان أعلاه). «📨 إرسال» يحاول أيضاً فتح قائمة "مشاركة" النظام لإرسال الملف مباشرة عبر واتساب أو أي تطبيق آخر — وفي كل الأحوال يبقى محفوظاً على جهازك.</div>` : `<div class="muted" style="font-size:.82rem;margin-top:4px">«📨 إرسال» يحاول فتح قائمة "مشاركة" المتصفّح؛ إن لم تظهر يُنزَّل الملف مباشرة (غالباً في مجلد التنزيلات).</div>`}
     </div>
     <div class="card"><h3>📥 استيراد</h3>
       <div class="muted" style="font-size:.82rem;margin-bottom:8px">اختر ملف «تبادل معلومات» وصلك من مربٍّ آخر (نفس نوع الملف الذي يصدّره هذا القسم) — يُضاف لبياناتك الحالية، لا يستبدلها.</div>
@@ -3969,20 +3997,48 @@ function screenExchange() {
   (async () => { try { const { data } = await sb.from('mrahi_notes').select('*'); const el = document.getElementById('ex_notes_count'); if (el) el.textContent = String((data || []).length); } catch (e) {} })();
   if (hasFs) refreshExchangePathInfo();
 
-  document.getElementById('ex_go').addEventListener('click', async () => {
+  const buildExchangePackage = async () => {
     const pkg = { exportedAt: new Date().toISOString(), app: 'حلالي' };
     let any = false;
     if (document.getElementById('ex_contacts').checked) { pkg.contacts = loadContacts(); any = true; }
     if (document.getElementById('ex_festivals').checked) { pkg.festivals = loadFestivals(); any = true; }
     if (document.getElementById('ex_sires').checked) { pkg.externalSires = loadExternalSires(); any = true; }
     if (document.getElementById('ex_notes').checked) { try { const { data } = await sb.from('mrahi_notes').select('*'); pkg.notes = data || []; any = true; } catch (e) {} }
-    if (!any) { toast('اختر عنصراً واحداً على الأقل'); return; }
+    return any ? pkg : null;
+  };
+  if (hasFs) document.getElementById('ex_save').addEventListener('click', async () => {
+    const pkg = await buildExchangePackage();
+    if (!pkg) { toast('اختر عنصراً واحداً على الأقل'); return; }
+    const filename = 'حلالي-تبادل-معلومات-' + stamp() + '.json';
+    const saved = await saveExchangeFileSmart(filename, JSON.stringify(pkg, null, 2));
+    toast(saved ? 'تم حفظ الملف على جهازك — راجع المكان الموضَّح أعلاه' : 'تعذّر حفظ الملف');
+  });
+  document.getElementById('ex_send').addEventListener('click', async () => {
+    const pkg = await buildExchangePackage();
+    if (!pkg) { toast('اختر عنصراً واحداً على الأقل'); return; }
     const filename = 'حلالي-تبادل-معلومات-' + stamp() + '.json';
     const text = JSON.stringify(pkg, null, 2);
     const saved = hasFs ? await saveExchangeFileSmart(filename, text) : false;
-    await shareOrDownload(filename, text, 'application/json', saved);
-    if (saved) toast('حُفظت نسخة على جهازك أيضاً — راجع المكان الموضَّح أعلى القسم لإرسالها يدوياً إن لزم');
+    await shareOrDownload(filename, text, 'application/json', true);
+    toast(saved ? 'حاول التطبيق فتح قائمة المشاركة — وحُفظت نسخة على جهازك أيضاً (المكان أعلاه)' : 'حاول التطبيق فتح قائمة المشاركة، أو نُزِّل الملف مباشرة');
   });
+  if (hasFs && hasSf) {
+    document.getElementById('ex_pick').addEventListener('click', async () => {
+      try {
+        const r = await sfPlugin().pickFolder();
+        if (r && r.uri) { toast('تم اختيار مجلد الحفظ: ' + (r.name || '')); await refreshExchangePathInfo(); }
+      } catch (e) { /* ألغى المستخدم الاختيار أو حدث خطأ */ }
+    });
+    document.getElementById('ex_clear').addEventListener('click', async () => {
+      if (!await confirm2('العودة للمسار الافتراضي داخل التطبيق؟ (لن يُحذف أي ملف — فقط يتوقّف استخدام المجلد المخصّص)')) return;
+      try { await sfPlugin().clearFolder(); } catch (e) {}
+      toast('تم استخدام المسار الافتراضي'); await refreshExchangePathInfo();
+    });
+    document.getElementById('ex_open').addEventListener('click', async () => {
+      const ok = await sfOpenFolder();
+      if (!ok) toast('تعذّر فتح المجلد — لا يوجد تطبيق ملفات مناسب على جهازك، جرّب تطبيق "الملفات" أو مدير ملفات آخر');
+    });
+  }
 
   document.getElementById('ex_file').addEventListener('change', async (e) => {
     const file = e.target.files[0]; e.target.value = '';
