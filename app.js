@@ -212,10 +212,11 @@ function sireLineageChain(nameOrCode) {
   }
   return chain;
 }
-function sireSelectHtml(id) {
+function sireSelectHtml(id, placeholder) {
   const sires = siresList(), ext = loadExternalSires();
   if (!sires.length && !ext.length) return '';
-  const opts = '<option value="">— اختر فحلاً (من الحظيرة أو خارجها)، أو اترك فارغاً واكتب يدوياً —</option>'
+  const ph = placeholder || '— اختر فحلاً (من الحظيرة أو خارجها)، أو اترك فارغاً واكتب يدوياً —';
+  const opts = `<option value="">${ph}</option>`
     + (sires.length ? '<optgroup label="🏠 داخل المراح">' + sires.map(s => `<option value="a:${s.id}">${display(s)}</option>`).join('') + '</optgroup>' : '')
     + (ext.length ? '<optgroup label="🌍 خارج المراح">' + ext.map(s => `<option value="e:${s.id}">${externalSireLabel(s)}</option>`).join('') + '</optgroup>' : '');
   return `<div class="field"><select id="${id}">${opts}</select></div>`;
@@ -1522,7 +1523,7 @@ function screenAnimalEdit(arg) {
       ${penField('f_pen', a ? a.pen_id : null, a ? a.type : (animalFilter || 'sheep'))}
       ${fSelect('نوع المعرّف الخارجي', 'f_kind', IDKIND, a ? a.idkind : 'number')}
       ${fInput('المعرّف الخارجي / الوسم (اختياري — قد يتغيّر أو يسقط)', 'f_code', a && a.code)}
-      ${fSelect('الجنس', 'f_sex', SEX, a ? a.sex : (forceSire ? 'male' : 'female'))}
+      ${forceSire ? '<input type="hidden" id="f_sex" value="male">' : fSelect('الجنس', 'f_sex', SEX, a ? a.sex : 'female')}
       <div id="purposeBox">${fSelect('غرض الذكر', 'f_purpose', MALE_PURPOSE, a ? (a.purpose || '') : (forceSire ? 'sire' : ''), '— غير محدّد —')}</div>
       ${fSelect('المصدر', 'f_source', SOURCE, a ? (a.source || 'purchased') : 'purchased')}
       ${!a ? `<div id="bcountBox">${fInput('عدد المواليد', 'f_bcount', '1', 'number', 'min="1" inputmode="numeric"')}</div>` : ''}
@@ -1554,7 +1555,7 @@ function screenAnimalEdit(arg) {
     <div class="card"><h3>النسب</h3>
       <div id="motherSelectBox">${fAnimalSelect('الأم', 'f_mother', a && a.mother_id, females, '— بدون —')}</div>
       <div id="motherTextBox" style="display:none">${fInput('الأم (اسم/وصف — اختياري، من خارج الحظيرة)', 'f_mother_name', a && a.mother_name)}</div>
-      ${sireSelectHtml('f_fatherSel')}
+      ${sireSelectHtml('f_fatherSel', '— يختار الأب من داخل أو خارج الحظيرة، أو اترك فارغاً واكتب يدوياً —')}
       ${fInput('الأب / الفحل (اسم أو رقم)', 'f_father', a && a.father_name)}</div>
     <div class="card"><h3>ملاحظات</h3>${fTextarea('ملاحظات', 'f_notes', a && a.notes)}</div>
     <button class="btn" id="saveBtn">حفظ</button>
@@ -1577,7 +1578,7 @@ function screenAnimalEdit(arg) {
   { const fs = document.getElementById('f_status'); if (fs) { fs.addEventListener('change', syncExit); syncExit(); } }
   // غرض الذكر يظهر للذكور فقط
   const syncPurpose = () => { const pb = document.getElementById('purposeBox'); if (pb) pb.style.display = val('f_sex') === 'male' ? '' : 'none'; };
-  document.getElementById('f_sex').addEventListener('change', syncPurpose); syncPurpose();
+  document.getElementById('f_sex').addEventListener('change', () => { syncPurpose(); syncSource(); }); syncPurpose();
   // عدد المواليد يظهر عند الولادة فقط، وسعر الشراء عند المشترى فقط
   // عند «ولادة» وعدد > 1: تُفتح حقول كاملة مستقلّة لكل مولود (جنس/غرض/رقم مختلف لكل واحد)
   const identityFields = ['f_kind', 'f_code', 'f_tagcolor', 'f_tagshape', 'f_name', 'f_sex', 'f_design', 'f_color'];
@@ -1616,7 +1617,8 @@ function screenAnimalEdit(arg) {
     const s = val('f_source');
     const bb = document.getElementById('bcountBox'); if (bb) bb.style.display = s === 'born' ? '' : 'none';
     const yb = document.getElementById('buypriceBox'); if (yb) yb.style.display = s === 'purchased' ? '' : 'none';
-    const wb = document.getElementById('withOffBox'); if (wb) wb.style.display = s === 'purchased' ? '' : 'none';
+    // «هل معها مواليد» مفهوم خاصّ بالأنثى (جاءت مصحوبة بنتاجها) — لا معنى له لذكر/فحل
+    const wb = document.getElementById('withOffBox'); if (wb) wb.style.display = (s === 'purchased' && val('f_sex') !== 'male') ? '' : 'none';
     // المشترى: أمّها غالباً من خارج الحظيرة — حقل نصّ حرّ بدل اختيار من القائمة
     const msb = document.getElementById('motherSelectBox'); if (msb) msb.style.display = s === 'purchased' ? 'none' : '';
     const mtb = document.getElementById('motherTextBox'); if (mtb) mtb.style.display = s === 'purchased' ? '' : 'none';
