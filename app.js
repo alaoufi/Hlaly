@@ -1504,10 +1504,13 @@ async function migratePensToIds() {
 /* ===== إضافة/تعديل بهيمة ===== */
 function screenAnimalEdit(arg) {
   if (!can('animals', 'edit')) { view().innerHTML = noPerm(); return; }
-  const id = parseInt(arg, 10) || 0;
+  // نداء خاص من "➕ إضافة فحل داخل المراح" (#/animal-edit/sire) — الفحل ذكر دائماً، فتُضبط الافتراضات مباشرة
+  // (جنس=ذكر، غرض=فحل للقطيع) بدل نموذج إضافة بهيمة عام تبدأ افتراضاته أنثى وتحتاج تصحيحاً يدوياً في كل مرّة.
+  const forceSire = arg === 'sire';
+  const id = forceSire ? 0 : (parseInt(arg, 10) || 0);
   const a = id ? animalById(id) : null;
   const females = C.animals.filter(x => x.sex === 'female' && x.id !== id);
-  document.getElementById('screenTitle').textContent = id ? 'تعديل بهيمة' : 'إضافة بهيمة';
+  document.getElementById('screenTitle').textContent = id ? 'تعديل بهيمة' : (forceSire ? 'إضافة فحل' : 'إضافة بهيمة');
   // «تفاصيل إضافية» (لون/شكل الوسم، لون البهيمة، الغرض) مطوية افتراضياً عند إضافة بهيمة جديدة (تسريع الإدخال المتكرّر)،
   // ومفتوحة افتراضياً عند تعديل بهيمة معها بالفعل أيّ من هذه القيم (حتى لا تبدو بياناتها "مفقودة" لمجرّد الطيّ)
   const extraOpen = !!a && !!(a.tag_color || a.tag_shape || a.color || a.designation);
@@ -1519,8 +1522,8 @@ function screenAnimalEdit(arg) {
       ${penField('f_pen', a ? a.pen_id : null, a ? a.type : (animalFilter || 'sheep'))}
       ${fSelect('نوع المعرّف الخارجي', 'f_kind', IDKIND, a ? a.idkind : 'number')}
       ${fInput('المعرّف الخارجي / الوسم (اختياري — قد يتغيّر أو يسقط)', 'f_code', a && a.code)}
-      ${fSelect('الجنس', 'f_sex', SEX, a ? a.sex : 'female')}
-      <div id="purposeBox">${fSelect('غرض الذكر', 'f_purpose', MALE_PURPOSE, a ? (a.purpose || '') : '', '— غير محدّد —')}</div>
+      ${fSelect('الجنس', 'f_sex', SEX, a ? a.sex : (forceSire ? 'male' : 'female'))}
+      <div id="purposeBox">${fSelect('غرض الذكر', 'f_purpose', MALE_PURPOSE, a ? (a.purpose || '') : (forceSire ? 'sire' : ''), '— غير محدّد —')}</div>
       ${fSelect('المصدر', 'f_source', SOURCE, a ? (a.source || 'purchased') : 'purchased')}
       ${!a ? `<div id="bcountBox">${fInput('عدد المواليد', 'f_bcount', '1', 'number', 'min="1" inputmode="numeric"')}</div>` : ''}
       <div id="buypriceBox">${fInput('سعر الشراء (اختياري)', 'f_buyprice', a && a.buy_price, 'number', 'min="0" step="any" inputmode="decimal"')}</div>
@@ -1551,6 +1554,7 @@ function screenAnimalEdit(arg) {
     <div class="card"><h3>النسب</h3>
       <div id="motherSelectBox">${fAnimalSelect('الأم', 'f_mother', a && a.mother_id, females, '— بدون —')}</div>
       <div id="motherTextBox" style="display:none">${fInput('الأم (اسم/وصف — اختياري، من خارج الحظيرة)', 'f_mother_name', a && a.mother_name)}</div>
+      ${sireSelectHtml('f_fatherSel')}
       ${fInput('الأب / الفحل (اسم أو رقم)', 'f_father', a && a.father_name)}</div>
     <div class="card"><h3>ملاحظات</h3>${fTextarea('ملاحظات', 'f_notes', a && a.notes)}</div>
     <button class="btn" id="saveBtn">حفظ</button>
@@ -1624,6 +1628,7 @@ function screenAnimalEdit(arg) {
   { const ho = document.getElementById('f_hasoff'); if (ho) ho.addEventListener('change', () => { const ocb = document.getElementById('offCountsBox'); if (ocb) ocb.style.display = ho.checked ? '' : 'none'; }); }
   syncSource();
   bindPenField('f_pen');
+  bindSireSelectSingle('f_fatherSel', 'f_father');
   document.getElementById('f_type').addEventListener('change', () => rebuildPen('f_pen', val('f_type')));   // حظائر النوع المحدّد فقط
   // إدخال صوتي ومسح بالكاميرا للحقول المناسبة (تظهر الأزرار فقط إن دعمها الجهاز)
   attachMic('f_code', { digits: true }); attachScan('f_code');
@@ -3140,7 +3145,7 @@ function screenSires() {
   bindTypeChips(screenSires);
   view().querySelectorAll('[data-kids]').forEach(el => el.addEventListener('click', (e) => { e.stopPropagation(); const s = animalById(parseInt(el.dataset.kids, 10)); if (s) animalListModal('أبناء وبنات 🐏 ' + display(s), sireOffspring(s)); }));
   view().querySelectorAll('[data-dams]').forEach(el => el.addEventListener('click', (e) => { e.stopPropagation(); const s = animalById(parseInt(el.dataset.dams, 10)); if (s) animalListModal('الإناث التي لقّحها 🐏 ' + display(s), sireMatedFemales(s)); }));
-  const ab = document.getElementById('s_addbuy'); if (ab) ab.addEventListener('click', () => { setHash('#/animal-edit/0'); });
+  const ab = document.getElementById('s_addbuy'); if (ab) ab.addEventListener('click', () => { setHash('#/animal-edit/sire'); });
   const ae = document.getElementById('s_addext'); if (ae) ae.addEventListener('click', () => externalSireModal(null));
   view().querySelectorAll('[data-exedit]').forEach(b => b.addEventListener('click', () => { const s = loadExternalSires().find(x => String(x.id) === b.dataset.exedit); if (s) externalSireModal(s); }));
   view().querySelectorAll('[data-exdel]').forEach(b => b.addEventListener('click', async () => {
