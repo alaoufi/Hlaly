@@ -103,6 +103,10 @@ code { word-break: break-all; overflow-wrap: anywhere; white-space: normal; dire
 }
 .field input:focus, .field select:focus, .field textarea:focus { outline: none; border-color: var(--green); box-shadow: var(--focus-ring); }
 .field textarea { resize: vertical; min-height: 64px; }
+/* حقل بارز مكبَّر (مثل عمر الحمل عند فحص السونار) — أوضح وأسهل قراءةً من الحقل العادي */
+.field input.field-lg, .field select.field-lg {
+  font-size: 1.15rem; font-weight: 700; padding: 14px 12px; text-align: center; border-width: 2px; border-color: var(--green);
+}
 /* أزرار الإدخال الصوتي/المسح بالكاميرا بجانب الحقول */
 .aux-btn { display: inline-block; margin: 6px 6px 0 0; padding: 10px 14px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: #f3f6f3; font-size: 1.05rem; line-height: 1; cursor: pointer; min-height: 44px; }
 .aux-btn:active { opacity: .6; }
