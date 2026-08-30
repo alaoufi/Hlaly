@@ -179,14 +179,16 @@ async function copyText(text) {
     const ok = document.execCommand('copy'); document.body.removeChild(ta); return ok;
   } catch (e) { return false; }
 }
-const val = (id) => (document.getElementById(id) || {}).value || '';
+// val() توحّد الأرقام العربية/الفارسية (asciiDigits أعلاه) في كل قراءة — حتى يعمل البحث والإدخال الرقمي
+// بلا فرق بين لوحتَي المفاتيح، بدل الاعتماد على كل استدعاء ليحوّلها بنفسه.
+const val = (id) => asciiDigits((document.getElementById(id) || {}).value || '');
 const num = (id) => parseInt(val(id), 10) || 0;
 
 function fInput(label, id, v, type = 'text', extra = '') { return `<div class="field"><label>${label}</label><input id="${id}" type="${type}" value="${esc(v == null ? '' : v)}" ${extra}></div>`; }
 function fTextarea(label, id, v) { return `<div class="field"><label>${label}</label><textarea id="${id}">${esc(v || '')}</textarea></div>`; }
-function fSelect(label, id, options, selected, blank) {
+function fSelect(label, id, options, selected, blank, extra = '') {
   const opts = (blank ? `<option value="">${blank}</option>` : '') + options.map(o => `<option value="${o.k}" ${o.k === selected ? 'selected' : ''}>${o.ar}</option>`).join('');
-  return `<div class="field"><label>${label}</label><select id="${id}">${opts}</select></div>`;
+  return `<div class="field"><label>${label}</label><select id="${id}" ${extra}>${opts}</select></div>`;
 }
 function fAnimalSelect(label, id, selectedId, list, blank = '— اختر —') {
   const opts = `<option value="">${blank}</option>` + list.map(a => `<option value="${a.id}" ${a.id === selectedId ? 'selected' : ''}>${esc(a.code || '—')}${a.name ? ' • ' + esc(a.name) : ''}</option>`).join('');
@@ -966,9 +968,9 @@ function screenHome() {
   view().querySelectorAll('[data-born]').forEach(c => c.addEventListener('click', () => { pendingNewbornFilter = c.dataset.born; setHash('#/animals'); }));
   const q = document.getElementById('q');
   if (q) q.addEventListener('input', () => {
-    const term = q.value.trim().toLowerCase(); const box = document.getElementById('qr');
+    const term = asciiDigits(q.value).trim().toLowerCase(); const box = document.getElementById('qr');
     if (!term) { box.innerHTML = ''; return; }
-    const res = C.animals.filter(a => a.status === 'present' && ((a.code || '').toLowerCase().includes(term) || (a.name || '').toLowerCase().includes(term) || animalPenName(a).toLowerCase().includes(term))).slice(0, 8);
+    const res = C.animals.filter(a => a.status === 'present' && (asciiDigits(a.code || '').toLowerCase().includes(term) || (a.name || '').toLowerCase().includes(term) || animalPenName(a).toLowerCase().includes(term))).slice(0, 8);
     box.innerHTML = res.length ? res.map(animalCard).join('') : '<div class="muted" style="padding:8px">لا نتائج</div>';
     bindCards(box);
   });
@@ -2415,10 +2417,10 @@ function startPregBulkModal() {
     const p = monOf(a.id); const age = curAge(p);
     return `<div class="bulk-row" data-id="${a.id}" data-pen="${a.pen_id != null ? a.pen_id : ''}" data-type="${a.type}" style="gap:10px${p ? ';background:color-mix(in srgb, var(--green) 12%, transparent);border-radius:8px' : ''}">
       <span style="flex:1;font-weight:700">${display(a)}</span>
-      <input data-age="${a.id}" type="number" inputmode="numeric" min="1" placeholder="العمر" value="${age != null ? age : ''}" style="width:74px;padding:8px;border:1px solid #ddd;border-radius:8px;text-align:center">
+      <input data-age="${a.id}" type="number" inputmode="numeric" min="1" placeholder="العمر" value="${age != null ? age : ''}" style="width:92px;padding:12px 6px;border:2px solid var(--green);border-radius:8px;text-align:center;font-size:1.05rem;font-weight:700">
       <span class="muted" data-exp="${a.id}" style="font-size:.76rem;min-width:88px;text-align:left">${p ? '✅ 📅 ' + fmtDate(p.expected) : ''}</span></div>`;
   };
-  const applyFilter = () => { const t = (document.getElementById('pp_search').value || '').trim().toLowerCase(); document.querySelectorAll('#pp_list .bulk-row').forEach(r => { const ok = (!typeF || r.dataset.type === typeF) && (!penF || r.dataset.pen === penF) && (!t || r.textContent.toLowerCase().includes(t)); r.style.display = ok ? '' : 'none'; }); };
+  const applyFilter = () => { const t = asciiDigits(document.getElementById('pp_search').value || '').trim().toLowerCase(); document.querySelectorAll('#pp_list .bulk-row').forEach(r => { const ok = (!typeF || r.dataset.type === typeF) && (!penF || r.dataset.pen === penF) && (!t || r.textContent.toLowerCase().includes(t)); r.style.display = ok ? '' : 'none'; }); };
   const saveAge = async (a, raw) => {
     const age = parseInt(raw, 10) || 0; if (age <= 0) return;     // فارغ ⇒ لا تغيير
     const date = val('pp_date') || todayStr(); const g = gestOf(a.type);
@@ -2435,7 +2437,7 @@ function startPregBulkModal() {
     list.innerHTML = all.slice().sort((a, b) => cnum(a) - cnum(b) || a.id - b.id).map(rowHtml).join('');   // تصاعدي
     list.querySelectorAll('[data-age]').forEach(el => {
       const a = animalById(parseInt(el.dataset.age, 10));
-      el.addEventListener('change', () => saveAge(a, el.value));
+      el.addEventListener('change', () => saveAge(a, asciiDigits(el.value)));
       el.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); const vis = [...list.querySelectorAll('[data-age]')].filter(x => x.offsetParent !== null); const i = vis.indexOf(el); if (vis[i + 1]) vis[i + 1].focus(); else el.blur(); } });
     });
     applyFilter(); updCount();
@@ -2470,8 +2472,8 @@ function animalSonarModal(a) {
     ${fSelect('النتيجة', 'as_res', [{ k: 'pregnant', ar: 'حامل ✅' }, { k: 'empty', ar: 'فارغة' }], 'pregnant')}
     ${fInput('تاريخ الفحص', 'as_date', todayStr(), 'date')}
     <div id="as_ageBox">
-      <div class="field"><label>عمر الحمل الآن (يملأ الولادة المتوقّعة تلقائياً)</label><select id="as_ageSel">${gestAgeOptionsHtml()}</select></div>
-      ${fInput('أو بالأيام بالضبط (اختياري)', 'as_ageDays', existingAgeDays, 'number', 'min="1" inputmode="numeric"')}
+      <div class="field"><label>عمر الحمل الآن (يملأ الولادة المتوقّعة تلقائياً)</label><select id="as_ageSel" class="field-lg">${gestAgeOptionsHtml()}</select></div>
+      ${fInput('أو بالأيام بالضبط (اختياري)', 'as_ageDays', existingAgeDays, 'number', 'min="1" inputmode="numeric" class="field-lg"')}
       ${fInput('الولادة المتوقّعة', 'as_exp', defExp, 'date')}
     </div>
     <button class="btn" id="as_save" style="margin-top:6px">حفظ الفحص</button>`, () => {
@@ -3428,7 +3430,7 @@ function renderBulkBody() {
             <button class="btn sm danger" data-rmrow="${i}">✕</button></div>`).join('')
         : '<div class="muted">لم تُضف رؤوس بعد. اختر الجنس والعدد ثم «أضِف للقائمة».</div>';
       // تعديل رقم أي سطر مباشرةً (بلا إعادة رسم كي لا يفقد التركيز)
-      box.querySelectorAll('[data-rowcode]').forEach(el => el.addEventListener('input', () => { const i = parseInt(el.dataset.rowcode, 10); if (bulkRows[i]) bulkRows[i].code = el.value.trim(); }));
+      box.querySelectorAll('[data-rowcode]').forEach(el => el.addEventListener('input', () => { const i = parseInt(el.dataset.rowcode, 10); if (bulkRows[i]) bulkRows[i].code = asciiDigits(el.value).trim(); }));
       box.querySelectorAll('[data-rmrow]').forEach(b => b.addEventListener('click', () => { bulkRows.splice(parseInt(b.dataset.rmrow, 10), 1); renderRows(); }));
       const bar = document.getElementById('bk_renumbar'); if (bar) bar.style.display = bulkRows.length ? 'flex' : 'none';
     };
@@ -3460,7 +3462,7 @@ function renderBulkBody() {
     });
     document.getElementById('bk_save').addEventListener('click', async () => {
       if (!bulkRows.length) { toast('أضِف رؤوساً للقائمة أولاً'); return; }
-      document.querySelectorAll('[data-rowcode]').forEach(el => { const i = parseInt(el.dataset.rowcode, 10); if (bulkRows[i]) bulkRows[i].code = el.value.trim(); });   // التقط أي تعديل
+      document.querySelectorAll('[data-rowcode]').forEach(el => { const i = parseInt(el.dataset.rowcode, 10); if (bulkRows[i]) bulkRows[i].code = asciiDigits(el.value).trim(); });   // التقط أي تعديل
       const existing = new Set(C.animals.map(a => a.code || ''));
       const dups = bulkRows.filter(r => r.code && existing.has(r.code)).map(r => r.code);
       if (dups.length && !await confirm2(`${dups.length} معرّف مكرّر (${dups.slice(0, 4).join('، ')}${dups.length > 4 ? '…' : ''}). متابعة؟`)) return;
@@ -3498,7 +3500,7 @@ function renderBulkBody() {
       <div class="muted" id="bk_count" style="margin:4px 0">المحدد: ${bulkSel.size}</div><div id="bk_list">${listHtml}</div></div>
     <button class="btn" id="bk_apply">تطبيق على المحدد (${bulkSel.size})</button>`;
   const refresh = () => { document.getElementById('bk_count').textContent = 'المحدد: ' + bulkSel.size; document.getElementById('bk_apply').textContent = 'تطبيق على المحدد (' + bulkSel.size + ')'; };
-  { const se = document.getElementById('bk_search'); if (se) se.addEventListener('input', () => { const t = se.value.trim().toLowerCase(); body.querySelectorAll('#bk_list .bulk-row').forEach(r => { r.style.display = (!t || r.textContent.toLowerCase().includes(t)) ? '' : 'none'; }); }); }
+  { const se = document.getElementById('bk_search'); if (se) se.addEventListener('input', () => { const t = asciiDigits(se.value).trim().toLowerCase(); body.querySelectorAll('#bk_list .bulk-row').forEach(r => { r.style.display = (!t || r.textContent.toLowerCase().includes(t)) ? '' : 'none'; }); }); }
   body.querySelectorAll('[data-sel]').forEach(cb => cb.addEventListener('change', () => { const id = parseInt(cb.dataset.sel, 10); cb.checked ? bulkSel.add(id) : bulkSel.delete(id); refresh(); }));
   const allBtn = document.getElementById('bk_all'); if (allBtn) allBtn.addEventListener('click', () => { const all = cands.every(a => bulkSel.has(a.id)); cands.forEach(a => all ? bulkSel.delete(a.id) : bulkSel.add(a.id)); renderBulkBody(); });
   document.getElementById('bk_apply').addEventListener('click', bulkApply);
@@ -4301,7 +4303,7 @@ function renderInspect() {
         <div style="display:flex;gap:8px;align-items:center;margin-top:4px">${cmpChips}<input id="af_m" type="number" inputmode="numeric" min="0" value="${afMonths}" style="width:66px;padding:8px;border:1px solid #ddd;border-radius:8px;text-align:center"><span class="muted">شهر</span></div>
       </div><div id="af_result"></div>`;
     const compute = () => {
-      afMonths = parseInt(document.getElementById('af_m').value, 10) || 0;
+      afMonths = parseInt(asciiDigits(document.getElementById('af_m').value), 10) || 0;
       let arr = present.filter(a => a.birth);
       if (afSex !== 'all') arr = arr.filter(a => a.sex === afSex);
       if (afSrc !== 'all') arr = arr.filter(a => (a.source || 'purchased') === afSrc);
@@ -4743,7 +4745,7 @@ function penAssignModal(penId) {
     <button class="btn" id="pa_go" style="margin-top:10px">➕ إضافة المحدَّد</button>`, () => {
     const search = document.getElementById('pa_search');
     if (search) search.addEventListener('input', () => {
-      const q = search.value.trim().toLowerCase();
+      const q = asciiDigits(search.value).trim().toLowerCase();
       document.querySelectorAll('#pa_list .bulk-row').forEach(r => { r.style.display = !q || r.textContent.toLowerCase().includes(q) ? '' : 'none'; });
     });
     document.getElementById('pa_go').addEventListener('click', async () => {
@@ -4884,7 +4886,7 @@ function reminderModal(r) {
     const collectRem = () => [...document.querySelectorAll('#rem_list [data-rid]:checked')].map(c => parseInt(c.dataset.rid, 10));
     document.getElementById('rem_specific').addEventListener('change', (e) => { box.style.display = e.target.checked ? '' : 'none'; });
     document.getElementById('rem_type').addEventListener('change', rebuild);
-    { const se = document.getElementById('rem_search'); if (se) se.addEventListener('input', () => { const t = se.value.trim().toLowerCase(); document.querySelectorAll('#rem_list .bulk-row').forEach(rw => { rw.style.display = (!t || rw.textContent.toLowerCase().includes(t)) ? '' : 'none'; }); }); }
+    { const se = document.getElementById('rem_search'); if (se) se.addEventListener('input', () => { const t = asciiDigits(se.value).trim().toLowerCase(); document.querySelectorAll('#rem_list .bulk-row').forEach(rw => { rw.style.display = (!t || rw.textContent.toLowerCase().includes(t)) ? '' : 'none'; }); }); }
     document.getElementById('rem_save').addEventListener('click', async () => {
       const title = val('rem_title').trim(); if (!title) { toast('اكتب الرسالة'); return; }
       const months = parseInt(asciiDigits(val('rem_months')), 10) || 0;
