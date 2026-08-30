@@ -56,6 +56,16 @@ function bindNewbornFieldSync(prefix, i) {
 const PREG = [{ k: 'monitoring', ar: 'تحت المتابعة' }, { k: 'born', ar: 'ولدت' }, { k: 'not_confirmed', ar: 'لم يثبت الحمل' }, { k: 'aborted', ar: '🩸 أجهضت' }];
 const arOf = (arr, k) => (arr.find(x => x.k === k) || {}).ar || '—';
 const gestOf = (t) => (TYPES.find(x => x.k === t) || TYPES[1]).gest;
+// عمر الحمل بالأشهر (بخطوة نصف شهر) — أسهل للمربّي من كتابة رقم أيام دقيق عند فحص السونار؛ يبقى إدخال الأيام مباشرة متاحاً للدقّة
+const GEST_AGE_MONTHS = [0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5];
+const gestAgeLabel = (m) => {
+  if (m === 0.5) return 'نصف شهر';
+  const whole = Math.floor(m), half = (m - whole) === 0.5;
+  const monthWord = whole === 1 ? 'شهر' : (whole === 2 ? 'شهرين' : whole + ' أشهر');
+  return half ? monthWord + ' ونصف' : monthWord;
+};
+const gestAgeOptionsHtml = () => '<option value="">— اختر تقريباً —</option>'
+  + GEST_AGE_MONTHS.map(m => { const d = Math.round(m * 30); return `<option value="${d}">${gestAgeLabel(m)} (${d} يوم)</option>`; }).join('');
 const pubertyOf = (t) => (TYPES.find(x => x.k === t) || {}).puberty;   // سن البلوغ (أشهر) أو undefined
 const weaningOf = (t) => (TYPES.find(x => x.k === t) || {}).weaning;   // سن الفطام (أشهر) أو undefined
 
@@ -2438,8 +2448,9 @@ function startPregBulkModal() {
     ${penChips}
     ${fInput('🔍 بحث (رقم)', 'pp_search', '')}
     <div style="display:flex;justify-content:space-between;align-items:center;margin:2px 0">
-      <span class="muted" style="font-size:.78rem">اكتب «عمر الحمل» أمام الرقم — يُحفظ تلقائياً.</span>
+      <span class="muted" style="font-size:.78rem">اكتب «عمر الحمل» بالأيام أمام الرقم — يُحفظ تلقائياً.</span>
       <span class="badge" id="pp_done_count">فُحِص: 0</span></div>
+    <div class="muted" style="font-size:.76rem;margin-bottom:6px">💡 بالأشهر: ${GEST_AGE_MONTHS.map(m => gestAgeLabel(m) + '=' + Math.round(m * 30)).join(' • ')}</div>
     <div style="max-height:44vh;overflow:auto" id="pp_list"></div>
     <button class="btn" id="pp_done" style="margin-top:8px">✓ تم — عرض الجدول</button>`, () => {
     document.querySelectorAll('[data-typef]').forEach(c => c.addEventListener('click', () => { typeF = c.dataset.typef; document.querySelectorAll('[data-typef]').forEach(x => x.classList.toggle('active', x.dataset.typef === typeF)); applyFilter(); }));
@@ -2454,11 +2465,27 @@ function animalSonarModal(a) {
   const existing = C.pregnancies.find(p => p.animal_id === a.id && p.status === 'monitoring');
   const g = gestOf(a.type);
   const defExp = existing && existing.expected ? existing.expected : addDays(todayStr(), g);
+  const existingAgeDays = existing && existing.mating_date ? Math.max(0, -daysUntil(existing.mating_date)) : '';
   openModal('🔊 فحص حمل بالسونار — ' + display(a), `
     ${fSelect('النتيجة', 'as_res', [{ k: 'pregnant', ar: 'حامل ✅' }, { k: 'empty', ar: 'فارغة' }], 'pregnant')}
     ${fInput('تاريخ الفحص', 'as_date', todayStr(), 'date')}
-    ${fInput('الولادة المتوقّعة (تقريبية — عدّلها حسب السونار)', 'as_exp', defExp, 'date')}
+    <div id="as_ageBox">
+      <div class="field"><label>عمر الحمل الآن (يملأ الولادة المتوقّعة تلقائياً)</label><select id="as_ageSel">${gestAgeOptionsHtml()}</select></div>
+      ${fInput('أو بالأيام بالضبط (اختياري)', 'as_ageDays', existingAgeDays, 'number', 'min="1" inputmode="numeric"')}
+      ${fInput('الولادة المتوقّعة', 'as_exp', defExp, 'date')}
+    </div>
     <button class="btn" id="as_save" style="margin-top:6px">حفظ الفحص</button>`, () => {
+    const fillFromAge = (days) => {
+      if (!days || days <= 0) return;
+      const date = val('as_date') || todayStr();
+      setVal('as_exp', addDays(addDays(date, -days), g));
+    };
+    { const s = document.getElementById('as_ageSel'); if (s) s.addEventListener('change', () => { const d = parseInt(val('as_ageSel'), 10); if (d) { setVal('as_ageDays', String(d)); fillFromAge(d); } }); }
+    { const d1 = document.getElementById('as_ageDays'); if (d1) d1.addEventListener('input', () => { const d = parseInt(val('as_ageDays'), 10); if (d) fillFromAge(d); }); }
+    { const d2 = document.getElementById('as_date'); if (d2) d2.addEventListener('change', () => { const d = parseInt(val('as_ageDays'), 10); if (d) fillFromAge(d); }); }
+    // «فارغة» لا تحتاج عمر حمل ولا ولادة متوقّعة
+    const syncResult = () => { const box = document.getElementById('as_ageBox'); if (box) box.style.display = val('as_res') === 'pregnant' ? '' : 'none'; };
+    { const r = document.getElementById('as_res'); if (r) { r.addEventListener('change', syncResult); syncResult(); } }
     document.getElementById('as_save').addEventListener('click', async () => {
       const res = val('as_res'), date = val('as_date') || todayStr(), exp = val('as_exp') || null;
       const ok = await guard(async () => {
