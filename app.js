@@ -261,7 +261,7 @@ function bindSireSelectSingle(selectId, targetId) {
 const row = (k, v) => `<div class="row"><span class="k">${k}</span><span class="v">${v}</span></div>`;
 // صفّ سجل قابل للتعديل: عنوان + تفاصيل + زرّ تعديل صغير (للتلقيح/الحمل/التطعيمات/العلاجات)
 const editRow = (title, sub, attr, id) => `<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;padding:6px 0;border-bottom:1px solid #eee">
-  <div style="flex:1;min-width:0"><div class="li-title" style="font-size:.95rem">${title}</div><div class="li-sub">${sub}</div></div>
+  <div style="flex:1;min-width:0"><div class="li-title" style="font-size:.95rem">${title}</div>${sub ? `<div class="li-sub">${sub}</div>` : ''}</div>
   <button class="btn sm outline" data-${attr}="${id}" style="flex:0 0 auto">✎ تعديل</button></div>`;
 const noItem = () => '<div class="muted">لا يوجد</div>';
 
@@ -1986,7 +1986,9 @@ function screenAnimalDetail(arg) {
       ${pregs.map(p => {
         let sub;
         if (p.status === 'aborted') sub = (p.abort_gest_days != null ? 'عمر الحمل عند الإجهاض ' + p.abort_gest_days + ' يوم' : 'مسجّل') + (p.abort_cause ? ' • السبب: ' + esc(p.abort_cause) : '');
-        else if (p.status === 'born') { const bd = birthDateForPregnancy(p); sub = bd ? 'تمت الولادة بتاريخ ' + fmtDate(bd) : 'ولدت'; }
+        // إن كانت تاريخ ولادة هذا الحمل هي نفسها "آخر ولادة" المذكورة أعلى في كفاءة الإنجاب، لا داعي لتكرارها هنا —
+        // تُذكر فقط لولادات أقدم (حمل ثانٍ/ثالث...) لا تظهر قيمتها في أي مكان آخر بالصفحة
+        else if (p.status === 'born') { const bd = birthDateForPregnancy(p); sub = (bd && bd !== lastBirth) ? 'تمت الولادة بتاريخ ' + fmtDate(bd) : ''; }
         else sub = 'الولادة التقريبية ' + fmtDate(p.expected) + ' • مدة الحمل ' + p.gest + ' يوم';
         const title = p.status === 'aborted' ? 'حمل (🩸 أجهضت)' : 'حمل (' + arOf(PREG, p.status) + ')' + (p.confirmed ? ' 🔊' : '');
         return can('breeding', 'edit') ? editRow(title, sub, 'pedit', p.id) : row(title, sub);
