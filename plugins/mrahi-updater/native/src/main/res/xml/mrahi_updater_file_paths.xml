@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- يطابق مجلد التنزيل المستخدَم في updater.js (Filesystem.downloadFile إلى Directory.Cache/mrahi-updates) -->
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <cache-path name="mrahi_updates" path="mrahi-updates/" />
+</paths>

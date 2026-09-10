@@ -1,0 +1,14 @@
+{
+  "name": "mrahi-updater",
+  "version": "1.0.0",
+  "private": true,
+  "description": "إضافة كابسيتور محلية: تثبيت تحديث APK محلي عبر FileProvider + REQUEST_INSTALL_PACKAGES — لا يوجد غلاف JS/TS مُجمَّع، يُستخدم عبر window.Capacitor.Plugins.Updater مباشرة (نفس نمط الإضافات الأخرى المستخدمة في هذا المشروع).",
+  "capacitor": {
+    "android": {
+      "src": "native"
+    }
+  },
+  "peerDependencies": {
+    "@capacitor/core": "^6.0.0"
+  }
+}

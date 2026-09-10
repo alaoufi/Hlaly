@@ -12,6 +12,7 @@
     "@capacitor/filesystem": "^6.0.4",
     "@capacitor/local-notifications": "^6.1.0",
     "mrahi-save-folder": "file:plugins/mrahi-save-folder",
+    "mrahi-updater": "file:plugins/mrahi-updater",
     "tweetnacl": "^1.0.3"
   },
   "devDependencies": {
