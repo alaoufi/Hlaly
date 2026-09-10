@@ -1,0 +1,17 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- لتثبيت ملف APK المحمَّل ذاتياً (تحديث التطبيق) — أندرويد ٨+ يتطلّب هذا الإذن صراحةً -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
+    <application>
+        <!-- يشارك مسار ملف APK المحمَّل (داخل مساحة التطبيق الخاصة) مع مثبّت النظام بأمان دون كشف مسارات أخرى -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/mrahi_updater_file_paths" />
+        </provider>
+    </application>
+</manifest>
