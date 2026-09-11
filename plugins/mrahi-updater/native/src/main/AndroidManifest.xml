@@ -3,10 +3,12 @@
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <application>
-        <!-- يشارك مسار ملف APK المحمَّل (داخل مساحة التطبيق الخاصة) مع مثبّت النظام بأمان دون كشف مسارات أخرى -->
+        <!-- يشارك مسار ملف APK المحمَّل (داخل مساحة التطبيق الخاصة) مع مثبّت النظام بأمان دون كشف مسارات أخرى.
+             سلطة (authority) مخصّصة لا تُطابق "${applicationId}.fileprovider" العامة — تلك مُستخدَمة أصلاً
+             من إضافة @capacitor/local-notifications، ومطابقتها تُسبّب فشل دمج AndroidManifest عند البناء. -->
         <provider
             android:name="androidx.core.content.FileProvider"
-            android:authorities="${applicationId}.fileprovider"
+            android:authorities="${applicationId}.updaterprovider"
             android:exported="false"
             android:grantUriPermissions="true">
             <meta-data

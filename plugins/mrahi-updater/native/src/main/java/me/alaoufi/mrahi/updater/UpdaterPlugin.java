@@ -66,7 +66,7 @@ public class UpdaterPlugin extends Plugin {
         }
         try {
             Context ctx = getContext();
-            Uri uri = FileProvider.getUriForFile(ctx, ctx.getPackageName() + ".fileprovider", file);
+            Uri uri = FileProvider.getUriForFile(ctx, ctx.getPackageName() + ".updaterprovider", file);
             Intent intent = new Intent(Intent.ACTION_VIEW);
             intent.setDataAndType(uri, "application/vnd.android.package-archive");
             intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
