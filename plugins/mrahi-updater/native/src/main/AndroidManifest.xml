@@ -4,10 +4,11 @@
 
     <application>
         <!-- يشارك مسار ملف APK المحمَّل (داخل مساحة التطبيق الخاصة) مع مثبّت النظام بأمان دون كشف مسارات أخرى.
-             سلطة (authority) مخصّصة لا تُطابق "${applicationId}.fileprovider" العامة — تلك مُستخدَمة أصلاً
-             من إضافة @capacitor/local-notifications، ومطابقتها تُسبّب فشل دمج AndroidManifest عند البناء. -->
+             دامج مانيفست أندرويد يُطابق عناصر <provider> بحسب android:name لا android:authorities — فاستخدام
+             الاسم العام "androidx.core.content.FileProvider" (كما تفعل @capacitor/local-notifications أصلاً)
+             يُسبّب فشل الدمج حتى مع سلطة مختلفة، لذا UpdaterFileProvider فئة فرعية فارغة باسم فريد لهذه الإضافة. -->
         <provider
-            android:name="androidx.core.content.FileProvider"
+            android:name="me.alaoufi.mrahi.updater.UpdaterFileProvider"
             android:authorities="${applicationId}.updaterprovider"
             android:exported="false"
             android:grantUriPermissions="true">
