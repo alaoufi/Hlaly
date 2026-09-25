@@ -2050,6 +2050,11 @@ function screenAnimalDetail(arg) {
         ${can('animals', 'edit') && a.sex === 'male' ? (a.purpose === 'sire'
           ? `<button class="btn sm outline" id="qUnsire">↩ إلغاء الفحل</button>`
           : `<button class="btn sm" id="qSire">🐏 تعيينه فحلاً</button>`) : ''}
+        <!-- إجراءات الإنجاب هنا أيضاً (بنفس أزرار تبويب 🤰 الإنجاب ونفس معرّفاتها) — كل إجراءات البهيمة
+             بمكان واحد بدل التنقّل بين التبويبات. تتبدّل تلقائياً حسب وجود حمل تحت المتابعة أم لا. -->
+        ${a.sex === 'female' && breedingAge && a.status === 'present' && can('breeding', 'edit') ? (monPreg
+          ? `<button class="btn sm outline" id="addBirth">🍼 تسجيل ولادة</button><button class="btn sm outline" id="addSonar">🔊 سونار</button><button class="btn sm danger" id="addAbort">🩸 تسجيل إجهاض</button>`
+          : `<button class="btn sm outline" id="addMating">➕ تسجيل تلقيح</button><button class="btn sm outline" id="addSonar">🔊 سونار</button>`) : ''}
         ${can('animals', 'edit') ? (a.status === 'present'
           ? `<button class="btn sm" id="qSell">💰 بيع</button><button class="btn sm danger" id="qDead">📉 نفوق</button><button class="btn sm" id="qGift">🎁 إهداء</button><button class="btn sm outline" id="qMissing">🔎 فقد</button><button class="btn sm danger" id="qSlaughter">🔪 ذبح</button>${!inHerdCount(a) ? `<button class="btn sm outline" id="qCount">➕ احتساب</button>` : (a.counted === true ? `<button class="btn sm outline" id="qUncount">➖ إخراج</button>` : '')}`
           : `<button class="btn sm outline" id="qBack">↩ إعادة للحظيرة</button>`) : ''}
