@@ -1319,7 +1319,7 @@ function screenAnimals() {
   // مرشّحات متعدّدة الاختيار: عدم تحديد أي رقاقة في صفّ = لا قيد على هذا الصفّ (يطابق الكل) — نفس معنى «الكل» في صفّ النوع أعلاه، لا فلتراً صارماً يُخفي كل شيء
   // مربّع اختيار (☐/☑) ليوضّح أنها متعدّدة الاختيار
   const cb = (on) => (on ? '☑' : '☐') + ' ';
-  // فلتر سريع بجانب فلاتر النوع مباشرة (بلا حاجة لفتح «فلاتر إضافية»): مواليد المراح المُضافة فعلاً لعدد الحظيرة
+  // فلتر سريع ضمن مجموعة «⚙️ فلاتر إضافية» (مع المصدر/الجنس/الحظيرة): مواليد المراح المُضافة فعلاً لعدد الحظيرة
   const prodChip = `<div class="chips"><span class="chip ${productionOnly ? 'active' : ''}" data-prod="1">${cb(productionOnly)}🌱 الإنتاج (مولود بالمراح ومُضاف للحظيرة)</span></div>`;
   // لا مرشّح حالة هنا إطلاقاً — هذه الشاشة تعرض حلال الحظيرة الحالي فقط (present)؛ ما خرج (بيع/نفوق/اهداء/فقد/ذبح) ينتقل إلى 🗄️ الأرشيف ولا يظهر هنا أبداً
   const srcChips = `<div class="chips"><span class="chip ${!animalSourceSel.length ? 'active' : ''}" data-src="">${cb(!animalSourceSel.length)}الكل</span><span class="chip ${animalSourceSel.includes('born') ? 'active' : ''}" data-src="born">${cb(animalSourceSel.includes('born'))}👶 مواليد</span><span class="chip ${animalSourceSel.includes('purchased') ? 'active' : ''}" data-src="purchased">${cb(animalSourceSel.includes('purchased'))}🛒 شراء</span><span class="chip ${animalSourceSel.includes('gift') ? 'active' : ''}" data-src="gift">${cb(animalSourceSel.includes('gift'))}🎁 اهداء</span><span class="chip ${animalSourceSel.includes('sale') ? 'active' : ''}" data-src="sale">${cb(animalSourceSel.includes('sale'))}💰 للبيع (المعدّ للبيع)</span></div>`;
@@ -1352,10 +1352,10 @@ function screenAnimals() {
   } else { listHtml = list.map(animalCard).join(''); }
   // لوحة الفلاتر الإضافية (المصدر/الجنس/الحظيرة) مطوية افتراضياً — تبسيطاً للشاشة، تُفتح عند الحاجة فقط
   const filtersToggle = `<div class="acc-head card click" id="filtToggle" style="display:flex;align-items:center;justify-content:space-between">
-      <span class="li-title" style="margin:0">⚙️ فلاتر إضافية (المصدر/الجنس/الحظيرة) — ${animalFiltersOpen ? 'مفتوحة' : 'مغلقة'}</span>
+      <span class="li-title" style="margin:0">⚙️ فلاتر إضافية (المصدر/الإنتاج/الجنس/الحظيرة) — ${animalFiltersOpen ? 'مفتوحة' : 'مغلقة'}</span>
       <span class="acc-arrow ${animalFiltersOpen ? 'open' : ''}">▸</span></div>`;
-  const filtersBody = animalFiltersOpen ? (srcChips + sexChips + penChip) : '';
-  view().innerHTML = chips + prodChip + filtersToggle + filtersBody + countRow + (list.length ? listHtml : empty);
+  const filtersBody = animalFiltersOpen ? (srcChips + prodChip + sexChips + penChip) : '';
+  view().innerHTML = chips + filtersToggle + filtersBody + countRow + (list.length ? listHtml : empty);
   view().querySelectorAll('[data-f]').forEach(c => c.addEventListener('click', () => { animalFilter = c.dataset.f; screenAnimals(); }));
   view().querySelectorAll('[data-prod]').forEach(c => c.addEventListener('click', () => { productionOnly = !productionOnly; saveAnimalFilters(); screenAnimals(); }));
   view().querySelectorAll('[data-src]').forEach(c => c.addEventListener('click', () => { const v = c.dataset.src; if (v === '') animalSourceSel = []; else toggleSel(animalSourceSel, v); saveAnimalFilters(); screenAnimals(); }));
