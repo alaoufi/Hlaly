@@ -1229,7 +1229,7 @@ async function ensureNotifPermissionOnce() {
 /* ===== الحلال ===== */
 let animalFilter = '';
 function loadFilterArr(k, def) { try { const v = JSON.parse(localStorage.getItem(k)); return Array.isArray(v) ? v : def; } catch (e) { return def; } }
-function saveAnimalFilters() { try { localStorage.setItem('mrahi_f_source', JSON.stringify(animalSourceSel)); localStorage.setItem('mrahi_f_sex', JSON.stringify(animalSexSel)); localStorage.setItem('mrahi_f_nopen', noPenOnly ? '1' : '0'); } catch (e) {} }
+function saveAnimalFilters() { try { localStorage.setItem('mrahi_f_source', JSON.stringify(animalSourceSel)); localStorage.setItem('mrahi_f_sex', JSON.stringify(animalSexSel)); localStorage.setItem('mrahi_f_nopen', noPenOnly ? '1' : '0'); localStorage.setItem('mrahi_f_prod', productionOnly ? '1' : '0'); } catch (e) {} }
 function toggleSel(arr, v) { const i = arr.indexOf(v); if (i >= 0) arr.splice(i, 1); else arr.push(v); }
 // التبويب المختار في شاشة سجل البهيمة (البيانات/النسب/الإنجاب/المرضي/العلاجات/التطعيمات)
 let animalRecTab = 'basic';
@@ -1241,6 +1241,8 @@ const ALL_SEXES = ['male', 'female'];
 let animalSourceSel = loadFilterArr('mrahi_f_source', ALL_SOURCES.slice());
 let animalSexSel = loadFilterArr('mrahi_f_sex', ALL_SEXES.slice());
 let noPenOnly = (() => { try { return localStorage.getItem('mrahi_f_nopen') === '1'; } catch (e) { return false; } })();
+// فلتر سريع: «🌱 الإنتاج» = مواليد المراح المُضافة فعلاً لعدد الحظيرة (بعد الاحتساب) — يميّزها عن المشترى وعن الصغار الذين لم يُحتسَبوا بعد
+let productionOnly = (() => { try { return localStorage.getItem('mrahi_f_prod') === '1'; } catch (e) { return false; } })();
 // طلب لمرة واحدة من بطاقات «المواليد» بالرئيسية: يعرض المواليد الحقيقيين فقط (غير المحتسَبين بعد) — يُستهلَك عند أول عرض ثم يُمسح
 let pendingNewbornFilter = null;   // 'male'|'female'|'all'|null
 // طلب لمرة واحدة من بطاقة «في الحظيرة» بالرئيسية: يعرض المحتسَبين فقط (inHerdCount) فيتطابق العدد مع رقم البطاقة تماماً
@@ -1317,6 +1319,8 @@ function screenAnimals() {
   // مرشّحات متعدّدة الاختيار: عدم تحديد أي رقاقة في صفّ = لا قيد على هذا الصفّ (يطابق الكل) — نفس معنى «الكل» في صفّ النوع أعلاه، لا فلتراً صارماً يُخفي كل شيء
   // مربّع اختيار (☐/☑) ليوضّح أنها متعدّدة الاختيار
   const cb = (on) => (on ? '☑' : '☐') + ' ';
+  // فلتر سريع بجانب فلاتر النوع مباشرة (بلا حاجة لفتح «فلاتر إضافية»): مواليد المراح المُضافة فعلاً لعدد الحظيرة
+  const prodChip = `<div class="chips"><span class="chip ${productionOnly ? 'active' : ''}" data-prod="1">${cb(productionOnly)}🌱 الإنتاج (مولود بالمراح ومُضاف للحظيرة)</span></div>`;
   // لا مرشّح حالة هنا إطلاقاً — هذه الشاشة تعرض حلال الحظيرة الحالي فقط (present)؛ ما خرج (بيع/نفوق/اهداء/فقد/ذبح) ينتقل إلى 🗄️ الأرشيف ولا يظهر هنا أبداً
   const srcChips = `<div class="chips"><span class="chip ${!animalSourceSel.length ? 'active' : ''}" data-src="">${cb(!animalSourceSel.length)}الكل</span><span class="chip ${animalSourceSel.includes('born') ? 'active' : ''}" data-src="born">${cb(animalSourceSel.includes('born'))}👶 مواليد</span><span class="chip ${animalSourceSel.includes('purchased') ? 'active' : ''}" data-src="purchased">${cb(animalSourceSel.includes('purchased'))}🛒 شراء</span><span class="chip ${animalSourceSel.includes('gift') ? 'active' : ''}" data-src="gift">${cb(animalSourceSel.includes('gift'))}🎁 اهداء</span><span class="chip ${animalSourceSel.includes('sale') ? 'active' : ''}" data-src="sale">${cb(animalSourceSel.includes('sale'))}💰 للبيع (المعدّ للبيع)</span></div>`;
   const sexChips = `<div class="chips"><span class="chip ${!animalSexSel.length ? 'active' : ''}" data-sex="">${cb(!animalSexSel.length)}الكل</span>${SEX.map(s => `<span class="chip ${animalSexSel.includes(s.k) ? 'active' : ''}" data-sex="${s.k}">${cb(animalSexSel.includes(s.k))}${s.k === 'male' ? '♂ ' : '♀ '}${s.ar}</span>`).join('')}</div>`;
@@ -1325,7 +1329,7 @@ function screenAnimals() {
   const hideMale = (a) => a.sex === 'male' && !animalSexSel.includes('male') && (a.purpose === 'sire' ? !countIncludeSires() : !countIncludeMales());
   // إخفاء المولود غير المحتسَب (يتبع أمّه) من القائمة كلياً إن أُوقف خيار «إظهار المواليد غير المحتسَبة»
   const hideUncounted = (a) => !showUncountedInList() && !inHerdCount(a);
-  const list = sortAnimals(C.animals.filter(a => a.status === 'present' && (!animalFilter || a.type === animalFilter) && (!animalSourceSel.length || animalSourceSel.some(s => s === 'sale' ? (a.designation === 'sale' || a.purpose === 'sale') : (a.source || 'purchased') === s)) && (!animalSexSel.length || animalSexSel.includes(a.sex)) && !hideMale(a) && !hideUncounted(a) && (!onlyRealNewborn || (a.source === 'born' && !inHerdCount(a))) && (!onlyCounted || inHerdCount(a)) && (!noPenOnly || a.pen_id == null)));
+  const list = sortAnimals(C.animals.filter(a => a.status === 'present' && (!animalFilter || a.type === animalFilter) && (!animalSourceSel.length || animalSourceSel.some(s => s === 'sale' ? (a.designation === 'sale' || a.purpose === 'sale') : (a.source || 'purchased') === s)) && (!animalSexSel.length || animalSexSel.includes(a.sex)) && !hideMale(a) && !hideUncounted(a) && (!onlyRealNewborn || (a.source === 'born' && !inHerdCount(a))) && (!onlyCounted || inHerdCount(a)) && (!noPenOnly || a.pen_id == null) && (!productionOnly || (a.source === 'born' && inHerdCount(a)))));
   const canEdit = can('animals', 'edit');
   // عند خلو الحلال كلياً: حالة ترحيبية بزرّ إضافة واضح. وعند خلو التصنيف فقط: رسالة عادية.
   const empty = C.animals.length === 0
@@ -1351,8 +1355,9 @@ function screenAnimals() {
       <span class="li-title" style="margin:0">⚙️ فلاتر إضافية (المصدر/الجنس/الحظيرة) — ${animalFiltersOpen ? 'مفتوحة' : 'مغلقة'}</span>
       <span class="acc-arrow ${animalFiltersOpen ? 'open' : ''}">▸</span></div>`;
   const filtersBody = animalFiltersOpen ? (srcChips + sexChips + penChip) : '';
-  view().innerHTML = chips + filtersToggle + filtersBody + countRow + (list.length ? listHtml : empty);
+  view().innerHTML = chips + prodChip + filtersToggle + filtersBody + countRow + (list.length ? listHtml : empty);
   view().querySelectorAll('[data-f]').forEach(c => c.addEventListener('click', () => { animalFilter = c.dataset.f; screenAnimals(); }));
+  view().querySelectorAll('[data-prod]').forEach(c => c.addEventListener('click', () => { productionOnly = !productionOnly; saveAnimalFilters(); screenAnimals(); }));
   view().querySelectorAll('[data-src]').forEach(c => c.addEventListener('click', () => { const v = c.dataset.src; if (v === '') animalSourceSel = []; else toggleSel(animalSourceSel, v); saveAnimalFilters(); screenAnimals(); }));
   view().querySelectorAll('[data-sex]').forEach(c => c.addEventListener('click', () => { const v = c.dataset.sex; if (v === '') animalSexSel = []; else toggleSel(animalSexSel, v); saveAnimalFilters(); screenAnimals(); }));
   view().querySelectorAll('[data-nopen]').forEach(c => c.addEventListener('click', () => { noPenOnly = !noPenOnly; saveAnimalFilters(); screenAnimals(); }));
