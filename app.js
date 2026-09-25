@@ -2047,9 +2047,6 @@ function screenAnimalDetail(arg) {
       ${a.status === 'slaughtered' ? row('تاريخ الذبح', fmtDate(a.slaughter_date)) : ''}
       <div class="btn-row" style="margin-top:8px">
         <button class="btn sm outline" id="qShare">📤 مشاركة البطاقة</button>
-        ${can('animals', 'edit') && a.sex === 'male' ? (a.purpose === 'sire'
-          ? `<button class="btn sm outline" id="qUnsire">↩ إلغاء الفحل</button>`
-          : `<button class="btn sm" id="qSire">🐏 تعيينه فحلاً</button>`) : ''}
         <!-- إجراءات الإنجاب هنا أيضاً (بنفس أزرار تبويب 🤰 الإنجاب ونفس معرّفاتها) — كل إجراءات البهيمة
              بمكان واحد بدل التنقّل بين التبويبات. تتبدّل تلقائياً حسب وجود حمل تحت المتابعة أم لا. -->
         ${a.sex === 'female' && breedingAge && a.status === 'present' && can('breeding', 'edit') ? (monPreg
@@ -2116,8 +2113,6 @@ function screenAnimalDetail(arg) {
   const qm = document.getElementById('qMissing'); if (qm) qm.addEventListener('click', () => quickMissing(a));
   const qsl = document.getElementById('qSlaughter'); if (qsl) qsl.addEventListener('click', () => quickSlaughter(a));
   const qsh = document.getElementById('qShare'); if (qsh) qsh.addEventListener('click', () => shareAnimalCard(a));
-  const qsi = document.getElementById('qSire'); if (qsi) qsi.addEventListener('click', () => makeSireModal(a));
-  const qus = document.getElementById('qUnsire'); if (qus) qus.addEventListener('click', () => unmakeSire(a));
   const ao = document.getElementById('addOffspring'); if (ao) ao.addEventListener('click', () => addOffspringModal(a));
   const am = document.getElementById('addMating'); if (am) am.addEventListener('click', () => setHash('#/mating/' + id));
   const aso = document.getElementById('addSonar'); if (aso) aso.addEventListener('click', () => animalSonarModal(a));
@@ -3209,7 +3204,7 @@ function screenSires() {
     </div>
     <div class="card"><h3>🏠 فحول في الحظيرة (${present.length})</h3>${present.length ? present.map(card).join('') : noItem()}</div>
     <div class="card"><h3>🌍 فحول خارج المراح (${extSires.length})</h3>${extSires.length ? extSires.map(extCard).join('') : noItem()}</div>
-    <div class="muted" style="font-size:.82rem;margin-top:8px">لتحويل ذكر إلى فحل: افتح سجله ← تبويب «📋 البيانات» ← «🐏 تعيينه فحلاً». فحل خرج من الحظيرة (بيع/نفوق/اهداء/فقد/ذبح) ينتقل إلى 🗄️ الأرشيف.<br>الأبناء/البنات والإناث الملقَّحة تُحسَب بمطابقة اسم/رقم الفحل مع حقل «الأب» — راجِعها لو تشابهت الأسماء بين فحلين. عند تسجيل تلقيح، يمكن اختيار أي فحل (داخل أو خارج المراح) من القائمة.</div>`;
+    <div class="muted" style="font-size:.82rem;margin-top:8px">لتحويل ذكر إلى فحل: افتح سجله ← «✎ تعديل» ← «غرض الذكر» ← «🐏 فحل للقطيع». فحل خرج من الحظيرة (بيع/نفوق/اهداء/فقد/ذبح) ينتقل إلى 🗄️ الأرشيف.<br>الأبناء/البنات والإناث الملقَّحة تُحسَب بمطابقة اسم/رقم الفحل مع حقل «الأب» — راجِعها لو تشابهت الأسماء بين فحلين. عند تسجيل تلقيح، يمكن اختيار أي فحل (داخل أو خارج المراح) من القائمة.</div>`;
   bindCards(view());
   bindTypeChips(screenSires);
   view().querySelectorAll('[data-kids]').forEach(el => el.addEventListener('click', (e) => { e.stopPropagation(); const s = animalById(parseInt(el.dataset.kids, 10)); if (s) animalListModal('أبناء وبنات 🐏 ' + display(s), sireOffspring(s)); }));
@@ -3340,28 +3335,6 @@ function screenNewborns() {
   bindCards(view());
 }
 function filterBySex(arr, sex) { return sex === 'all' ? arr : arr.filter(a => a.sex === sex); }
-// تعيين ذكر فحلاً (تحويل) مع تحديث معرّفه/اسمه
-function makeSireModal(a) {
-  openModal('تعيين فحلاً', `
-    <div class="muted" style="margin-bottom:8px">تُعيَّن «${display(a)}» فحلاً للقطيع 🐏. يمكنك إعطاؤها اسماً/رقماً الآن.</div>
-    ${fSelect('نوع المعرّف', 'ms_kind', IDKIND, a.idkind || 'number')}
-    ${fInput('المعرّف / الوسم', 'ms_code', a.code)}
-    ${fInput('الاسم (اختياري)', 'ms_name', a.name)}
-    <button class="btn" id="ms_save">🐏 تعيين فحلاً</button>`, () => {
-    document.getElementById('ms_save').addEventListener('click', async () => {
-      const idkind = val('ms_kind'); let code = val('ms_code').trim();
-      if (!['number', 'tag', 'chip', 'name'].includes(idkind)) code = '';
-      const ok = await guard(async () => { await dbUpdate('animals', a.id, { purpose: 'sire', idkind, code, name: val('ms_name').trim() }); });
-      if (ok) { closeModal(); toast('تم تعيينها فحلاً 🐏'); await loadAll(); screenAnimalDetail(String(a.id)); }
-    });
-  });
-}
-// إلغاء صفة الفحولة عن ذكر
-async function unmakeSire(a) {
-  if (!await confirm2('إلغاء صفة الفحل عن هذه البهيمة؟')) return;
-  const ok = await guard(async () => { await dbUpdate('animals', a.id, { purpose: '' }); });
-  if (ok) { toast('أُلغيت صفة الفحل'); await loadAll(); screenAnimalDetail(String(a.id)); }
-}
 let bulkOp = 'vaccinate';
 let bulkRows = [];          // قائمة الرؤوس المُجهَّزة للإضافة الجماعية: {sex, code}
 const bulkSel = new Set();
