@@ -1989,7 +1989,10 @@ function screenAnimalDetail(arg) {
       ${!parities && !matings.length && !abortions ? noItem() : ''}</div>
     ${a.sex === 'female' && breedingAge ? `<div class="card"><h3>🤰 التلقيح والحمل (${matings.length})</h3>
       ${reproStatusLine}
-      ${can('breeding', 'edit') ? `<button class="btn outline" id="addMating">إضافة تلقيح / متابعة حمل</button>` : ''}
+      <!-- المجموعة تتبدّل حسب وجود حمل تحت المتابعة: قبل التلقيح تظهر «إضافة تلقيح» فقط، وبعده تختفي ويظهر بدلاً
+           منها «تسجيل ولادة»/«تسجيل إجهاض» — لا معنى لتلقيح جديد وهي حامل أصلاً، ولا لتسجيل ولادة/إجهاض بلا حمل. -->
+      ${!monPreg && can('breeding', 'edit') ? `<button class="btn outline" id="addMating">إضافة تلقيح / متابعة حمل</button>` : ''}
+      ${monPreg && can('breeding', 'edit') ? `<button class="btn outline" id="addBirth">🍼 تسجيل ولادة</button>` : ''}
       ${can('breeding', 'edit') && a.status === 'present' ? `<button class="btn outline" id="addSonar" style="margin-top:6px">🔊 فحص حمل بالسونار</button>` : ''}
       ${monPreg && can('breeding', 'edit') ? `<button class="btn outline danger" id="addAbort" style="margin-top:6px">🩸 تسجيل إجهاض</button>` : ''}
       ${matings.filter(m => !abortedMatingIds.has(m.id) && !abortedMatingDates.has(m.date)).map(m => can('breeding', 'edit')
@@ -2113,6 +2116,7 @@ function screenAnimalDetail(arg) {
   const ao = document.getElementById('addOffspring'); if (ao) ao.addEventListener('click', () => addOffspringModal(a));
   const am = document.getElementById('addMating'); if (am) am.addEventListener('click', () => setHash('#/mating/' + id));
   const aso = document.getElementById('addSonar'); if (aso) aso.addEventListener('click', () => animalSonarModal(a));
+  const abr = document.getElementById('addBirth'); if (abr && monPreg) abr.addEventListener('click', () => openBirthModal(monPreg));
   const aab = document.getElementById('addAbort'); if (aab && monPreg) aab.addEventListener('click', () => abortModal(monPreg));
   const av = document.getElementById('addVacc'); if (av) av.addEventListener('click', () => setHash('#/vaccinate/' + id));
   const at = document.getElementById('addTreat'); if (at) at.addEventListener('click', () => setHash('#/treat/' + id));
@@ -2545,11 +2549,17 @@ function bulkSonarModal() {
 // تسجيل ولادة أسرع: عدّة مواليد (توائم) بترقيم اختياري، مربوطة بالأم
 function openBirthModal(preg) {
   const mother = animalById(preg.animal_id);
+  // الفحل مسجَّل مسبقاً مع التلقيح المرتبط بهذا الحمل — لا داعٍ لتكرار اختياره هنا؛ يُؤخَذ تلقائياً منه.
+  // فقط إن لم يكن هذا الحمل مرتبطاً بتلقيح مسجَّل (نادر — مثلاً حمل بدأ بالسونار مباشرة) تظهر قائمة الاختيار كبديل.
+  const linkedMating = preg.mating_id ? C.matings.find(m => m.id === preg.mating_id) : null;
+  const knownFather = linkedMating ? (linkedMating.sire_name || linkedMating.sire_code || '') : '';
   openModal('تسجيل ولادة — ' + display(mother), `
     ${fInput('عدد المواليد', 'b_count', '1', 'number', 'min="1" inputmode="numeric"')}
     ${fInput('تاريخ الولادة', 'b_date', todayStr(), 'date')}
-    ${sireSelectHtml('b_sireSel', null, mother ? mother.type : null)}
-    ${fInput('الأب / الفحل', 'b_father', '')}
+    ${knownFather
+      ? row('الأب / الفحل', esc(knownFather) + ' <span class="muted">(من سجل التلقيح — لتصحيحه عدّل التلقيح نفسه)</span>') + `<input type="hidden" id="b_father" value="${esc(knownFather)}">`
+      : `${sireSelectHtml('b_sireSel', '— يختار الأب من داخل أو خارج الحظيرة، أو اترك فارغاً واكتب يدوياً —', mother ? mother.type : null)}
+         ${fInput('الأب / الفحل (اسم أو رقم)', 'b_father', '')}`}
     <div id="bSingle">
       ${fSelect('الجنس', 'b_sex', SEX, 'female')}
       <div id="b_purposeBox">${fSelect('غرض الذكر', 'b_purpose', MALE_PURPOSE, '', '— غير محدّد —')}</div>
@@ -2612,7 +2622,7 @@ function openBirthModal(preg) {
           }
           await dbUpdate('pregnancies', preg.id, { status: 'born' }, true);   // تسجيل ولادة (إضافة) — لا يُقفل
         });
-        if (ok) { closeModal(); toast(`تم تسجيل الولادة (${n})`); await loadAll(); screenPregnancies(); }
+        if (ok) { closeModal(); toast(`تم تسجيل الولادة (${n})`); await loadAll(); (parseHash().name === 'pregnancies' ? screenPregnancies() : screenAnimalDetail(String(preg.animal_id))); }
         return;
       }
       // مولود واحد: الحقول المشتركة (جنس/غرض) + خيار الترقيم
@@ -2628,7 +2638,7 @@ function openBirthModal(preg) {
         }
         await dbUpdate('pregnancies', preg.id, { status: 'born' }, true);   // تسجيل ولادة (إضافة) — لا يُقفل
       });
-      if (ok) { closeModal(); toast(`تم تسجيل الولادة (${n})`); await loadAll(); screenPregnancies(); }
+      if (ok) { closeModal(); toast(`تم تسجيل الولادة (${n})`); await loadAll(); (parseHash().name === 'pregnancies' ? screenPregnancies() : screenAnimalDetail(String(preg.animal_id))); }
     });
   });
 }
