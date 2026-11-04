@@ -77,3 +77,10 @@ test('counts newborn immediately or after its configured age', () => {
   assert.equal(support.shouldCountNewborn(newborn, { mode: 'with_mother', age: 2, unit: 'months' }, '2026-02-15'), false);
   assert.equal(support.shouldCountNewborn(newborn, { mode: 'with_mother', age: 2, unit: 'months' }, '2026-03-02'), true);
 });
+
+test('classifies vaccination by validity from the latest dose', () => {
+  const vaccine = { date: '2026-10-01', next_due: '2026-12-10' };
+  assert.equal(support.vaccinationStatus(vaccine, 60, '2026-10-20'), 'active');
+  assert.equal(support.vaccinationStatus(vaccine, 60, '2026-12-02'), 'upcoming');
+  assert.equal(support.vaccinationStatus({ date: '2026-08-01' }, 30, '2026-10-01'), 'old');
+});

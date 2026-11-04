@@ -373,6 +373,10 @@ html[data-theme] .card { border:1px solid color-mix(in srgb,var(--accent-3d),tra
 .herd-settings-grid { display:grid; gap:10px; }
 .newborn-policy-card { border-inline-start:4px solid var(--accent-3d); }
 .newborn-policy-card .field { margin-bottom:9px; }
+.vaccination-tabs { margin:10px 0 6px; }
+.vaccination-row { border-inline-start:4px solid var(--accent-3d); }
+.breeder-note { border-inline-start:4px solid var(--primary-3d); }
+.note-body { white-space:pre-wrap; line-height:1.8; margin:8px 0; }
 
 /* تنقل «المزيد»: مجموعة واحدة مفتوحة، وصفوف لمس مختصرة وواضحة. */
 .more-group-head { display:flex; align-items:center; justify-content:space-between; min-height:58px; margin:10px 0 0; padding:13px 15px; border-radius:16px; box-shadow:0 5px 14px #26452c14; }

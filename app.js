@@ -188,7 +188,7 @@ async function openScanner(onCode) {
 /* ===== الحالة العامة ===== */
 let sb = null;        // عميل قاعدة البيانات المحلية (IndexedDB) — واجهة موحّدة from/rpc
 let me = null;        // صف العضو الحالي (الصلاحيات)
-const C = { animals: [], matings: [], pregnancies: [], births: [], vaccineTypes: [], vaccinations: [], treatments: [], treatmentTypes: [], backups: [], types: [], tips: [], expenses: [], medstock: [] };
+const C = { animals: [], matings: [], pregnancies: [], births: [], vaccineTypes: [], vaccinations: [], treatments: [], treatmentTypes: [], backups: [], types: [], tips: [], breederNotes: [], expenses: [], medstock: [] };
 // جداول الحلال المعزولة بالمالك — تُحفظ نسخة خام في C._<key> ويُعرض في التطبيق حلالي فقط
 const HERD_KEYS = ['animals', 'matings', 'pregnancies', 'births', 'vaccinations', 'treatments', 'expenses', 'medstock'];
 const TABLES = {
@@ -196,6 +196,7 @@ const TABLES = {
   births: 'mrahi_births', vaccineTypes: 'mrahi_vaccine_types', vaccinations: 'mrahi_vaccinations',
   treatments: 'mrahi_treatments', treatmentTypes: 'mrahi_treatment_types', backups: 'mrahi_backups',
   types: 'mrahi_types',
+  breederNotes: 'mrahi_breeder_notes',
   expenses: 'mrahi_expenses',
   medstock: 'mrahi_med_stock',
 };
@@ -640,6 +641,9 @@ const ROUTES = {
   pregnancies: { t: 'الحمل والمتابعة', back: true, fn: screenPregnancies },
   'vaccine-types': { t: 'أنواع التطعيمات', back: true, fn: screenVaccineTypes },
   vaccinate: { t: 'إعطاء تطعيم', back: true, fn: screenVaccinate },
+  'vaccination-table': { t: 'جدول التطعيمات', back: true, fn: screenVaccinationTable },
+  'herd-vaccinate': { t: 'تطعيم المراح', back: true, fn: screenHerdVaccinate },
+  'breeder-notes': { t: 'ملاحظات المربي', back: true, fn: screenBreederNotes },
   'treatment-types': { t: 'أنواع العلاج', back: true, fn: screenTreatmentTypes },
   'vaccine-plan': { t: 'برنامج التطعيم', back: true, fn: screenVaccinePlan },
   medstock: { t: 'مخزون الأدوية واللقاحات', back: true, fn: screenMedStock },
@@ -1848,6 +1852,51 @@ function screenVaccinate(arg) {
   });
 }
 
+function screenHerdVaccinate() {
+  bulkOp = 'vaccinate';
+  screenBulk();
+}
+
+let vaccinationTableTab = 'active';
+function screenVaccinationTable() {
+  if (!can('vaccines', 'view')) { view().innerHTML = noPerm(); return; }
+  const today = todayStr();
+  const rows = C.vaccinations.map(v => {
+    const type = C.vaccineTypes.find(t => t.id === v.type_id);
+    return Object.assign({}, v, { _animal: animalById(v.animal_id), _type: type, _status: window.MrahiSupport.vaccinationStatus(v, type ? vtWithdrawDays(type) : 0, today) });
+  }).filter(v => v._animal);
+  const tabs = [['active', '✅ فعال'], ['upcoming', '📅 قادم'], ['old', '🗂️ قديم']];
+  const current = rows.filter(v => v._status === vaccinationTableTab).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  const body = current.length ? current.map(v => `<div class="card vaccination-row"><div class="li-title">${display(v._animal)} • ${esc(v._type && v._type.name || 'تطعيم')}</div><div class="li-sub">آخر جرعة: ${fmtDate(v.date)}${v.next_due ? ' • الجرعة القادمة: ' + fmtDate(v.next_due) : ''}</div>${v._type && v._type.validity_days ? `<div class="li-sub">مدة المفعول: ${v._type.validity_days} يوم — ينتهي: ${fmtDate(addDays(v.date, v._type.validity_days))}</div>` : ''}</div>`).join('') : noItem();
+  view().innerHTML = `<div class="card"><h3>💉 جدول التطعيمات</h3><div class="chips vaccination-tabs">${tabs.map(([k, label]) => `<span class="chip ${vaccinationTableTab === k ? 'active' : ''}" data-vacc-tab="${k}">${label}</span>`).join('')}</div><div class="muted">الفعال يعتمد على مدة مفعول التطعيم من تاريخ آخر جرعة.</div></div>${body}`;
+  view().querySelectorAll('[data-vacc-tab]').forEach(el => el.addEventListener('click', () => { vaccinationTableTab = el.dataset.vaccTab; screenVaccinationTable(); }));
+}
+
+function screenBreederNotes() {
+  if (!me) { view().innerHTML = noPerm(); return; }
+  const notes = (C.breederNotes || []).slice().sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+  view().innerHTML = `<div class="card"><h3>📝 ملاحظات المربي</h3><button class="btn" id="newBreederNote">➕ ملاحظة جديدة</button></div>${notes.length ? notes.map(n => `<div class="card breeder-note"><div class="li-title">${esc(n.title)}</div><div class="li-sub">${fmtDate(n.note_date || n.created_at)}</div><div class="note-body">${esc(n.body)}</div><div class="btn-row"><button class="btn sm outline" data-note-edit="${n.id}">تعديل</button><button class="btn sm danger" data-note-del="${n.id}">حذف</button></div></div>`).join('') : noItem()}`;
+  document.getElementById('newBreederNote').addEventListener('click', () => breederNoteModal());
+  view().querySelectorAll('[data-note-edit]').forEach(b => b.addEventListener('click', () => breederNoteModal(C.breederNotes.find(n => String(n.id) === b.dataset.noteEdit))));
+  view().querySelectorAll('[data-note-del]').forEach(b => b.addEventListener('click', async () => {
+    if (!await confirm2('حذف هذه الملاحظة؟')) return;
+    const ok = await guard(async () => { await dbDelete('breederNotes', parseInt(b.dataset.noteDel, 10)); });
+    if (ok) { await loadAll(); screenBreederNotes(); }
+  }));
+}
+
+function breederNoteModal(note) {
+  openModal(note ? 'تعديل ملاحظة المربي' : 'ملاحظة جديدة', `${fInput('العنوان', 'bn_title', note && note.title || '')}${fTextarea('الملاحظة', 'bn_body', note && note.body || '')}${fInput('التاريخ', 'bn_date', note && note.note_date || todayStr(), 'date')}<button class="btn" id="bn_save">حفظ</button>`, () => {
+    document.getElementById('bn_save').addEventListener('click', async () => {
+      const title = val('bn_title').trim(), body = val('bn_body').trim();
+      if (!title || !body) { toast('أدخل العنوان والملاحظة'); return; }
+      const data = { title, body, note_date: val('bn_date') || todayStr() };
+      const ok = await guard(async () => { if (note) await dbUpdate('breederNotes', note.id, data); else await dbInsert('breederNotes', data); });
+      if (ok) { closeModal(); await loadAll(); screenBreederNotes(); }
+    });
+  });
+}
+
 /* ===== العلاجات ===== */
 function screenTreat(arg) {
   if (!can('treatments', 'edit')) { view().innerHTML = noPerm(); return; }
@@ -2355,6 +2404,8 @@ function screenMore() {
     ].filter(Boolean) },
     { key: 'health', title: '💉 الصحة (تطعيم وعلاج)', items: [
       I(can('vaccines', 'edit'), '💉 إعطاء تطعيم', '#/vaccinate/0'),
+      I(can('vaccines', 'edit'), '🐑 تطعيم المراح (دفعة)', '#/herd-vaccinate'),
+      I(can('vaccines', 'view'), '📊 جدول التطعيمات', '#/vaccination-table'),
       I(can('vaccines', 'view'), '💉 أنواع التطعيمات', '#/vaccine-types'),
       I(can('vaccines', 'view'), '🗓️ برنامج التطعيم الموصى به', '#/vaccine-plan'),
       I(can('treatments', 'edit'), '💊 إعطاء علاج', '#/treat/0'),
@@ -2371,6 +2422,7 @@ function screenMore() {
     ].filter(Boolean) },
     { key: 'guides', title: '📖 المساعدة والدليل', items: [
       I(true, '📘 دليل الاستخدام', '#/guide'),
+      I(true, '📝 ملاحظات المربي', '#/breeder-notes'),
       I(true, 'ℹ️ عن حلالي وسجل التعديلات', '#/about'),
       I(window.MRAH_APK, '🔄 تحقق من وجود تحديث', '__checkupdate'),
       I(true, '📧 ملاحظات ومقترحات', '__feedback'),
@@ -2417,7 +2469,7 @@ function screenMore() {
 function screenAbout() {
   const version = window.MRAH_VERSION || '1.0.138';
   view().innerHTML = `<div class="about-hero"><img src="icon-192.png" alt="حلالي"><div><h2>حلالي</h2><div class="muted">الإصدار ${esc(version)}</div></div></div>
-    <div class="card"><h3>سجل التعديلات — 1.0.138</h3><ul class="about-changes"><li>اعتماد آخر تلقيح وسجل متابعة نشط فقط لكل أم، مع حذف السجلات المكررة نهائيًا.</li><li>عند حفظ الولادة أو الإجهاض يمسح تاريخ التلقيح والحمل النشط ويحذف سجل التلقيح والفحل فورًا.</li><li>تبقى الولادة والمواليد، ويبقى سبب الإجهاض وعمر الحمل للدراسة.</li><li>تنظيم «المزيد» ومرشح ذكي للذكور والفحول.</li><li>أيقونة حلالي الأصلية ومظاهر هادئة قابلة للاختيار.</li></ul></div>
+    <div class="card"><h3>سجل التعديلات — 1.0.140</h3><ul class="about-changes"><li>إضافة ملاحظات المربي بعنوان ونص وتاريخ.</li><li>تطعيم المراح وجدول التطعيمات: فعال حسب مدة المفعول من آخر جرعة، قادم، قديم.</li><li>إضافة اختصارات الصحة داخل «المزيد» للوصول السريع.</li><li>عند حفظ الولادة أو الإجهاض يمسح تاريخ التلقيح والحمل النشط ويحذف سجل التلقيح والفحل فورًا.</li></ul></div>
     <div class="card"><h3>بياناتك محفوظة</h3><div class="muted">التحديث يثبت فوق النسخة السابقة ويحافظ على بياناتك المحلية.</div></div>`;
 }
 function guideBooks() {
@@ -2445,7 +2497,7 @@ function snapshot() {
   return {
     exportedAt: new Date().toISOString(),
     animals: C.animals, matings: C.matings, pregnancies: C.pregnancies, births: C.births,
-    vaccineTypes: C.vaccineTypes, vaccinations: C.vaccinations, treatments: C.treatments,
+    vaccineTypes: C.vaccineTypes, vaccinations: C.vaccinations, treatments: C.treatments, breederNotes: C.breederNotes,
   };
 }
 function screenBackup() {
@@ -2510,7 +2562,7 @@ async function restoreBackup(id) {
   if (window.MrahiSupport && !window.MrahiSupport.isRestorableSnapshot(p)) { toast('ملف النسخة الاحتياطية غير صالح'); return; }
   const ok = await guard(async () => {
     // حذف الحالي بترتيب يحترم المفاتيح الأجنبية
-    for (const t of ['mrahi_treatments', 'mrahi_vaccinations', 'mrahi_births', 'mrahi_pregnancies', 'mrahi_matings', 'mrahi_vaccine_types']) {
+    for (const t of ['mrahi_treatments', 'mrahi_vaccinations', 'mrahi_births', 'mrahi_pregnancies', 'mrahi_matings', 'mrahi_vaccine_types', 'mrahi_breeder_notes']) {
       await sb.from(t).delete().neq('id', -1);
     }
     await sb.from('mrahi_animals').delete().neq('id', -1);
@@ -2535,6 +2587,7 @@ async function restoreBackup(id) {
     for (const bt of (p.births || [])) await dbInsert('births', remap(stripIds(bt, ['id']), { mother_id: idMap, offspring_id: idMap }));
     for (const vc of (p.vaccinations || [])) await dbInsert('vaccinations', remap(stripIds(vc, ['id']), { animal_id: idMap, type_id: vtMap }));
     for (const tr of (p.treatments || [])) await dbInsert('treatments', remap(stripIds(tr, ['id']), { animal_id: idMap }));
+    for (const n of (p.breederNotes || [])) await dbInsert('breederNotes', stripIds(n, ['id']));
   });
   if (ok) { toast('تمت الاستعادة'); await loadAll(); setHash('#/home'); render(); }
 }
@@ -2557,7 +2610,7 @@ async function shareOrDownload(filename, text, mime) {
   if (navigator.canShare && navigator.canShare({ files: [file] })) { try { await navigator.share({ files: [file], title: 'نسخة احتياطية — حلالي' }); return; } catch (e) {} }
   const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = filename; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); toast('تم تنزيل الملف');
 }
-function exportJson() { const data = { exportedAt: new Date().toISOString(), animals: C.animals, matings: C.matings, pregnancies: C.pregnancies, births: C.births, vaccineTypes: C.vaccineTypes, vaccinations: C.vaccinations, treatments: C.treatments }; shareOrDownload('mrahi_backup_' + stamp() + '.json', JSON.stringify(data, null, 2), 'application/json'); }
+function exportJson() { const data = { exportedAt: new Date().toISOString(), animals: C.animals, matings: C.matings, pregnancies: C.pregnancies, births: C.births, vaccineTypes: C.vaccineTypes, vaccinations: C.vaccinations, treatments: C.treatments, breederNotes: C.breederNotes }; shareOrDownload('mrahi_backup_' + stamp() + '.json', JSON.stringify(data, null, 2), 'application/json'); }
 function exportCsv() {
   const cell = s => { s = String(s == null ? '' : s); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
   const head = ['النوع', 'الحظيرة', 'المعرف', 'نوع المعرف', 'الاسم', 'الجنس', 'المصدر', 'تاريخ الميلاد', 'اللون', 'الحالة', 'تاريخ البيع', 'سعر البيع', 'تاريخ النفوق', 'رقم الأم', 'اسم الأب', 'ملاحظات'];

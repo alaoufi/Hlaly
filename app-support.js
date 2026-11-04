@@ -69,6 +69,19 @@
     const threshold = normalized.age * (normalized.unit === 'months' ? 30 : 1);
     return age >= threshold;
   }
+  function vaccinationStatus(vaccination, validityDays, asOf) {
+    const row = vaccination || {};
+    const today = String(asOf || new Date().toISOString().slice(0, 10)).slice(0, 10);
+    const date = String(row.date || '').slice(0, 10);
+    const valid = Math.max(0, Number(validityDays) || 0);
+    const activeUntil = date && valid ? new Date(date + 'T00:00:00') : null;
+    if (activeUntil) {
+      activeUntil.setDate(activeUntil.getDate() + valid);
+      if (today >= date && today <= activeUntil.toISOString().slice(0, 10)) return 'active';
+    }
+    if (row.next_due && String(row.next_due).slice(0, 10) > today) return 'upcoming';
+    return 'old';
+  }
   function closedPregnancyPatch(status) { return { status, mating_date: null, expected: null }; }
-  return { normalizeTheme, applyTheme, isRestorableSnapshot, shouldShowAnimal, herdVisibility, matingIdsForAnimal, staleActivePregnancyIdsForAnimal, normalizeNewbornPolicy, newbornAgeDays, shouldCountNewborn, closedPregnancyPatch };
+  return { normalizeTheme, applyTheme, isRestorableSnapshot, shouldShowAnimal, herdVisibility, matingIdsForAnimal, staleActivePregnancyIdsForAnimal, normalizeNewbornPolicy, newbornAgeDays, shouldCountNewborn, vaccinationStatus, closedPregnancyPatch };
 });

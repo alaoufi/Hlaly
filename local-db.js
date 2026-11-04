@@ -6,14 +6,14 @@
   // يتيح هذا الملف عميلاً محلياً عبر createMrahLocalClient يستدعيه app.js عند الإقلاع.
 
   const DB_NAME = 'mrahi_local';
-  const DB_VERSION = 4;   // 2: mrahi_expenses. 3: إصلاح ذاتي للمتاجر الناقصة. 4: متجر mrahi_med_stock (مخزون الأدوية)
+  const DB_VERSION = 5;   // 5: ملاحظات المربي
 
   // الجداول المخزّنة محلياً. الإعدادات والعدّادات مفتاحها نصّي 'key'، والبقية رقم تلقائي 'id'.
   const KEY_STORES = { mrahi_settings: 'key', mrahi_counters: 'key' };
   const ID_STORES = [
     'mrahi_animals', 'mrahi_matings', 'mrahi_pregnancies', 'mrahi_births',
     'mrahi_vaccine_types', 'mrahi_vaccinations', 'mrahi_treatments', 'mrahi_treatment_types',
-    'mrahi_members', 'mrahi_backups', 'mrahi_trash', 'mrahi_tips', 'mrahi_types', 'mrahi_expenses', 'mrahi_med_stock',
+    'mrahi_members', 'mrahi_backups', 'mrahi_trash', 'mrahi_tips', 'mrahi_breeder_notes', 'mrahi_types', 'mrahi_expenses', 'mrahi_med_stock',
     // جداول سحابية تبقى فارغة في الوضع المحلي (حتى لا تنكسر استعلامات loadAll)
     'mrahi_herd_shares', 'mrahi_forum_categories', 'mrahi_forum_moderators',
     'mrahi_forum_bans', 'mrahi_forum_topics', 'mrahi_forum_posts', 'mrahi_forum_likes',
