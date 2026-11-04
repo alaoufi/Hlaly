@@ -2544,6 +2544,8 @@ function screenBackup() {
       <div class="muted">تنزيل نسخة على جهازك أو مشاركتها.</div>
       <button class="btn outline" id="bk_json">📤 تنزيل JSON</button>
       <button class="btn outline" id="bk_csv">📊 تصدير Excel (CSV)</button>
+      <label class="btn outline" for="bk_import">📥 استيراد JSON</label>
+      <input id="bk_import" type="file" accept="application/json,.json" hidden>
     </div>`;
 
   document.getElementById('bk_save').addEventListener('click', async () => {
@@ -2566,6 +2568,18 @@ function screenBackup() {
   }));
   document.getElementById('bk_json').addEventListener('click', exportJson);
   document.getElementById('bk_csv').addEventListener('click', exportCsv);
+  document.getElementById('bk_import').addEventListener('change', async (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    try {
+      const payload = JSON.parse(await file.text());
+      if (!window.MrahiSupport || !window.MrahiSupport.isRestorableSnapshot(payload)) throw new Error('invalid');
+      await dbInsert('backups', { label: 'ملف مستورد: ' + file.name, payload, animals_count: (payload.animals || []).length });
+      toast('تم استيراد النسخة — اضغط استعادة لتطبيق البيانات');
+      await loadAll(); screenBackup();
+    } catch (err) { toast('ملف JSON غير صالح أو غير متوافق'); }
+    e.target.value = '';
+  });
 }
 function fmtDateTime(iso) {
   if (!iso) return '—';
