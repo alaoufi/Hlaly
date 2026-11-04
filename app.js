@@ -685,7 +685,7 @@ function addFab(label, onClick) { document.querySelectorAll('.fab').forEach(f =>
 
 /* ===== التنبيهات (حسابات) ===== */
 const upcomingBirths = () => C.pregnancies.filter(p => p.status === 'monitoring' && p.expected).filter(p => { const d = daysUntil(p.expected); return d !== null && d >= 0 && d <= 7; }).sort((a, b) => (a.expected || '').localeCompare(b.expected || ''));
-const upcomingVacc = () => C.vaccinations.filter(v => v.next_due).filter(v => { const d = daysUntil(v.next_due); return d !== null && d >= 0 && d <= 30; }).sort((a, b) => (a.next_due || '').localeCompare(b.next_due || ''));
+const upcomingVacc = () => C.vaccinations.filter(v => window.MrahiSupport.vaccinationReminderDue(v, todayStr())).sort((a, b) => (a.next_due || '').localeCompare(b.next_due || ''));
 const activeTreatments = () => C.treatments.filter(t => t.withdrawal_end && daysUntil(t.withdrawal_end) >= 0).sort((a, b) => (a.withdrawal_end || '').localeCompare(b.withdrawal_end || ''));
 // جرعات علاج قادمة (next_due) خلال ١٤ يوماً — لتذكير المربي بإكمال كورس العلاج
 const upcomingTreatDoses = () => C.treatments.filter(t => t.next_due).filter(t => { const d = daysUntil(t.next_due); return d !== null && d >= 0 && d <= 14; }).sort((a, b) => (a.next_due || '').localeCompare(b.next_due || ''));
@@ -797,7 +797,7 @@ function screenAlerts() {
     <div class="card" style="background:#fff8e1"><h3>🤰 ولادة متوقعة خلال ٧ أيام</h3>${births.length ? births.map(p => row(display(animalById(p.animal_id)), `${fmtDate(p.expected)} • ${daysUntil(p.expected)} يوم`)).join('') : noItem()}</div>
     <div class="card" style="background:#ffebee"><h3>🚫 انتهاء مدة التحريم (علاجات جارية)</h3>${treats.length ? treats.map(t => row(display(animalById(t.animal_id)), `${esc(t.med_name || '')} • ينتهي ${fmtDate(t.withdrawal_end)} (بعد ${daysUntil(t.withdrawal_end)} يوم)`)).join('') : noItem()}</div>
     <div class="card" style="background:#e8f5e9"><h3>💊 جرعات علاج قادمة (١٤ يوماً)</h3>${doses.length ? doses.map(t => row(display(animalById(t.animal_id)), `${esc(t.med_name || '')} • ${fmtDate(t.next_due)} (بعد ${daysUntil(t.next_due)} يوم)`)).join('') : noItem()}</div>
-    <div class="card" style="background:#e3f2fd"><h3>💉 مواعيد تطعيم قادمة (٣٠ يوماً)</h3>${vaccs.length ? vaccs.map(v => row(display(animalById(v.animal_id)), `${esc(vtName(v.type_id))} • ${fmtDate(v.next_due)} (بعد ${daysUntil(v.next_due)} يوم)`)).join('') : noItem()}</div>
+    <div class="card" style="background:#e3f2fd"><h3>💉 مواعيد تطعيم قادمة (٧ أيام)</h3>${vaccs.length ? vaccs.map(v => row(display(animalById(v.animal_id)), `${esc(vtName(v.type_id))} • ${fmtDate(v.next_due)} (بعد ${daysUntil(v.next_due)} يوم)`)).join('') : noItem()}</div>
     ${showMeds ? `<div class="card click" style="background:#fff3e0" data-go="#/medstock"><h3>📦 مخزون الأدوية واللقاحات (تنبيه)</h3>${lowMeds.length ? `<div class="li-title" style="color:#c62828">نفد/قارب النفاد (${lowMeds.length})</div>${lowMeds.map(medLine).join('')}` : ''}${expMeds.length ? `<div class="li-title" style="color:#e65100;margin-top:6px">قارب/منتهي الصلاحية (${expMeds.length})</div>${expMeds.map(medLine).join('')}` : ''}</div>` : ''}`;
   view().querySelectorAll('[data-go]').forEach(c => c.addEventListener('click', () => setHash(c.dataset.go)));
   view().querySelectorAll('[data-goa]').forEach(c => c.addEventListener('click', () => setHash('#/animal/' + c.dataset.goa)));
@@ -1817,38 +1817,58 @@ function treatmentTypeModal(t) {
 /* ===== إعطاء تطعيم ===== */
 function screenVaccinate(arg) {
   if (!can('vaccines', 'edit')) { view().innerHTML = noPerm(); return; }
-  const animalId = parseInt(arg, 10) || 0; const preset = animalId ? animalById(animalId) : null;
-  if (!C.vaccineTypes.length) { view().innerHTML = `<div class="center-empty">لا توجد أنواع تطعيمات.</div><button class="btn" id="g">الذهاب لأنواع التطعيمات</button>`; document.getElementById('g').addEventListener('click', () => setHash('#/vaccine-types')); return; }
-  const vtMilk = (t) => t.milk_withdrawal_days || 0, vtMeat = (t) => t.meat_withdrawal_days || 0;
-  const vtWithdraw = vtWithdrawDays; // أطول مدة تحريم (حليب/لحم)
-  const typeOpts = C.vaccineTypes.map(v => ({ k: String(v.id), ar: `${v.name} (${vtWithdraw(v)}ي)` }));
-  view().innerHTML = `<div class="card"><h3>بيانات التطعيم</h3>
-    ${preset ? row('البهيمة', display(preset)) : fAnimalSelect('البهيمة', 'v_animal', 0, C.animals)}
-    ${fSelect('التطعيم', 'v_type', typeOpts, '', '— اختر —')}
-    ${fInput('تاريخ التطعيم', 'v_date', todayStr(), 'date')}
-    <div class="hint" id="v_hint"></div>
-    ${fInput('موعد الجرعة القادمة (اختياري)', 'v_next', '', 'date')}
-    ${fTextarea('ملاحظات', 'v_notes', '')}
-    <button class="btn" id="v_save">حفظ</button></div>`;
+  const preset = animalById(parseInt(arg, 10));
+  const api = window.MrahiSupport;
+  view().innerHTML = `<div class="card vaccination-form"><h3>تسجيل تطعيم</h3>
+    ${fSelect('نوع الحيوان', 'v_species', api.vaccinationSpecies, preset ? preset.type : '', '— اختر —')}
+    <div id="v_animals"></div>
+    ${fSelect('نوع التطعيم', 'v_type', [], '', '— اختر نوع الحيوان —')}
+    ${fInput('تاريخ آخر تطعيم', 'v_date', todayStr(), 'date', 'max="' + todayStr() + '"')}
+    <div id="v_hint" class="hint" role="status" aria-live="polite"></div>
+    <p class="muted">التنبيه داخل التطبيق قبل الموعد المسجل بسبعة أيام. لا يُنشأ تنبيه عندما يكون الموعد غير مؤكد، ولا تُرسل إشعارات أثناء إغلاق التطبيق.</p>
+    <button class="btn" id="v_save">حفظ التطعيم</button></div>`;
   const hint = document.getElementById('v_hint');
-  attachMic('v_notes', { append: true });
-  const upd = () => {
-    const t = C.vaccineTypes.find(x => x.id === parseInt(val('v_type'), 10)); const d = val('v_date');
-    if (!t || !d) { hint.textContent = ''; return; }
-    const parts = [];
-    if (vtMilk(t)) parts.push(`تحريم الحليب ينتهي: ${fmtDate(addDays(d, vtMilk(t)))}`);
-    if (vtMeat(t)) parts.push(`تحريم اللحم ينتهي: ${fmtDate(addDays(d, vtMeat(t)))}`);
-    if (!parts.length && vtWithdraw(t)) parts.push(`انتهاء التحريم: ${fmtDate(addDays(d, vtWithdraw(t)))}`);
-    if (t.dose) parts.push(`الجرعة: ${t.dose}`);
-    hint.textContent = parts.join(' • ');
-    if (t.validity_days && !val('v_next')) document.getElementById('v_next').value = addDays(d, t.validity_days); // اقتراح موعد الجرعة القادمة
+  const chosen = () => api.vaccinationChoices(val('v_species')).find(v => v.key === val('v_type'));
+  const update = () => {
+    const guide = chosen();
+    document.getElementById('v_save').disabled = !guide;
+    hint.innerHTML = guide ? `<p><strong>النتيجة: لا يمكن تحديد موعد التطعيم القادم.</strong> حدّد اسم اللقاح ومرحلة الجرعات مع الطبيب البيطري.</p>
+      <p>الفترة: ${esc(guide.period)} ليست مدة حماية مؤكدة للحيوان.</p>
+      <p>الأهمية: يحددها الطبيب وفق المنطقة وحالة الحيوان وبرنامج وقاء.</p>
+      <p>الأشهر الموصى بها: لا أشهر ثابتة مؤكدة؛ اتبع حملة المنطقة وتوصية الطبيب.</p>
+      <p>مرجع استرشادي: وثيقة برنامج تحصين الثروة الحيوانية المنشورة في منصة استطلاع، ص ${esc(guide.pages)}. لم يُتحقق هنا من سريان النسخة؛ راجع وقاء.</p>` : 'اختر الحيوان والتطعيم. لا توجد قائمة سعودية موثقة للخيل في هذه النسخة؛ راجع الطبيب ووقاء.';
   };
-  document.getElementById('v_type').addEventListener('change', upd); document.getElementById('v_date').addEventListener('change', upd);
+  const filter = () => {
+    const species = val('v_species');
+    const animals = C.animals.filter(a => a.type === species && a.status === 'present');
+    document.getElementById('v_animals').innerHTML = fAnimalSelect('الحيوان في سجلك', 'v_animal', preset && preset.type === species ? preset.id : 0, animals);
+    const choices = api.vaccinationChoices(species);
+    document.getElementById('v_type').innerHTML = '<option value="">— اختر —</option>' + choices.map(v => `<option value="${v.key}">${esc(v.name)}</option>`).join('');
+    update();
+  };
+  document.getElementById('v_species').addEventListener('change', filter);
+  document.getElementById('v_type').addEventListener('change', update);
+  document.getElementById('v_date').addEventListener('change', update);
+  filter();
+  let saving = false;
   document.getElementById('v_save').addEventListener('click', async () => {
-    const a = preset || animalById(parseInt(val('v_animal'), 10)); const t = C.vaccineTypes.find(x => x.id === parseInt(val('v_type'), 10)); const d = val('v_date');
-    if (!a) { toast('اختر البهيمة'); return; } if (!t) { toast('اختر التطعيم'); return; }
-    const ok = await guard(async () => { await dbInsert('vaccinations', { animal_id: a.id, type_id: t.id, date: d, withdrawal_end: addDays(d, vtWithdraw(t)), next_due: val('v_next') || null, notes: val('v_notes').trim() }); });
-    if (ok) { toast('تم الحفظ'); await loadAll(); goBack(); }
+    if (saving) return;
+    const a = animalById(parseInt(val('v_animal'), 10)), guide = chosen(), date = val('v_date');
+    if (!a || a.type !== val('v_species') || a.status !== 'present') { toast('اختر حيواناً موجوداً من النوع المحدد'); return; }
+    if (!guide || !api.validVaccinationDate(date, todayStr())) { toast('اختر التطعيم وتاريخاً صحيحاً غير مستقبلي'); return; }
+    saving = true; document.getElementById('v_save').disabled = true;
+    const ok = await guard(async () => {
+      let type = C.vaccineTypes.find(v => v.guide_key === guide.key);
+      if (!type) {
+        await dbInsert('vaccineTypes', { name: guide.name, guide_key: guide.key, species: guide.species, validity_days: 0, source: 'وثيقة وقاء في استطلاع؛ راجع docs/vaccinations.md' });
+        await loadAll(); type = C.vaccineTypes.find(v => v.guide_key === guide.key);
+      }
+      if (!type) throw new Error('تعذر حفظ نوع التطعيم');
+      await dbInsert('vaccinations', { animal_id: a.id, type_id: type.id, date, next_due: api.vaccinationNextDue(), withdrawal_end: null, schedule_status: 'unconfirmed' });
+    });
+    saving = false;
+    if (ok) { toast('حُفظ التطعيم؛ الموعد القادم يحتاج مراجعة الطبيب'); await loadAll(); goBack(); }
+    else document.getElementById('v_save').disabled = false;
   });
 }
 
@@ -1865,9 +1885,9 @@ function screenVaccinationTable() {
     const type = C.vaccineTypes.find(t => t.id === v.type_id);
     return Object.assign({}, v, { _animal: animalById(v.animal_id), _type: type, _status: window.MrahiSupport.vaccinationStatus(v, type ? vtWithdrawDays(type) : 0, today) });
   }).filter(v => v._animal);
-  const tabs = [['active', '✅ فعال'], ['upcoming', '📅 قادم'], ['old', '🗂️ قديم']];
+  const tabs = [['active', '✅ فعال'], ['upcoming', '📅 قادم'], ['unconfirmed', 'موعد غير مؤكد'], ['old', '🗂️ قديم']];
   const current = rows.filter(v => v._status === vaccinationTableTab).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-  const body = current.length ? current.map(v => `<div class="card vaccination-row"><div class="li-title">${display(v._animal)} • ${esc(v._type && v._type.name || 'تطعيم')}</div><div class="li-sub">آخر جرعة: ${fmtDate(v.date)}${v.next_due ? ' • الجرعة القادمة: ' + fmtDate(v.next_due) : ''}</div>${v._type && v._type.validity_days ? `<div class="li-sub">مدة المفعول: ${v._type.validity_days} يوم — ينتهي: ${fmtDate(addDays(v.date, v._type.validity_days))}</div>` : ''}</div>`).join('') : noItem();
+  const body = current.length ? current.map(v => `<div class="card vaccination-row"><div class="li-title">${display(v._animal)} • ${esc(v._type && v._type.name || 'تطعيم')}</div><div class="li-sub">آخر جرعة: ${fmtDate(v.date)}${v.next_due ? ' • الجرعة القادمة: ' + fmtDate(v.next_due) : ''}</div>${v.schedule_status !== 'unconfirmed' && v._type && v._type.validity_days ? `<div class="li-sub">مدة المفعول: ${v._type.validity_days} يوم — ينتهي: ${fmtDate(addDays(v.date, v._type.validity_days))}</div>` : ''}</div>`).join('') : noItem();
   view().innerHTML = `<div class="card"><h3>💉 جدول التطعيمات</h3><div class="chips vaccination-tabs">${tabs.map(([k, label]) => `<span class="chip ${vaccinationTableTab === k ? 'active' : ''}" data-vacc-tab="${k}">${label}</span>`).join('')}</div><div class="muted">الفعال يعتمد على مدة مفعول التطعيم من تاريخ آخر جرعة.</div></div>${body}`;
   view().querySelectorAll('[data-vacc-tab]').forEach(el => el.addEventListener('click', () => { vaccinationTableTab = el.dataset.vaccTab; screenVaccinationTable(); }));
 }

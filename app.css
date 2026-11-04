@@ -386,3 +386,8 @@ html[data-theme] .card { border:1px solid color-mix(in srgb,var(--accent-3d),tra
 .about-hero { display:flex; align-items:center; gap:14px; padding:18px; margin:2px 0 12px; border-radius:18px; background:linear-gradient(135deg,var(--surface-3d),color-mix(in srgb,var(--accent-3d),#fff 65%)); border:1px solid color-mix(in srgb,var(--accent-3d),transparent 62%); }
 .about-hero img { width:64px; height:64px; border-radius:16px; object-fit:cover; box-shadow:0 5px 14px #0002; }.about-hero h2 { margin:0 0 4px; color:var(--primary-3d); }.about-changes { margin:8px 0 0; padding-inline-start:20px; line-height:1.9; }
 @media (prefers-reduced-motion: reduce) { .more-group-head, .more-action { transition:none!important; } }
+
+/* Mobile vaccination form: wrap reference text and retain touch-sized controls. */
+.vaccination-form { min-width: 0; overflow-wrap: anywhere; }
+.vaccination-form select, .vaccination-form input, .vaccination-form button { max-width: 100%; min-height: 44px; box-sizing: border-box; }
+.vaccination-form .hint p { margin: .7em 0; }

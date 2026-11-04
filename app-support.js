@@ -73,6 +73,7 @@
     const row = vaccination || {};
     const today = String(asOf || new Date().toISOString().slice(0, 10)).slice(0, 10);
     const date = String(row.date || '').slice(0, 10);
+    if (row.schedule_status === 'unconfirmed') return 'unconfirmed';
     const valid = Math.max(0, Number(validityDays) || 0);
     const activeUntil = date && valid ? new Date(date + 'T00:00:00') : null;
     if (activeUntil) {
@@ -82,6 +83,31 @@
     if (row.next_due && String(row.next_due).slice(0, 10) > today) return 'upcoming';
     return 'old';
   }
+
+  const vaccinationSpecies = [
+    { k: 'sheep', ar: 'الأغنام (الضأن)' }, { k: 'goat', ar: 'الماعز' },
+    { k: 'cattle', ar: 'الأبقار' }, { k: 'camel', ar: 'الإبل' }, { k: 'horse', ar: 'الخيول' }
+  ];
+  const vaccinationGuides = [
+    { key: 'fmd', name: 'الحمى القلاعية', species: ['sheep','goat','cattle'], period: 'دورية البرنامج: ٦ أشهر؛ التأسيس يختلف حسب المنتج.', pages: '10–11' },
+    { key: 'ppr', name: 'طاعون المجترات الصغيرة', species: ['sheep','goat'], period: 'مرة بالعمر وفق شروط البرنامج؛ لا موعد دوري مفترض.', pages: '13' },
+    { key: 'camel-pox', name: 'جدري الإبل', species: ['camel'], period: 'دورية البرنامج: سنوية؛ التعزيز حسب الشركة المصنعة.', pages: '18' },
+    { key: 'brucella', name: 'الحمى المالطية (البروسيلا)', species: ['sheep','goat','cattle'], period: 'مرة بالعمر وفق شروط البرنامج واللقاح؛ لا موعد دوري مفترض.', pages: '20' },
+    { key: 'clostridia', name: 'التسمم المعوي', species: ['sheep','goat','cattle'], period: 'تأسيس بجرعتين بفاصل ٤–٦ أسابيع ثم تعزيز سنوي؛ لا نستنتج المرحلة من التاريخ.', pages: '22' }
+  ];
+  function vaccinationChoices(species) { return vaccinationGuides.filter(v => v.species.includes(species)); }
+  function validVaccinationDate(date, today) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date || '')) return false;
+    const parsed = new Date(date + 'T12:00:00Z');
+    return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0,10) === date && date <= today;
+  }
+  // A date and disease do not establish the product or primary-series stage.
+  function vaccinationNextDue() { return null; }
+  function vaccinationReminderDue(row, today) {
+    if (!row || !validVaccinationDate(row.next_due, '9999-12-31') || !validVaccinationDate(today, '9999-12-31')) return false;
+    const days = Math.round((new Date(row.next_due + 'T12:00:00Z') - new Date(today + 'T12:00:00Z')) / 86400000);
+    return days >= 0 && days <= 7;
+  }
   function closedPregnancyPatch(status) { return { status, mating_date: null, expected: null }; }
-  return { normalizeTheme, applyTheme, isRestorableSnapshot, shouldShowAnimal, herdVisibility, matingIdsForAnimal, staleActivePregnancyIdsForAnimal, normalizeNewbornPolicy, newbornAgeDays, shouldCountNewborn, vaccinationStatus, closedPregnancyPatch };
+  return { vaccinationSpecies, vaccinationChoices, validVaccinationDate, vaccinationNextDue, vaccinationReminderDue, normalizeTheme, applyTheme, isRestorableSnapshot, shouldShowAnimal, herdVisibility, matingIdsForAnimal, staleActivePregnancyIdsForAnimal, normalizeNewbornPolicy, newbornAgeDays, shouldCountNewborn, vaccinationStatus, closedPregnancyPatch };
 });
