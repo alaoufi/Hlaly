@@ -3,6 +3,7 @@ import { readFileSync, readdirSync, mkdirSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
+import { parseApkIdentity } from './apk-identity.mjs';
 const root = join(process.env.ANDROID_HOME, 'build-tools');
 const versions = readdirSync(root).sort((a,b) => a.localeCompare(b, undefined, {numeric:true}));
 const tool = name => join(root, versions.at(-1), name);
@@ -20,11 +21,8 @@ try {
 } catch { throw new Error('APK alignment/signing failed (details suppressed to protect credentials)'); }
 function inspect(file) {
   const cert=run('apksigner',['verify','--print-certs',file]);
-  const fingerprint=cert.match(/Signer #1 certificate SHA-256 digest: (\S+)/)?.[1];
   const badging=run('aapt',['dump','badging',file]);
-  const pkg=badging.match(/package: name='([^']+)' versionCode='(\d+)' versionName='([^']+)'/);
-  if (!fingerprint || !pkg) throw new Error('Missing APK identity');
-  return {applicationId:pkg[1],versionCode:Number(pkg[2]),versionName:pkg[3],certificateSha256:fingerprint};
+  return parseApkIdentity(cert, badging);
 }
 const previous=inspect('previous.apk'), preview=inspect(apk);
 if (preview.applicationId !== 'me.alaoufi.mrahi' || preview.applicationId !== previous.applicationId || preview.certificateSha256 !== previous.certificateSha256 || preview.versionCode <= previous.versionCode) throw new Error('APK update compatibility check failed');
